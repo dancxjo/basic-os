@@ -1,0 +1,187 @@
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
+use limine::request::FramebufferRequest;
+
+use limine::request::ModuleRequest;
+
+static MODULE_REQUEST: ModuleRequest = ModuleRequest::new();
+
+fn get_module(name: &str) -> Option<&'static [u8]> {
+    let response = MODULE_REQUEST.get_response()?;
+    for module in response.modules() {
+        let path = module.path(); // this is a &CStr
+        if let Ok(path_str) = path.to_str() {
+            if path_str.ends_with(name) {
+                let ptr = module.addr() as *const u8;
+                let len = module.size().try_into().unwrap();
+                return Some(unsafe { core::slice::from_raw_parts(ptr, len) });
+            }
+        }
+    }
+    None
+}
+
+const MAX_WIDTH: usize = 3840;
+const MAX_HEIGHT: usize = 2160;
+
+#[unsafe(link_section = ".bss.uninit")]
+#[unsafe(no_mangle)]
+pub static mut BACKBUFFER: [u32; MAX_WIDTH * MAX_HEIGHT] = [0; MAX_WIDTH * MAX_HEIGHT];
+
+pub struct Glyph {
+    pub width: usize,
+    pub height: usize,
+    pub bitmap: [u8; 16],
+}
+
+pub struct Framebuffer {
+    fb: &'static mut [u32],
+    backbuffer: &'static mut [u32],
+    width: usize,
+    height: usize,
+    pitch: usize,
+    glyphs: BTreeMap<u32, Glyph>,
+}
+
+impl Framebuffer {
+    pub fn init() -> Option<Self> {
+        static FB_REQUEST: FramebufferRequest = FramebufferRequest::new();
+        let response = FB_REQUEST.get_response()?;
+        let fb_info = response.framebuffers().next()?;
+
+        let width = fb_info.width() as usize;
+        let height = fb_info.height() as usize;
+        let pitch = fb_info.pitch() as usize;
+        let len = pitch * height / 4;
+        let fb_ptr = fb_info.addr() as *mut u32;
+
+        let fb_slice = unsafe { core::slice::from_raw_parts_mut(fb_ptr, len) };
+        let backbuffer = unsafe { &mut BACKBUFFER[..len] };
+
+        let glyphs = Self::load_glyphs();
+
+        Some(Self {
+            fb: fb_slice,
+            backbuffer,
+            width,
+            height,
+            pitch,
+            glyphs,
+        })
+    }
+
+    fn load_glyphs() -> BTreeMap<u32, Glyph> {
+        let mut glyphs = BTreeMap::new();
+        let data = get_module("unifont.bdf").expect("Font module not loaded!");
+        let mut lines = data.split(|&b| b == b'\n');
+        let mut current_codepoint: Option<u32> = None;
+        let mut current_bitmap: Vec<u8> = Vec::new();
+
+        while let Some(line) = lines.next() {
+            if line.starts_with(b"STARTCHAR") {
+                current_bitmap.clear();
+                current_codepoint = None;
+            } else if line.starts_with(b"ENCODING ") {
+                if let Ok(s) = core::str::from_utf8(line) {
+                    if let Some(code_str) = s.strip_prefix("ENCODING ") {
+                        current_codepoint = code_str.trim().parse::<u32>().ok();
+                    }
+                }
+            } else if line.starts_with(b"BITMAP") {
+                current_bitmap.clear();
+                while let Some(bitmap_line) = lines.next() {
+                    if bitmap_line.starts_with(b"ENDCHAR") {
+                        if let Some(cp) = current_codepoint {
+                            if current_bitmap.len() <= 16 && !glyphs.contains_key(&cp) {
+                                let mut bitmap_arr = [0u8; 16];
+                                for (i, byte) in current_bitmap.iter().enumerate() {
+                                    bitmap_arr[i] = *byte;
+                                }
+                                glyphs.insert(
+                                    cp,
+                                    Glyph {
+                                        width: 8,
+                                        height: 16,
+                                        bitmap: bitmap_arr,
+                                    },
+                                );
+                            }
+                        }
+                        break;
+                    }
+
+                    if let Ok(hex_str) = core::str::from_utf8(bitmap_line) {
+                        if let Ok(byte) = u8::from_str_radix(hex_str.trim(), 16) {
+                            current_bitmap.push(byte);
+                        }
+                    }
+                }
+            }
+        }
+
+        glyphs
+    }
+
+    pub fn clear(&mut self, color: u32) {
+        for pixel in self.backbuffer.iter_mut() {
+            *pixel = color;
+        }
+    }
+
+    pub fn draw_pixel(&mut self, x: usize, y: usize, color: u32) {
+        if x >= self.width || y >= self.height {
+            return;
+        }
+        let offset = y * (self.pitch / 4) + x;
+        self.backbuffer[offset] = color;
+    }
+
+    pub fn draw_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
+        for dy in 0..h {
+            for dx in 0..w {
+                self.draw_pixel(x + dx, y + dy, color);
+            }
+        }
+    }
+
+    pub fn draw_char(&mut self, x: usize, y: usize, ch: char, color: u32) {
+        if let Some(glyph) = self.glyphs.get(&(ch as u32)) {
+            if x + glyph.width > self.width || y + glyph.height > self.height {
+                return;
+            }
+            let pitch = self.pitch / 4;
+            for (row, byte) in glyph.bitmap.iter().enumerate() {
+                let offset = (y + row) * pitch + x;
+                for col in 0..8 {
+                    if byte & (1 << (7 - col)) != 0 {
+                        self.backbuffer[offset + col] = color;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn draw_text(&mut self, x: usize, y: usize, text: &str, color: u32) {
+        let mut cursor_x = x;
+        for ch in text.chars() {
+            self.draw_char(cursor_x, y, ch, color);
+            cursor_x += 8;
+        }
+    }
+
+    pub fn clear_area(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
+        self.draw_rect(x, y, w, h, color);
+    }
+
+    pub fn flush(&mut self) {
+        self.fb.copy_from_slice(&self.backbuffer[..self.fb.len()]);
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+}
