@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod bootloader;
 mod framebuffer;
 mod graph;
 mod helpers;
@@ -19,10 +20,12 @@ mod stem;
 mod textbox;
 
 use alloc::{string::String, vec, vec::Vec};
+use bootloader::thingify_boot_modules;
 use framebuffer::Framebuffer;
 use graph::{Graph, ThingData};
 use helpers::thingify::{
-    collect_memory_regions, thingify_boot_memory, thingify_kernel, thingify_ui_layout,
+    collect_memory_regions, thingify_boot_memory, thingify_kernel, thingify_pci_devices,
+    thingify_ui_layout,
 };
 use keyboard::Keyboard;
 use keymaps::US_ALTGR_INTL;
@@ -35,12 +38,6 @@ use textbox::TextBox;
 pub extern "C" fn kmain() -> ! {
     memory::init_heap();
     println!("Heap initialized");
-
-    let mut fb = Framebuffer::init().expect("No framebuffer found");
-    let mut keyboard = Keyboard::init();
-    let mut mouse = Mouse::init();
-    let mut buffer = TextBox::new(48, 48, fb.width() - 48, fb.height() - 48);
-
     let mut graph = Graph {
         things: vec![],
         facts: vec![],
@@ -49,21 +46,29 @@ pub extern "C" fn kmain() -> ! {
     };
 
     println!("Graph initialized");
+
+    let mut fb = Framebuffer::init().expect("No framebuffer found");
+    let mut keyboard = Keyboard::init();
+    let mut mouse = Mouse::init();
+    let mut buffer = TextBox::new(48, 48, fb.width() - 48, fb.height() - 48);
+
     thingify_kernel(&mut graph);
     println!("Kernel thingified");
     let regions = collect_memory_regions();
     thingify_boot_memory(&mut graph, regions);
     println!("Memory regions thingified");
+    thingify_pci_devices(&mut graph);
+    println!("PCI devices thingified");
     thingify_ui_layout(&mut graph);
     println!("UI layout thingified");
 
-    for thing in &graph.things {
-        println!("Thing: {} [{}]", thing.name, thing.kind);
-    }
+    graph.print_links();
 
     let mut dirty = true;
     fb.clear(0x000000); // Black background
     let mut keyboard_buffer = vec![];
+    thingify_boot_modules(&mut graph);
+    println!("Limine boot modules thingified");
 
     loop {
         // Drain messages from log queue
@@ -103,7 +108,7 @@ pub extern "C" fn kmain() -> ! {
 
         if let Some((dx, dy, _buttons)) = mouse.poll() {
             update_pointer_position(&mut graph, &fb, dx, dy);
-            // dirty = true;
+            dirty = true;
         }
 
         if dirty {

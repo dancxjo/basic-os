@@ -1,33 +1,17 @@
-// Framebuffer with embedded-graphics integration (no layers)
+// Framebuffer with embedded-graphics integration (adaptive RGB565 or RGB888)
+use crate::bootloader::get_module;
 
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::convert::Infallible;
-use limine::request::{FramebufferRequest, ModuleRequest};
+use limine::request::FramebufferRequest;
 
 use embedded_graphics::{
+    image::Image,
     mono_font::{MonoTextStyle, MonoTextStyleBuilder},
     pixelcolor::Rgb565,
     prelude::*,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
-    text::{Baseline, Text},
 };
-
-static MODULE_REQUEST: ModuleRequest = ModuleRequest::new();
-
-fn get_module(name: &str) -> Option<&'static [u8]> {
-    let response = MODULE_REQUEST.get_response()?;
-    for module in response.modules() {
-        let path = module.path();
-        if let Ok(path_str) = path.to_str() {
-            if path_str.ends_with(name) {
-                let ptr = module.addr() as *const u8;
-                let len = module.size().try_into().unwrap();
-                return Some(unsafe { core::slice::from_raw_parts(ptr, len) });
-            }
-        }
-    }
-    None
-}
+use tinybmp::Bmp;
 
 const MAX_WIDTH: usize = 3840;
 const MAX_HEIGHT: usize = 2160;
@@ -50,6 +34,7 @@ pub struct Framebuffer {
     height: usize,
     pitch: usize,
     pitch_pixels: usize,
+    bpp: u16,
     glyphs: BTreeMap<u32, Glyph>,
 }
 
@@ -66,9 +51,7 @@ impl DrawTarget for Framebuffer {
             let y = coord.y as usize;
             if x < self.width && y < self.height {
                 let index = y * self.pitch_pixels + x;
-                let color_value =
-                    ((color.r() as u32) << 11) | ((color.g() as u32) << 5) | (color.b() as u32);
-                self.backbuffer[index] = color_value;
+                self.backbuffer[index] = self.encode_color(color);
             }
         }
         Ok(())
@@ -93,10 +76,8 @@ impl Framebuffer {
         let pitch_pixels = pitch / 4;
         let len = pitch_pixels * height;
         let fb_ptr = fb_info.addr() as *mut u32;
-
         let fb_slice = unsafe { core::slice::from_raw_parts_mut(fb_ptr, len) };
         let backbuffer = unsafe { &mut BACKBUFFER[..len] };
-
         let glyphs = Self::load_glyphs();
 
         Some(Self {
@@ -106,8 +87,23 @@ impl Framebuffer {
             height,
             pitch,
             pitch_pixels,
+            bpp: fb_info.bpp(),
             glyphs,
         })
+    }
+
+    fn encode_color(&self, color: Rgb565) -> u32 {
+        match self.bpp {
+            16 => {
+                let raw: u16 =
+                    ((color.r() as u16) << 11) | ((color.g() as u16) << 5) | (color.b() as u16);
+                raw as u32
+            }
+            24 | 32 => {
+                ((color.r() as u32) << 19) | ((color.g() as u32) << 10) | ((color.b() as u32) << 3)
+            }
+            _ => 0,
+        }
     }
 
     fn load_glyphs() -> BTreeMap<u32, Glyph> {

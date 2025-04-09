@@ -174,6 +174,7 @@ $(IMAGE_NAME).iso: limine/limine kernel
 	rm -rf iso_root
 	mkdir -p iso_root/fonts
 	cp -v kernel/assets/unifont.bdf iso_root/fonts/
+	cp -v clouds.bmp iso_root/
 	mkdir -p iso_root/boot
 	cp -v kernel/kernel iso_root/boot/
 	mkdir -p iso_root/boot/limine

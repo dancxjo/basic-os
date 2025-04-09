@@ -81,6 +81,8 @@ dependencies = [
  "limine",
  "linked_list_allocator",
  "spinning_top 0.3.0",
+ "tinybmp",
+ "tinypci",
  "x86_64",
 ]
 
@@ -147,6 +149,20 @@ checksum = "d96d2d1d716fb500937168cc09353ffdc7a012be8475ac7308e1bdf0e3923300"
 dependencies = [
  "lock_api",
 ]
+
+[[package]]
+name = "tinybmp"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df43af2cb7b369009aa14144959bb4f2720ab62034c9073242f2d3a186c2edb6"
+dependencies = [
+ "embedded-graphics",
+]
+
+[[package]]
+name = "tinypci"
+version = "0.1.0"
+source = "git+https://github.com/kennystrawnmusic/tinypci.git?branch=patch-4#1e3cf2f1468789e1c3ba4009a58d3c206ef890fb"
 
 [[package]]
 name = "volatile"

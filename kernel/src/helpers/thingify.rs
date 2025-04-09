@@ -1,8 +1,9 @@
-use crate::graph::{Graph, ThingData};
-use alloc::{boxed::Box, format};
+use crate::graph::Graph;
+use alloc::{boxed::Box, format, vec::Vec};
 
 use limine::memory_map::EntryType;
 use limine::request::MemoryMapRequest;
+use tinypci::{PciDeviceInfo, brute_force_scan};
 
 #[used]
 static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
@@ -83,7 +84,6 @@ pub fn collect_memory_regions() -> &'static [MemoryRegion] {
             EntryType::ACPI_NVS => "acpi_nvs",
             EntryType::BAD_MEMORY => "bad_memory",
             EntryType::BOOTLOADER_RECLAIMABLE => "bootloader_reclaimable",
-            EntryType::KERNEL_AND_MODULES => "kernel_and_modules",
             EntryType::FRAMEBUFFER => "framebuffer",
             _ => "unknown",
         };
@@ -152,4 +152,30 @@ pub fn thingify_ui_layout(graph: &mut Graph) {
     graph.link(stem, log, "contains");
     graph.link(stem, pointer, "contains");
     graph.link(win, label, "contains");
+}
+
+pub fn thingify_pci_devices(graph: &mut Graph) {
+    graph.add_kind("pci_device", "A discovered PCI device");
+    graph.add_kind("pci_bus", "PCI bus container");
+    graph.add_predicate("contains", "pci_bus", "pci_device");
+
+    let pci_root = graph.create_typed("pci", "pci_bus", ());
+
+    let devices: Vec<PciDeviceInfo> = brute_force_scan();
+
+    for dev in devices {
+        let name = format!("pci.{:02x}:{:02x}", dev.bus, dev.device);
+        let boxed = Box::leak(name.into_boxed_str());
+        let info = (
+            dev.vendor_id,
+            dev.device_id,
+            dev.full_class.as_u16(),
+            dev.header_type,
+            dev.interrupt_line,
+            dev.interrupt_pin,
+        );
+
+        let dev_id = graph.create_typed(boxed, "pci_device", info);
+        graph.link(pci_root, dev_id, "contains");
+    }
 }

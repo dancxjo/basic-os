@@ -9,9 +9,16 @@ embedded-graphics = "0.8.1"
 limine = "0.4"
 linked_list_allocator = "0.10"
 spinning_top = "0.3.0"
+tinybmp = "0.6.0"
 x86_64 = { version = "0.15.2", default-features = false, features = [
     "instructions",
 ] }
+
+[dependencies.tinypci]
+git = "https://github.com/kennystrawnmusic/tinypci.git"
+branch = "patch-4"
+default-features = false
+features = []
 
 [features]
 default = []
