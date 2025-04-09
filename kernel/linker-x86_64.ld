@@ -16,14 +16,13 @@ PHDRS
 
 SECTIONS
 {
-    /* We want to be placed in the topmost 2GiB of the address space, for optimisations */
-    /* and because that is what the Limine spec mandates. */
-    /* Any address in this region will do, but often 0xffffffff80000000 is chosen as */
-    /* that is the beginning of the region. */
+    /* Place the kernel in the higher half: 0xffffffff80000000 */
     . = 0xffffffff80000000;
 
     .text : {
+        _start = .;
         *(.text .text.*)
+        _etext = .;
     } :text
 
     /* Move to the next memory page for .rodata */
@@ -37,25 +36,25 @@ SECTIONS
     . = ALIGN(CONSTANT(MAXPAGESIZE));
 
     .data : {
+        _sdata = .;
         *(.data .data.*)
 
         /* Place the sections that contain the Limine requests as part of the .data */
-        /* output section. */
         KEEP(*(.requests_start_marker))
         KEEP(*(.requests))
         KEEP(*(.requests_end_marker))
+        _edata = .;
     } :data
 
-    /* NOTE: .bss needs to be the last thing mapped to :data, otherwise lots of */
-    /* unnecessary zeros will be written to the binary. */
-    /* If you need, for example, .init_array and .fini_array, those should be placed */
-    /* above this. */
+    /* NOTE: .bss needs to be the last thing mapped to :data */
     .bss : {
+        _sbss = .;
         *(.bss .bss.*)
         *(COMMON)
+        _end = .;
     } :data
 
-    /* Discard .note.* and .eh_frame* since they may cause issues on some hosts. */
+    /* Discard .note.* and .eh_frame* */
     /DISCARD/ : {
         *(.eh_frame*)
         *(.note .note.*)

@@ -1,15 +1,23 @@
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-use limine::request::FramebufferRequest;
+// Framebuffer with embedded-graphics integration (no layers)
 
-use limine::request::ModuleRequest;
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use core::convert::Infallible;
+use limine::request::{FramebufferRequest, ModuleRequest};
+
+use embedded_graphics::{
+    mono_font::{MonoTextStyle, MonoTextStyleBuilder},
+    pixelcolor::Rgb565,
+    prelude::*,
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
+    text::{Baseline, Text},
+};
 
 static MODULE_REQUEST: ModuleRequest = ModuleRequest::new();
 
 fn get_module(name: &str) -> Option<&'static [u8]> {
     let response = MODULE_REQUEST.get_response()?;
     for module in response.modules() {
-        let path = module.path(); // this is a &CStr
+        let path = module.path();
         if let Ok(path_str) = path.to_str() {
             if path_str.ends_with(name) {
                 let ptr = module.addr() as *const u8;
@@ -28,6 +36,7 @@ const MAX_HEIGHT: usize = 2160;
 #[unsafe(no_mangle)]
 pub static mut BACKBUFFER: [u32; MAX_WIDTH * MAX_HEIGHT] = [0; MAX_WIDTH * MAX_HEIGHT];
 
+#[derive(Clone)]
 pub struct Glyph {
     pub width: usize,
     pub height: usize,
@@ -40,7 +49,36 @@ pub struct Framebuffer {
     width: usize,
     height: usize,
     pitch: usize,
+    pitch_pixels: usize,
     glyphs: BTreeMap<u32, Glyph>,
+}
+
+impl DrawTarget for Framebuffer {
+    type Color = Rgb565;
+    type Error = Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Pixel<Self::Color>>,
+    {
+        for Pixel(coord, color) in pixels {
+            let x = coord.x as usize;
+            let y = coord.y as usize;
+            if x < self.width && y < self.height {
+                let index = y * self.pitch_pixels + x;
+                let color_value =
+                    ((color.r() as u32) << 11) | ((color.g() as u32) << 5) | (color.b() as u32);
+                self.backbuffer[index] = color_value;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl OriginDimensions for Framebuffer {
+    fn size(&self) -> Size {
+        Size::new(self.width as u32, self.height as u32)
+    }
 }
 
 impl Framebuffer {
@@ -52,7 +90,8 @@ impl Framebuffer {
         let width = fb_info.width() as usize;
         let height = fb_info.height() as usize;
         let pitch = fb_info.pitch() as usize;
-        let len = pitch * height / 4;
+        let pitch_pixels = pitch / 4;
+        let len = pitch_pixels * height;
         let fb_ptr = fb_info.addr() as *mut u32;
 
         let fb_slice = unsafe { core::slice::from_raw_parts_mut(fb_ptr, len) };
@@ -66,6 +105,7 @@ impl Framebuffer {
             width,
             height,
             pitch,
+            pitch_pixels,
             glyphs,
         })
     }
@@ -109,7 +149,6 @@ impl Framebuffer {
                         }
                         break;
                     }
-
                     if let Ok(hex_str) = core::str::from_utf8(bitmap_line) {
                         if let Ok(byte) = u8::from_str_radix(hex_str.trim(), 16) {
                             current_bitmap.push(byte);
@@ -122,57 +161,6 @@ impl Framebuffer {
         glyphs
     }
 
-    pub fn clear(&mut self, color: u32) {
-        for pixel in self.backbuffer.iter_mut() {
-            *pixel = color;
-        }
-    }
-
-    pub fn draw_pixel(&mut self, x: usize, y: usize, color: u32) {
-        if x >= self.width || y >= self.height {
-            return;
-        }
-        let offset = y * (self.pitch / 4) + x;
-        self.backbuffer[offset] = color;
-    }
-
-    pub fn draw_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
-        for dy in 0..h {
-            for dx in 0..w {
-                self.draw_pixel(x + dx, y + dy, color);
-            }
-        }
-    }
-
-    pub fn draw_char(&mut self, x: usize, y: usize, ch: char, color: u32) {
-        if let Some(glyph) = self.glyphs.get(&(ch as u32)) {
-            if x + glyph.width > self.width || y + glyph.height > self.height {
-                return;
-            }
-            let pitch = self.pitch / 4;
-            for (row, byte) in glyph.bitmap.iter().enumerate() {
-                let offset = (y + row) * pitch + x;
-                for col in 0..8 {
-                    if byte & (1 << (7 - col)) != 0 {
-                        self.backbuffer[offset + col] = color;
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn draw_text(&mut self, x: usize, y: usize, text: &str, color: u32) {
-        let mut cursor_x = x;
-        for ch in text.chars() {
-            self.draw_char(cursor_x, y, ch, color);
-            cursor_x += 8;
-        }
-    }
-
-    pub fn clear_area(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
-        self.draw_rect(x, y, w, h, color);
-    }
-
     pub fn flush(&mut self) {
         self.fb.copy_from_slice(&self.backbuffer[..self.fb.len()]);
     }
@@ -183,5 +171,57 @@ impl Framebuffer {
 
     pub fn height(&self) -> usize {
         self.height
+    }
+
+    pub fn pitch(&self) -> usize {
+        self.pitch
+    }
+
+    pub fn mono_text_style(&self, color: Rgb565) -> MonoTextStyle<'_, Rgb565> {
+        MonoTextStyleBuilder::new()
+            .text_color(color)
+            .background_color(Rgb565::BLACK)
+            .build()
+    }
+
+    pub fn clear(&mut self, color: u32) {
+        for i in 0..self.pitch_pixels * self.height {
+            self.backbuffer[i] = color;
+        }
+    }
+
+    pub fn draw_pixel(&mut self, x: usize, y: usize, color: u32) {
+        if x >= self.width || y >= self.height {
+            return;
+        }
+        let offset = y * self.pitch_pixels + x;
+        self.backbuffer[offset] = color;
+    }
+
+    pub fn draw_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
+        for dx in 0..w {
+            self.draw_pixel(x + dx, y, color);
+            self.draw_pixel(x + dx, y + h - 1, color);
+        }
+        for dy in 0..h {
+            self.draw_pixel(x, y + dy, color);
+            self.draw_pixel(x + w - 1, y + dy, color);
+        }
+    }
+
+    pub fn draw_char(&mut self, x: usize, y: usize, ch: char, color: u32) {
+        if let Some(glyph) = self.glyphs.get(&(ch as u32)) {
+            if x + glyph.width > self.width || y + glyph.height > self.height {
+                return;
+            }
+            for (row, byte) in glyph.bitmap.iter().enumerate() {
+                let offset = (y + row) * self.pitch_pixels + x;
+                for col in 0..8 {
+                    if byte & (1 << (7 - col)) != 0 {
+                        self.backbuffer[offset + col] = color;
+                    }
+                }
+            }
+        }
     }
 }

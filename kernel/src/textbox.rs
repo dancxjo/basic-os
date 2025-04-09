@@ -51,12 +51,22 @@ impl TextBox {
             self.compose = Some(ch);
         } else {
             self.content.push(ch);
+            if ch == '\n' {
+                self.cursor_col = 0;
+                self.cursor_row += 1;
+            } else {
+                self.cursor_col += 1;
+                if self.cursor_col * 9 > self.width {
+                    self.cursor_col = 0;
+                    self.cursor_row += 1;
+                }
+            }
         }
+    }
 
-        self.cursor_col += 1;
-        if self.cursor_col * 9 > self.width {
-            self.cursor_col = 0;
-            self.cursor_row += 1;
+    pub fn insert_string(&mut self, s: &str) {
+        for ch in s.chars() {
+            self.insert_char(ch);
         }
     }
 
@@ -64,25 +74,46 @@ impl TextBox {
         let x = self.x;
         let y = self.y;
         let line_height = self.line_height;
-        let mut col = 0;
-        let visible_lines = self.height / line_height;
-        let start_line = self.scroll_offset;
 
-        let mut line = 0;
-        for &ch in self.content.iter() {
-            if line >= start_line && line < start_line + visible_lines {
-                fb.draw_char(
-                    x + col * 9,
-                    y + (line - start_line) * line_height,
-                    ch,
-                    0x00FF00,
-                );
+        let chars_per_line = self.width / 9;
+        let max_lines = self.height / line_height;
+        let approx_chars_visible = chars_per_line * max_lines;
+
+        let start_index = self.content.len().saturating_sub(approx_chars_visible);
+
+        let mut col = 0;
+        let mut row = 0;
+
+        for &ch in self.content[start_index..].iter() {
+            if ch == '\n' {
+                col = 0;
+                row += 1;
+                continue;
             }
+
+            if row < max_lines {
+                fb.draw_char(x + col * 9, y + row * line_height, ch, 0x00FF00);
+            }
+
             col += 1;
             if col * 9 > self.width {
                 col = 0;
-                line += 1;
+                row += 1;
             }
+
+            if row >= max_lines {
+                break;
+            }
+        }
+
+        // Draw cursor if visible and fits on screen
+        if self.cursor_visible && self.cursor_row >= self.cursor_row.saturating_sub(max_lines) {
+            fb.draw_char(
+                x + self.cursor_col * 9,
+                y + (row.min(max_lines - 1)) * line_height,
+                '_',
+                0xFFFFFF,
+            );
         }
     }
 
