@@ -1,5 +1,6 @@
-use crate::graph::Graph;
-use alloc::format;
+use crate::graph::{Graph, ThingData};
+use alloc::{boxed::Box, format};
+
 use limine::memory_map::EntryType;
 use limine::request::MemoryMapRequest;
 
@@ -13,7 +14,13 @@ unsafe extern "C" {
     static _end: u8;
 }
 
-/// Thingify a memory region: give it a name, kind, and data slice from start/len.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct RegionView {
+    base: usize,
+    length: usize,
+}
+
 pub fn thingify_memory_region(
     graph: &mut Graph,
     name: &'static str,
@@ -21,16 +28,20 @@ pub fn thingify_memory_region(
     start: usize,
     length: usize,
 ) -> usize {
-    let data = unsafe { core::slice::from_raw_parts(start as *const u8, length) };
     graph.add_kind(kind, ""); // idempotent
-    graph.create_thing(name, kind, data)
+    let view = RegionView {
+        base: start,
+        length,
+    };
+    graph.create_typed(name, kind, view)
 }
 
 pub fn thingify_kernel(graph: &mut Graph) {
     graph.add_kind("process", "A running unit of code");
+    graph.add_kind("segment", "Code or data segment");
     graph.add_predicate("contains", "process", "segment");
 
-    let kernel_id = graph.create_thing("kernel", "process", b"");
+    let kernel_id = graph.create_typed("kernel", "process", ());
 
     let mut seg = |name, start: *const u8, end: *const u8| {
         let len = end as usize - start as usize;
@@ -45,12 +56,11 @@ pub fn thingify_kernel(graph: &mut Graph) {
     }
 }
 
-// TODO: Pull this in from limine directly
 #[derive(Clone, Copy)]
 pub struct MemoryRegion {
     pub base: u64,
     pub len: u64,
-    pub kind: &'static str, // "usable", "reserved", etc.
+    pub kind: &'static str,
 }
 
 pub fn collect_memory_regions() -> &'static [MemoryRegion] {
@@ -96,7 +106,7 @@ pub fn thingify_boot_memory(graph: &mut Graph, regions: &[MemoryRegion]) {
     graph.add_kind("region", "A region of memory");
     graph.add_predicate("contains", "boot_map", "region");
 
-    let map_id = graph.create_thing("boot.map", "boot_map", b"");
+    let map_id = graph.create_typed("boot.map", "boot_map", ());
 
     for (i, region) in regions.iter().enumerate() {
         let name = match region.kind {
@@ -105,20 +115,18 @@ pub fn thingify_boot_memory(graph: &mut Graph, regions: &[MemoryRegion]) {
             _ => format!("region.{}.{}", i, region.kind),
         };
 
-        let boxed = alloc::boxed::Box::leak(name.into_boxed_str());
-        let region_id = thingify_memory_region(
-            graph,
-            boxed,
-            "region",
-            region.base as usize,
-            region.len as usize,
-        );
+        let boxed = Box::leak(name.into_boxed_str());
+        let view = RegionView {
+            base: region.base as usize,
+            length: region.len as usize,
+        };
+
+        let region_id = graph.create_typed(boxed, "region", view);
         graph.link(map_id, region_id, "contains");
     }
 }
 
 pub fn thingify_ui_layout(graph: &mut Graph) {
-    // UI Kinds
     graph.add_kind("view-root", "Top-level UI view");
     graph.add_kind("background", "UI background");
     graph.add_kind("window", "Window container");
@@ -126,27 +134,22 @@ pub fn thingify_ui_layout(graph: &mut Graph) {
     graph.add_kind("label", "Static UI text");
     graph.add_kind("log-view", "Scrollable log window");
 
-    // UI Predicates
     graph.add_predicate("contains", "view-root", "background");
     graph.add_predicate("contains", "view-root", "window");
     graph.add_predicate("contains", "view-root", "pointer");
     graph.add_predicate("contains", "window", "label");
     graph.add_predicate("contains", "view-root", "log-view");
 
-    // UI Things
-    let stem = graph.create_thing("stem", "view-root", b"");
-    let bg = graph.create_thing("background.clouds", "background", b"");
-    let win = graph.create_thing("window.main", "window", b"");
-    let label = graph.create_thing("label.welcome", "label", b"Where to?");
-    let pointer = graph.create_thing("pointer.default", "pointer", b"");
+    let stem = graph.create_typed("stem", "view-root", ());
+    let bg = graph.create_typed("background.clouds", "background", ());
+    let win = graph.create_typed("window.main", "window", ());
+    let label = graph.create_static_bytes("label.welcome", "label", b"Where to?");
+    let pointer = graph.create_typed("pointer.default", "pointer", [120u8, 64u8]);
+    let log = graph.create_typed("window.log", "log-view", ());
 
-    // NEW: log view
-    let log = graph.create_thing("window.log", "log-view", b"");
-
-    // Relationships
     graph.link(stem, bg, "contains");
     graph.link(stem, win, "contains");
-    graph.link(stem, log, "contains"); // attach log view
+    graph.link(stem, log, "contains");
     graph.link(stem, pointer, "contains");
     graph.link(win, label, "contains");
 }
