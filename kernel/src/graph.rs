@@ -1,5 +1,9 @@
-use crate::println;
-use alloc::{boxed::Box, vec::Vec};
+use crate::{println, things::thingable::Thingable};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 pub struct Graph {
     pub things: Vec<Thing>,
@@ -61,9 +65,55 @@ impl ThingData {
             _ => None,
         }
     }
+
+    pub fn as_typed<T>(&self) -> Option<&T> {
+        match self {
+            ThingData::Typed(ptr, size) if *size == core::mem::size_of::<T>() => {
+                Some(unsafe { &*(*ptr as *const T) })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn as_typed_mut<T>(&mut self) -> Option<&mut T> {
+        match self {
+            ThingData::Typed(ptr, size) if *size == core::mem::size_of::<T>() => {
+                Some(unsafe { &mut *(*ptr as *mut T) })
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Graph {
+    pub fn new() -> Self {
+        Self {
+            things: Vec::new(),
+            facts: Vec::new(),
+            kinds: Vec::new(),
+            predicates: Vec::new(),
+        }
+    }
+
+    pub fn insert<T: Thingable>(&mut self, name: &'static str, value: T) -> usize {
+        let bytes = value.serialize();
+        let thing = Thing {
+            name,
+            kind: T::kind(),
+            data: ThingData::Heap(bytes.into_boxed_slice()),
+        };
+        self.things.push(thing);
+        self.things.len() - 1
+    }
+
+    pub fn query<T: Thingable>(&self) -> Vec<(String, T)> {
+        self.things
+            .iter()
+            .filter(|t| t.kind == T::kind())
+            .filter_map(|t| Some((t.name.to_string(), T::deserialize(t.data.as_bytes()?)?)))
+            .collect()
+    }
+
     pub fn create_static_bytes(
         &mut self,
         name: &'static str,

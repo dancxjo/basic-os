@@ -4,17 +4,17 @@ use core::fmt::{self};
 use alloc::string::ToString;
 use spinning_top::Spinlock;
 
-use crate::message_queue::MessageQueue;
+use crate::{message_queue::MessageQueue, serial_println};
 
 pub static LOG_MESSAGES: Spinlock<MessageQueue> = Spinlock::new(MessageQueue::new());
 
 pub fn log(args: core::fmt::Arguments) {
     let msg = args.to_string();
-    LOG_MESSAGES.lock().push(msg);
-    // unsafe {
-    // crate::serial::SERIAL1.init();
-    // serial_println!(msg);
-    // }
+    LOG_MESSAGES.lock().push(msg.clone());
+    unsafe {
+        // crate::serial::SERIAL1.init();
+        serial_println!("{}", msg.replace("\n", "\r"));
+    }
 }
 
 pub fn warn(args: fmt::Arguments) {

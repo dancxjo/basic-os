@@ -17,9 +17,9 @@ unsafe extern "C" {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-struct RegionView {
-    base: usize,
-    length: usize,
+pub struct RegionView {
+    pub base: usize,
+    pub length: usize,
 }
 
 pub fn thingify_memory_region(

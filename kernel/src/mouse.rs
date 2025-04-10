@@ -43,6 +43,17 @@ impl Mouse {
         }
 
         let byte = unsafe { self.data_port.read() };
+
+        match self.packet_index {
+            0 => {
+                if byte & 0x08 == 0 {
+                    // Invalid first byte — drop
+                    return None;
+                }
+            }
+            _ => {}
+        }
+
         self.packet[self.packet_index] = byte;
         self.packet_index += 1;
 
