@@ -3,40 +3,68 @@
 
 extern crate alloc;
 
-mod framebuffer;
-mod heap;
-mod input;
-mod keymaps;
+mod memory;
+mod message;
 mod panic;
 mod serial;
-mod textbox;
-mod textregion;
-mod ui;
+mod thing;
 
-use framebuffer::Framebuffer;
-use input::Keyboard;
-use textregion::TextRegion;
+use crate::alloc::borrow::ToOwned;
+use message::Message;
+use panic::halt;
+use thing::{Graph, Thing};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
-    heap::init_heap();
+    memory::init_initial_allocator();
+    let mut graph = Graph::new();
+    let msg = Message {
+        text: "ThingOS\nPeople, places, things and ideas\n© 2025".to_owned(),
+    };
+    graph.insert("message", msg);
 
-    // Initialize core subsystems
-    let mut fb = Framebuffer::init().expect("No framebuffer found");
-    let mut keyboard = Keyboard::init();
+    let echo_uuid;
+    {
+        let echo = graph
+            .find_mut(|node| node.kind == "message")
+            .expect("Failed to find boot message");
 
-    let mut buffer = TextRegion::new(0, 0, fb.width(), fb.height());
+        let data = &mut echo.data;
 
-    // Draw initial screen
-    fb.clear(0x000000); // Black background
+        let as_typed = data.as_typed::<Message>().expect("Failed to get message");
+        serial_println!("{}", as_typed.text);
+
+        echo_uuid = echo.uuid.clone();
+    }
+
+    // as_typed.message = "Mutation".to_owned(); // Illegal as expected
+
+    let and_another_thing = graph.get_mut(&echo_uuid).expect("Failed to get thing");
+    let mutable_and_typed = and_another_thing
+        .data
+        .as_typed_mut::<Message>(echo_uuid.clone())
+        .expect("Failed to get mutable message");
+
+    mutable_and_typed.text = "Mutation".to_owned();
+
+    serial_println!("Another thing: {:?}", and_another_thing);
+
+    let immutable = graph.get(&echo_uuid).expect("Failed to get thing");
+    let immutable_and_typed = immutable
+        .data
+        .as_typed::<Message>()
+        .expect("Failed to get immutable message");
+
+    serial_println!(
+        "After mutation: {:?}, {}",
+        immutable_and_typed,
+        immutable_and_typed.text
+    );
+
+    graph.print_things();
+    graph.print_links();
 
     loop {
-        if let Some(key) = keyboard.poll_key() {
-            if let Some(_ch) = buffer.insert_key(key, &keyboard.modifiers) {
-                buffer.draw(&mut fb);
-            }
-        }
-
-        fb.flush();
+        halt();
     }
 }

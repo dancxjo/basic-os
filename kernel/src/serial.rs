@@ -1,4 +1,3 @@
-#[allow(static_mut_refs)]
 use core::fmt::{self, Write};
 use x86_64::instructions::port::Port;
 
@@ -44,10 +43,26 @@ impl Write for SerialPort {
 pub static mut SERIAL1: SerialPort = SerialPort::new(0x3F8);
 
 #[macro_export]
-macro_rules! serial_println {
+macro_rules! serial_print {
     ($($arg:tt)*) => {
+        unsafe {
             use core::fmt::Write;
             #[allow(static_mut_refs)]
-            let _ = writeln!(crate::serial::SERIAL1, $($arg)*);
+            let _ = write!(crate::serial::SERIAL1, $($arg)*);
+        }
     };
+}
+
+#[macro_export]
+macro_rules! serial_println {
+    () => ($crate::serial_print!("\r\n"));
+    ($fmt:expr) => ($crate::serial_print!(concat!($fmt, "\r\n")));
+    ($fmt:expr, $($arg:tt)*) => ($crate::serial_print!(concat!($fmt, "\r\n"), $($arg)*));
+}
+
+pub fn init_serial() {
+    #[allow(static_mut_refs)]
+    unsafe {
+        SERIAL1.init()
+    }
 }
