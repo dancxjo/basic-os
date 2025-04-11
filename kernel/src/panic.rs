@@ -5,15 +5,11 @@ use crate::serial_println;
 
 #[panic_handler]
 fn rust_panic(info: &PanicInfo) -> ! {
-    #[allow(static_mut_refs)]
-    unsafe {
-        crate::serial::SERIAL1.init();
-        serial_println!("Kernel panic: {info}");
-    }
-    hcf();
+    serial_println!("Kernel panic: {}", info);
+    halt();
 }
 
-fn hcf() -> ! {
+pub fn halt() -> ! {
     loop {
         unsafe {
             #[cfg(target_arch = "x86_64")]

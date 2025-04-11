@@ -3,40 +3,36 @@
 
 extern crate alloc;
 
-mod framebuffer;
-mod heap;
-mod input;
-mod keymaps;
+mod memory;
+mod message;
 mod panic;
 mod serial;
-mod textbox;
-mod textregion;
-mod ui;
+mod thing;
 
-use framebuffer::Framebuffer;
-use input::Keyboard;
-use textregion::TextRegion;
+use message::Message;
+use panic::halt;
+use thing::Graph;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
-    heap::init_heap();
+    memory::init_initial_allocator();
+    let mut graph = Graph::new();
+    let msg = Message {
+        text: "ThingOS\nPeople, places, things and ideas\n© 2025",
+    };
+    graph.insert("boot_msg", "message", msg);
 
-    // Initialize core subsystems
-    let mut fb = Framebuffer::init().expect("No framebuffer found");
-    let mut keyboard = Keyboard::init();
+    let echo = graph
+        .find_mut_by_name("boot_msg")
+        .expect("Failed to find boot message");
 
-    let mut buffer = TextRegion::new(0, 0, fb.width(), fb.height());
-
-    // Draw initial screen
-    fb.clear(0x000000); // Black background
+    let as_typed = echo
+        .data
+        .as_typed::<Message>()
+        .expect("Failed to get message");
+    serial_println!("{}", as_typed.text);
 
     loop {
-        if let Some(key) = keyboard.poll_key() {
-            if let Some(_ch) = buffer.insert_key(key, &keyboard.modifiers) {
-                buffer.draw(&mut fb);
-            }
-        }
-
-        fb.flush();
+        halt();
     }
 }
