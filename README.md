@@ -1,6 +1,7 @@
 # 🌱 ThingOS
 
 > People, Places, Things, and Ideas
+
 > A memory-first, graph-shaped operating system — born persistent,
 > structurally typed, and ready to grow.
 
