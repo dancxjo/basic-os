@@ -1,4 +1,8 @@
+use crate::thing::Thingable;
 use linked_list_allocator::LockedHeap;
+use serde::{Deserialize, Serialize};
+use thing_macros::Thing;
+
 const HEAP_SIZE_IN_MIBS: usize = 4;
 const HEAP_SIZE_IN_BYTES: usize = HEAP_SIZE_IN_MIBS * 1024 * 1024;
 static mut HEAP: [u8; HEAP_SIZE_IN_BYTES] = [0; HEAP_SIZE_IN_BYTES];
@@ -11,4 +15,9 @@ pub fn init_initial_allocator() {
     unsafe {
         ALLOCATOR.lock().init(HEAP.as_mut_ptr(), HEAP_SIZE_IN_BYTES);
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Thing)]
+pub struct Page {
+    addr: u64,
 }

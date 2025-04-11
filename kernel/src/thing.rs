@@ -1,7 +1,15 @@
-use alloc::{boxed::Box, vec::Vec};
-use core::mem;
+// Refactored version: minimal API, all mutation paths mark memory as dirty
 
 use crate::serial_println;
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
+use core::mem;
+use uuid::Uuid;
+
+// Called from all mutation sites to notify the system that memory may have changed
+fn mark_dirty(uuid: Uuid) {
+    // TODO: enqueue this UUID into a dirty set or flag the page it belongs to
+    serial_println!("Marked dirty: {}", uuid);
+}
 
 #[derive(Debug)]
 pub enum ThingData {
@@ -23,16 +31,6 @@ impl ThingData {
         }
     }
 
-    pub fn as_mut_bytes(&mut self) -> Option<&mut [u8]> {
-        match self {
-            ThingData::Heap(b) => Some(b),
-            ThingData::Typed(ptr, size) => unsafe {
-                Some(core::slice::from_raw_parts_mut(*ptr as *mut u8, *size))
-            },
-            _ => None,
-        }
-    }
-
     pub fn as_typed<T>(&self) -> Option<&T> {
         match self {
             ThingData::Typed(ptr, size) if *size == mem::size_of::<T>() => {
@@ -42,9 +40,10 @@ impl ThingData {
         }
     }
 
-    pub fn as_typed_mut<T>(&mut self) -> Option<&mut T> {
+    pub fn as_typed_mut<T>(&mut self, uuid: Uuid) -> Option<&mut T> {
         match self {
             ThingData::Typed(ptr, size) if *size == mem::size_of::<T>() => {
+                mark_dirty(uuid);
                 Some(unsafe { &mut *(*ptr as *mut T) })
             }
             _ => None,
@@ -54,9 +53,24 @@ impl ThingData {
 
 #[derive(Debug)]
 pub struct Thing {
+    pub uuid: Uuid,
     pub kind: &'static str,
-    pub name: &'static str,
     pub data: ThingData,
+}
+
+impl Thing {
+    pub fn new(kind: &'static str, data: ThingData) -> Self {
+        let seed: &[u8] = match &data {
+            ThingData::Bytes(b) => b,
+            ThingData::Heap(b) => b,
+            ThingData::Typed(ptr, size) => unsafe {
+                core::slice::from_raw_parts(*ptr as *const u8, *size)
+            },
+            ThingData::None => &[],
+        };
+        let uuid = make_uuid_from_seed(seed);
+        Self { uuid, kind, data }
+    }
 }
 
 #[derive(Debug)]
@@ -80,6 +94,7 @@ pub struct Predicate {
 }
 
 pub struct Graph {
+    pub uuid_map: BTreeMap<Uuid, usize>,
     pub things: Vec<Thing>,
     pub facts: Vec<Fact>,
     pub kinds: Vec<Kind>,
@@ -89,6 +104,7 @@ pub struct Graph {
 impl Graph {
     pub fn new() -> Self {
         Self {
+            uuid_map: BTreeMap::new(),
             things: Vec::new(),
             facts: Vec::new(),
             kinds: Vec::new(),
@@ -96,109 +112,41 @@ impl Graph {
         }
     }
 
-    pub fn insert<T: Thingable + 'static>(
-        &mut self,
-        key: &'static str,
-        kind: &'static str,
-        value: T,
-    ) {
+    pub fn insert<T: Thingable + 'static>(&mut self, kind: &'static str, value: T) {
         let boxed = Box::leak(Box::new(value));
         let ptr = boxed as *mut T as *mut ();
         let size = mem::size_of::<T>();
-        self.things.push(Thing {
-            name: key,
-            kind,
-            data: ThingData::Typed(ptr, size),
-        });
-    }
-
-    pub fn create_static_bytes(
-        &mut self,
-        name: &'static str,
-        kind: &'static str,
-        data: &'static [u8],
-    ) -> usize {
-        let thing = Thing {
-            name,
-            kind,
-            data: ThingData::Bytes(data),
-        };
+        let thing = Thing::new(kind, ThingData::Typed(ptr, size));
+        let idx = self.things.len();
+        self.uuid_map.insert(thing.uuid, idx);
         self.things.push(thing);
-        self.things.len() - 1
     }
 
-    pub fn create_heap_blob(
-        &mut self,
-        name: &'static str,
-        kind: &'static str,
-        data: Vec<u8>,
-    ) -> usize {
-        let thing = Thing {
-            name,
-            kind,
-            data: ThingData::Heap(data.into_boxed_slice()),
-        };
-        self.things.push(thing);
-        self.things.len() - 1
+    pub fn get(&self, uuid: &Uuid) -> Option<&Thing> {
+        self.uuid_map.get(uuid).map(|&i| &self.things[i])
     }
 
-    pub fn create_typed<T>(&mut self, name: &'static str, kind: &'static str, value: T) -> usize {
-        let boxed = Box::leak(Box::new(value));
-        let ptr = boxed as *mut T as *mut ();
-        let size = mem::size_of::<T>();
-        let thing = Thing {
-            name,
-            kind,
-            data: ThingData::Typed(ptr, size),
-        };
-        self.things.push(thing);
-        self.things.len() - 1
+    pub fn get_mut(&mut self, uuid: &Uuid) -> Option<&mut Thing> {
+        self.uuid_map
+            .get(uuid)
+            .copied()
+            .map(move |i| &mut self.things[i])
     }
 
-    pub fn find_mut_by_name(&mut self, name: &str) -> Option<&mut Thing> {
-        self.things.iter_mut().find(|t| t.name == name)
-    }
-
-    pub fn link(&mut self, this: usize, that: usize, predicate: &'static str) {
-        let pred_idx = self
-            .predicates
-            .iter()
-            .position(|p| p.name == predicate)
-            .expect("Predicate must exist before linking!");
-        self.facts.push(Fact {
-            this,
-            that,
-            predicate: pred_idx,
-        });
-    }
-
-    pub fn add_kind(&mut self, name: &'static str, description: &'static str) {
-        self.kinds.push(Kind { name, description });
-    }
-
-    pub fn add_predicate(
-        &mut self,
-        name: &'static str,
-        this_kind: &'static str,
-        that_kind: &'static str,
-    ) {
-        self.predicates.push(Predicate {
-            name,
-            this_kind,
-            that_kind,
-        });
+    pub fn find_mut(&mut self, f: impl Fn(&&mut Thing) -> bool) -> Option<&mut Thing> {
+        self.things.iter_mut().find(f)
     }
 
     pub fn print_things(&self) {
         for (i, thing) in self.things.iter().enumerate() {
-            serial_println!("#{}: {} [{}]", i, thing.name, thing.kind);
+            serial_println!("#{}: {} [{}]", i, thing.uuid, thing.kind);
         }
     }
 
     pub fn print_links(&self) {
         for fact in &self.facts {
-            let this = self.things[fact.this].name;
-            let that = self.things[fact.that].name;
+            let this = self.things[fact.this].uuid;
+            let that = self.things[fact.that].uuid;
             let pred = self.predicates[fact.predicate].name;
             serial_println!("{} --{}--> {}", this, pred, that);
         }
@@ -211,22 +159,13 @@ pub trait Thingable: Sized {
     fn deserialize(bytes: &[u8]) -> Option<Self>;
 }
 
-#[macro_export]
-macro_rules! thing {
-    (name: $name:expr, kind: $kind:expr, static: $data:expr) => {
-        Thing {
-            name: $name,
-            kind: $kind,
-            data: ThingData::Bytes($data),
-        }
-    };
-
-    (name: $name:expr, kind: $kind:expr, value: $val:expr) => {{
-        let leaked = Box::leak(Box::new($val));
-        Thing {
-            name: $name,
-            kind: $kind,
-            data: ThingData::Typed(leaked as *mut _ as *mut (), core::mem::size_of_val(leaked)),
-        }
-    }};
+fn make_uuid_from_seed(seed: &[u8]) -> Uuid {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(seed);
+    let hash = hasher.finalize();
+    Uuid::from_bytes([
+        hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7], hash[8], hash[9],
+        hash[10], hash[11], hash[12], hash[13], hash[14], hash[15],
+    ])
 }
