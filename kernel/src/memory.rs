@@ -13,7 +13,7 @@ use x86_64::{
 use crate::{graph::Graph, helpers::thingify::RegionView, println};
 
 // Define the heap size
-const HEAP_SIZE: usize = 8 * 1024 * 1024;
+const HEAP_SIZE: usize = 16 * 1024 * 1024;
 
 #[repr(align(16))]
 struct AlignedHeap([u8; HEAP_SIZE]);

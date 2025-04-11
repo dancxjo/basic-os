@@ -13,6 +13,7 @@ x86_64 = { version = "0.15.2", default-features = false, features = [
     "instructions",
 ] }
 thing_macros = { path = "../thing_macros" }
+libm = "0.2.11"
 
 [dependencies.tinypci]
 git = "https://github.com/kennystrawnmusic/tinypci.git"

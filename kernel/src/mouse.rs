@@ -1,24 +1,28 @@
 use x86_64::instructions::port::Port;
 
+use crate::framebuffer::Framebuffer;
+
 pub struct Mouse {
     data_port: Port<u8>,
     cmd_port: Port<u8>,
     packet: [u8; 3],
     packet_index: usize,
+    x: i32,
+    y: i32,
+    max_x: i32,
+    max_y: i32,
 }
 
 impl Mouse {
-    pub fn init() -> Self {
+    pub fn init(fb: &Framebuffer) -> Self {
         let mut cmd_port = Port::new(0x64);
         let mut data_port = Port::new(0x60);
 
         unsafe {
             // Enable auxiliary device (mouse)
             cmd_port.write(0xA8);
-            // Tell mouse to use default settings
-            Mouse::write_mouse_command(&mut cmd_port, &mut data_port, 0xF6);
-            // Enable mouse packet streaming
-            Mouse::write_mouse_command(&mut cmd_port, &mut data_port, 0xF4);
+            Mouse::write_mouse_command(&mut cmd_port, &mut data_port, 0xF6); // default settings
+            Mouse::write_mouse_command(&mut cmd_port, &mut data_port, 0xF4); // enable streaming
         }
 
         Self {
@@ -26,6 +30,10 @@ impl Mouse {
             cmd_port,
             packet: [0; 3],
             packet_index: 0,
+            x: fb.width() as i32 / 2,
+            y: fb.height() as i32 / 2,
+            max_x: fb.width() as i32,
+            max_y: fb.height() as i32,
         }
     }
 
@@ -67,5 +75,16 @@ impl Mouse {
         let buttons = self.packet[0] & 0b0000_0111;
 
         Some((dx, dy, buttons))
+    }
+
+    pub fn normalize_position(&self, dx: i8, dy: i8) -> (i32, i32) {
+        let new_x = (self.x + dx as i32).clamp(0, self.max_x - 1);
+        let new_y = (self.y + dy as i32).clamp(0, self.max_y - 1);
+        (new_x, new_y)
+    }
+
+    pub fn update_position(&mut self, x: i32, y: i32) {
+        self.x = x;
+        self.y = y;
     }
 }

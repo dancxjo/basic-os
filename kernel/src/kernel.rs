@@ -10,6 +10,7 @@ use crate::helpers::thingify::{
 use crate::keyboard::Keyboard;
 use crate::memory::{self, BootFrameAllocator};
 use crate::mouse::Mouse;
+use crate::println;
 use crate::stem::Stem;
 // use crate::stem::Stem;
 use crate::things::thingable::Thingable;
@@ -99,7 +100,7 @@ impl Kernel {
         let graph = Graph::new();
         let fb = Framebuffer::init().expect("No framebuffer");
         let keyboard = Keyboard::init();
-        let mouse = Mouse::init();
+        let mouse = Mouse::init(&fb);
         let allocator = BootFrameAllocator::from_graph(&graph);
 
         let mut kernel = Self {
@@ -154,9 +155,18 @@ impl Kernel {
 
     pub fn run(mut self) -> ! {
         Stem::draw(&self.graph, &mut self.fb);
-
+        self.fb.fade_from_black(45);
         loop {
             // input, logging, drawing...
+            if let Some((dx, dy, buttons)) = self.mouse.poll() {
+                let (x, y) = self.mouse.normalize_position(dx, dy);
+                self.mouse.update_position(x, y);
+                println!("Mouse position: ({}, {})", x, y);
+                println!("Mouse buttons: {:?}", buttons);
+                Stem::update_pointer(&mut self.graph, &self.fb, x, y);
+                Stem::draw(&self.graph, &mut self.fb);
+            }
+
             self.fb.flush();
         }
     }

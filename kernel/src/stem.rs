@@ -8,7 +8,7 @@ use embedded_graphics::image::Image;
 use embedded_graphics::mono_font::{MonoTextStyle, ascii::FONT_8X13};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle};
+use embedded_graphics::primitives::{PrimitiveStyle, Triangle};
 use embedded_graphics::text::{Baseline, Text};
 use tinybmp::Bmp;
 
@@ -68,34 +68,17 @@ impl Stem {
         let shadow = Rgb565::new(16, 32, 16);
         let titlebar = Rgb565::new(6, 30, 24);
 
-        Rectangle::new(
-            Point::new(x as i32, y as i32),
-            Size::new(w as u32, h as u32),
-        )
-        .into_styled(PrimitiveStyle::with_fill(shadow))
-        .draw(fb)
-        .unwrap();
-        Rectangle::new(
-            Point::new((x + 1) as i32, (y + 1) as i32),
-            Size::new((w - 2) as u32, (h - 2) as u32),
-        )
-        .into_styled(PrimitiveStyle::with_fill(light))
-        .draw(fb)
-        .unwrap();
-        Rectangle::new(
-            Point::new((x + 2) as i32, (y + 2 + 16) as i32),
-            Size::new((w - 4) as u32, (h - 4 - 16) as u32),
-        )
-        .into_styled(PrimitiveStyle::with_fill(face))
-        .draw(fb)
-        .unwrap();
-        Rectangle::new(
-            Point::new((x + 2) as i32, (y + 2) as i32),
-            Size::new((w - 4) as u32, 16),
-        )
-        .into_styled(PrimitiveStyle::with_fill(titlebar))
-        .draw(fb)
-        .unwrap();
+        fb.draw_rounded_rect(x, y, w, h, 5, shadow.into_storage().into());
+        fb.draw_rounded_rect(x + 1, y + 1, w - 2, h - 2, 5, light.into_storage().into());
+        fb.draw_rounded_rect(
+            x + 2,
+            y + 2 + 16,
+            w - 4,
+            h - 4 - 16,
+            5,
+            face.into_storage().into(),
+        );
+        fb.draw_rounded_rect(x + 2, y + 2, w - 4, 16, 5, titlebar.into_storage().into());
 
         let style = MonoTextStyle::new(&FONT_8X13, Rgb565::WHITE);
         Text::with_baseline(
@@ -106,19 +89,8 @@ impl Stem {
         )
         .draw(fb)
         .unwrap();
-
-        Rectangle::new(
-            Point::new((x + w - 18) as i32, (y + 3) as i32),
-            Size::new(14, 12),
-        )
-        .into_styled(
-            PrimitiveStyleBuilder::new()
-                .stroke_color(Rgb565::WHITE)
-                .stroke_width(1)
-                .build(),
-        )
-        .draw(fb)
-        .unwrap();
+        fb.draw_rounded_rect(x, y, w, h, 5, 0x00ff00);
+        // fb.draw_rounded_rect(x + w - 18, y + 3, 14, 12, 1, Rgb565::WHITE.into_storage());
 
         fb.draw_char(x + w - 16, y, '×', 0xffffff);
     }
