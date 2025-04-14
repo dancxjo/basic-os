@@ -28,8 +28,12 @@ fn get_physical_memory_offset() -> VirtAddr {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
+    serial_println!("Starting ThingOS...");
     let offset = get_physical_memory_offset();
+    serial_println!("Physical memory offset: {:#x}", offset);
+    serial_println!("Initializing memory...");
     let _mapper = memory::init(offset);
+    serial_println!("Initializing graph...");
     let mut graph = Graph::new();
     let msg = Message {
         text: "ThingOS\nPeople, places, things and ideas\n© 2025".to_owned(),

@@ -5,6 +5,7 @@ extern crate alloc;
 use alloc::{boxed::Box, vec::Vec};
 use core::ops::Range;
 use limine::{memory_map::EntryType, request::MemoryMapRequest};
+use postcard::fixint::be::serialize;
 // use limine::{MemoryMapEntryType as EntryType, MemoryMapRequest};
 
 use linked_list_allocator::LockedHeap;
@@ -32,15 +33,19 @@ static GLOBAL_ALLOCATOR: LockedHeap = LockedHeap::empty();
 /// Sets up paging, frame allocator, and the heap.
 /// Call this once in `kmain()`.
 pub fn init(physical_memory_offset: VirtAddr) -> &'static mut OffsetPageTable<'static> {
+    serial_println!("Initializing memory...");
     let mapper = unsafe { init_paging(physical_memory_offset) };
+    serial_println!("Paging initialized.");
     let frame_allocator = BootFrameAllocator::init();
-
+    serial_println!("Frame allocator initialized.");
     map_heap(
         mapper,
         frame_allocator,
         VirtAddr::new(HEAP_START),
         HEAP_SIZE,
     );
+    serial_println!("Heap initialized.");
+
     unsafe {
         GLOBAL_ALLOCATOR
             .lock()
