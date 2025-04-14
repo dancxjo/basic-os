@@ -10,13 +10,26 @@ mod serial;
 mod thing;
 
 use crate::alloc::borrow::ToOwned;
+use limine::request::ExecutableAddressRequest;
 use message::Message;
 use panic::halt;
-use thing::{Graph, Thing};
+use thing::Graph;
+use x86_64::VirtAddr;
+
+#[used]
+static KERNEL_ADDR_REQUEST: ExecutableAddressRequest = ExecutableAddressRequest::new();
+
+fn get_physical_memory_offset() -> VirtAddr {
+    let response = KERNEL_ADDR_REQUEST
+        .get_response()
+        .expect("No kernel address response");
+    VirtAddr::new(response.virtual_base() - response.physical_base())
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
-    memory::init_initial_allocator();
+    let offset = get_physical_memory_offset();
+    let _mapper = memory::init(offset);
     let mut graph = Graph::new();
     let msg = Message {
         text: "ThingOS\nPeople, places, things and ideas\n© 2025".to_owned(),
