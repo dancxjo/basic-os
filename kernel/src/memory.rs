@@ -1,12 +1,14 @@
 use crate::serial_println;
+use crate::thing::Thingable;
+use alloc::vec::Vec;
 use limine::{memory_map::EntryType, request::MemoryMapRequest};
 use linked_list_allocator::LockedHeap;
+use serde::{Deserialize, Serialize};
+use thing_macros::Thing;
 use x86_64::{
-    PhysAddr, VirtAddr,
+    VirtAddr,
     registers::control::Cr3,
-    structures::paging::{
-        Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
-    },
+    structures::paging::{OffsetPageTable, PageTable},
 };
 
 const HEAP_SIZE_IN_MIBS: usize = 4;
@@ -29,54 +31,19 @@ use core::{mem::MaybeUninit, range::Range};
 
 static mut MAPPER: MaybeUninit<OffsetPageTable> = MaybeUninit::uninit();
 
-use x86_64::structures::paging::PageTableFlags as Flags;
-
-pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAllocator) {
-    let heap_start = VirtAddr::new(HEAP_START);
-    let heap_end = heap_start + HEAP_SIZE as u64;
-
-    let start_page: Page<Size4KiB> = Page::containing_address(heap_start);
-    let end_page: Page<Size4KiB> = Page::containing_address(heap_end - 1u64);
-
-    for page in Page::range_inclusive(start_page, end_page) {
-        let frame = frame_allocator
-            .allocate_frame()
-            .expect("Out of physical frames for heap");
-        let phys_frame = PhysFrame::from_start_address(PhysAddr::new(frame as u64))
-            .expect("Failed to create PhysFrame");
-        unsafe {
-            mapper
-                .map_to(
-                    page,
-                    phys_frame,
-                    Flags::PRESENT | Flags::WRITABLE,
-                    frame_allocator,
-                )
-                .expect("Heap page mapping failed")
-                .flush();
-        }
-    }
-
-    unsafe {
-        ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE);
-    }
-
-    serial_println!(
-        "Heap initialized at {:#x} - {:#x}",
-        HEAP_START,
-        HEAP_START + HEAP_SIZE as u64
-    );
-}
-
-#[allow(static_mut_refs)]
 pub unsafe fn init_paging(
     physical_memory_offset: VirtAddr,
 ) -> &'static mut OffsetPageTable<'static> {
     serial_println!("Initializing paging...");
     let l4_table = unsafe { active_level_4_table(physical_memory_offset) };
     serial_println!("L4 table acquired");
+    let page_table_root = unsafe { OffsetPageTable::new(l4_table, physical_memory_offset) };
+    #[allow(static_mut_refs)]
     unsafe {
-        MAPPER.write(OffsetPageTable::new(l4_table, physical_memory_offset));
+        MAPPER.write(page_table_root);
+    }
+    #[allow(static_mut_refs)]
+    unsafe {
         MAPPER.assume_init_mut()
     }
 }
@@ -145,127 +112,41 @@ fn collect_memory_regions() -> &'static [MemoryRegion] {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Thing)]
 pub struct BootFrameAllocator {
-    usable_ranges: [Option<Range<usize>>; 32],
-    range_count: usize,
-    current_range: usize,
-    next: usize,
+    pub usable_ranges: Vec<MemoryRange>,
+    pub current_range: usize,
+    pub next: usize,
 }
 
-static mut INSTANCE: Option<BootFrameAllocator> = None;
-
-#[allow(static_mut_refs)]
 impl BootFrameAllocator {
-    pub fn init() -> &'static mut Self {
-        unsafe {
-            INSTANCE.get_or_insert_with(|| {
-                let regions = collect_memory_regions();
-                let mut usable_ranges: [Option<core::range::Range<usize>>; 32] = [None; 32];
-                let mut range_count = 0;
-
-                for r in regions
-                    .iter()
-                    .filter(|r| r.kind == "usable" && r.len >= 0x200000)
-                {
-                    if range_count >= usable_ranges.len() {
-                        break;
-                    }
-                    usable_ranges[range_count] =
-                        Some(((r.base as usize)..(r.base + r.len) as usize).into());
-                    range_count += 1;
-                }
-
-                assert!(range_count > 0, "No usable memory regions!");
-
-                usable_ranges[..range_count].sort_by_key(|range| {
-                    usize::MAX - (range.as_ref().unwrap().end - range.as_ref().unwrap().start)
-                });
-
-                let first_range = usable_ranges[0].as_ref().unwrap();
-                let next = first_range.start;
-
-                BootFrameAllocator {
-                    usable_ranges,
-                    range_count,
-                    current_range: 0,
-                    next,
-                }
-            })
+    pub fn new(usable_ranges: Vec<MemoryRange>) -> Self {
+        BootFrameAllocator {
+            usable_ranges,
+            current_range: 0,
+            next: 0,
         }
-    }
-
-    fn allocate_frame(&mut self) -> Option<usize> {
-        loop {
-            if self.current_range >= self.range_count {
-                return None;
-            }
-
-            let current_range = self.usable_ranges[self.current_range].as_ref().unwrap();
-            let aligned = (self.next + 0xFFF) & !0xFFF;
-
-            if aligned + 0x1000 <= current_range.end {
-                self.next = aligned + 0x1000;
-                return Some(aligned);
-            } else {
-                self.current_range += 1;
-                if self.current_range < self.range_count {
-                    self.next = self.usable_ranges[self.current_range]
-                        .as_ref()
-                        .unwrap()
-                        .start;
-                }
-            }
-        }
-    }
-
-    pub fn allocate_and_map(
-        &mut self,
-        mapper: &mut OffsetPageTable,
-        physical_memory_offset: VirtAddr,
-    ) -> Option<PhysFrame> {
-        let addr = self.allocate_frame()?;
-        let frame = PhysFrame::from_start_address(PhysAddr::new(addr as u64)).unwrap();
-        let virt = physical_memory_offset + addr as u64;
-        let page = Page::containing_address(virt);
-        unsafe {
-            mapper
-                .map_to(
-                    page,
-                    frame,
-                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                    self,
-                )
-                .ok()?
-                .flush();
-        }
-        Some(frame)
     }
 }
 
-unsafe impl x86_64::structures::paging::FrameAllocator<Size4KiB> for BootFrameAllocator {
-    fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        let addr = self.allocate_frame()?;
-        let frame = PhysFrame::from_start_address(PhysAddr::new(addr as u64)).unwrap();
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MemoryRange {
+    pub start: usize,
+    pub end: usize,
+}
 
-        // Ensure identity mapping for page table frames
-        let virt = addr as u64; // identity map offset
-        let page = Page::containing_address(VirtAddr::new(virt));
-        #[allow(static_mut_refs)]
-        let mapper = unsafe { &mut *MAPPER.as_mut_ptr() };
-
-        unsafe {
-            let _ = mapper
-                .map_to(
-                    page,
-                    frame,
-                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                    self,
-                )
-                .ok()?
-                .flush();
+impl From<Range<usize>> for MemoryRange {
+    fn from(range: Range<usize>) -> Self {
+        MemoryRange {
+            start: range.start,
+            end: range.end,
         }
+    }
+}
 
-        Some(frame)
+impl Into<core::ops::Range<usize>> for MemoryRange {
+    fn into(self) -> core::ops::Range<usize> {
+        self.start..self.end
     }
 }
 
