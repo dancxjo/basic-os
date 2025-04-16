@@ -170,10 +170,15 @@ limine/limine:
 kernel:
 	$(MAKE) -C kernel
 
-$(IMAGE_NAME).iso: limine/limine kernel
+hello-user/hello-user:
+	RUSTFLAGS="-C relocation-model=static" cargo build --manifest-path ./hello-user/Cargo.toml --target wasm32-unknown-unknown
+	cp -v ./hello-user/target/wasm32-unknown-unknown/debug/hello-user.wasm ./hello-user
+
+$(IMAGE_NAME).iso: limine/limine kernel hello-user/hello-user
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v kernel/kernel iso_root/boot/
+	cp -v hello-user/hello-user.wasm iso_root/boot/
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT

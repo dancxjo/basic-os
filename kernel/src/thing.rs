@@ -159,7 +159,7 @@ pub trait Thingable: Sized {
     fn deserialize(bytes: &[u8]) -> Option<Self>;
 }
 
-fn make_uuid_from_seed(seed: &[u8]) -> Uuid {
+pub fn make_uuid_from_seed(seed: &[u8]) -> Uuid {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(seed);
