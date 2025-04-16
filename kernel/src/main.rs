@@ -1,8 +1,11 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 
+mod fiat;
+mod idt;
 mod memory;
 mod message;
 mod panic;
@@ -10,7 +13,9 @@ mod serial;
 mod thing;
 
 use crate::alloc::borrow::ToOwned;
+
 use limine::request::ExecutableAddressRequest;
+use memory::print_memory_regions;
 use message::Message;
 use panic::halt;
 use thing::Graph;
@@ -23,16 +28,24 @@ fn get_physical_memory_offset() -> VirtAddr {
     let response = KERNEL_ADDR_REQUEST
         .get_response()
         .expect("No kernel address response");
+    serial_println!(
+        "Kernel virtual base: {:#x}, physical base: {:#x}",
+        response.virtual_base(),
+        response.physical_base()
+    );
     VirtAddr::new(response.virtual_base() - response.physical_base())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     serial_println!("Starting ThingOS...");
+    idt::init_idt();
     let offset = get_physical_memory_offset();
     serial_println!("Physical memory offset: {:#x}", offset);
-    serial_println!("Initializing memory...");
+    print_memory_regions();
+    serial_print!("Initialize memory. ");
     let _mapper = memory::init(offset);
+    serial_print!("ERROR HAPPENED HERE");
     serial_println!("Initializing graph...");
     let mut graph = Graph::new();
     let msg = Message {
