@@ -171,8 +171,10 @@ kernel:
 	$(MAKE) -C kernel
 
 hello-user/hello-user:
-	RUSTFLAGS="-C relocation-model=static -C link-args="-Thello-user.ld" cargo build --manifest-path ./hello-user/Cargo.toml --release --target x86_64-unknown-none
-	cp -v ./hello-user/target/x86_64-unknown-none/release/hello-user ./hello-user
+	cargo build --release --manifest-path hello-user/Cargo.toml --target x86_64-unknown-none
+	cp -v hello-user/target/x86_64-unknown-none/release/hello-user hello-user/hello-user
+	@echo "✅ hello-user built and copied. Entry point:"
+	readelf -h hello-user/hello-user | grep 'Entry point'
 
 $(IMAGE_NAME).iso: limine/limine kernel hello-user/hello-user
 	rm -rf iso_root
@@ -249,6 +251,8 @@ endif
 clean:
 	$(MAKE) -C kernel clean
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
+	rm -rf hello-user/hello-user
+	rm -rf hello-user/hello-user/target
 
 .PHONY: distclean
 distclean: clean

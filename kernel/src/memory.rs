@@ -233,7 +233,6 @@ pub unsafe fn init(
     let lvl4 = unsafe { active_level_4_table(hhdm_offset) };
     let mut mapper = unsafe { OffsetPageTable::new(lvl4, hhdm_offset) };
     let regions = collect_memory_regions();
-    print_memory_regions();
     let mut frame_allocator = BootFrameAllocator::new(regions);
     serial_println!(
         "[Debug] map heap {:#x}-{:#x}",

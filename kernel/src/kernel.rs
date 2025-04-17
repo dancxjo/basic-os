@@ -180,7 +180,9 @@ impl Kernel {
         serial_println!("[hello-user] Mapping user memory...");
         use x86_64::structures::paging::Page;
         let stack_start = VirtAddr::new(0x7FFF_FFFF_E000);
-        let stack_end = VirtAddr::new(stack_start.as_u64() + 0x4000 - 1);
+        let stack_end = VirtAddr::new(0x8000_0000_0000 - 1); // <- now includes 0x7FFF_FFFF_F000
+
+        // let stack_end = VirtAddr::new(stack_start.as_u64() + 0x4000 - 1);
         for page in Page::range_inclusive(
             Page::containing_address(stack_start),
             Page::containing_address(stack_end),
@@ -198,45 +200,55 @@ impl Kernel {
     }
 
     fn sprout(&self, entry: u64) {
-        let stack = 0x7FFF_FFFF_F000_u64;
-
         serial_println!("[sprout] Preparing to enter user mode...");
+        // Properly access the static mutable SELECTORS safely
+        let (mut user_cs, mut user_ds) = {
+            // You need to wrap access to statics in an unsafe block
+            let selectors = unsafe {
+                #[allow(static_mut_refs)]
+                crate::gdt::SELECTORS
+                    .as_ref()
+                    .expect("SELECTORS not initialized")
+            };
+            (selectors.code_usr.0, selectors.data_usr.0)
+        };
+        let user_cs = user_cs | 0x3;
+        let user_ds = user_ds | 0x3;
+
+        let stack_top = 0x7FFF_FFFF_E000u64;
+        let stack = stack_top;
+
         serial_println!("[sprout] Entry point: {:#x}", entry);
         serial_println!("[sprout] Stack pointer: {:#x}", stack);
-        serial_println!("[sprout] Segment selectors: cs=0x1B, ds=0x23");
+        serial_println!(
+            "[sprout] Segment selectors: cs={:#x}, ds={:#x}",
+            user_cs,
+            user_ds
+        );
 
-        // Double-check that memory is mapped where we think it is
-        unsafe {
-            let test_entry = *(entry as *const u8);
-            serial_println!("[sprout] Entry memory first byte: {:#x}", test_entry);
-        }
+        let entry_byte = unsafe { *(entry as *const u8) };
+        serial_println!("[sprout] Entry memory first byte: {:#x}", entry_byte);
 
-        serial_println!("[sprout] About to iretq...");
+        // 🧠 Sanity check
+        assert!(stack & 0xF == 0, "Stack not 16-byte aligned!");
 
         unsafe {
             asm!(
                 "cli",
-                "mov ax, 0x23",
-                "mov ds, ax",
-                "mov es, ax",
-                "mov fs, ax",
-                "mov gs, ax",
-
-                "push 0x23",        // SS
-                "push {stk}",       // RSP
-                "pushf",            // RFLAGS
-                "pop rax",
-                "or rax, 0x200",    // set IF
-                "push rax",
-                "push 0x1B",        // CS
-                "push {e}",         // RIP
+                "mov ax, {0:x}", "mov ds, ax", "mov es, ax", "mov fs, ax", "mov gs, ax",
+                "push {1:r}",           // ss
+                "push {2:r}",           // rsp
+                "pushfq",               // rflags
+                "push {3:r}",           // cs
+                "push {4:r}",           // rip
                 "iretq",
-                stk = in(reg) stack,
-                e   = in(reg) entry,
+                in(reg) user_ds,
+                in(reg) stack,
+                in(reg) stack,
+                in(reg) user_cs,
+                in(reg) entry,
                 options(noreturn)
             );
-
-            serial_println!("user wrote: {:#x}", unsafe { *(0x500000 as *const u64) });
         }
     }
 }
