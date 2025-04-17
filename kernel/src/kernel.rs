@@ -3,7 +3,7 @@ use core::arch::asm;
 use crate::{
     bootloader, dump_overlay,
     gdt::init_gdt,
-    idt::init_idt,
+    idt::{init_double_fault_stack, init_idt},
     memory::{self, HEAP_SIZE, HEAP_START, map_page_to},
     message::Message,
     seed::SeedBlob,
@@ -48,9 +48,12 @@ impl Kernel {
 
     pub fn new() -> Self {
         let offset = get_hhdm_offset();
-        let (mapper, frame_allocator) = unsafe { memory::init(offset) };
+        let (mut mapper, mut frame_allocator) = unsafe { memory::init(offset) };
         serial_println!("Paging initialized");
         init_gdt();
+        #[allow(static_mut_refs)]
+        let tss = unsafe { crate::gdt::TSS.as_mut().expect("TSS not initialized") };
+        init_double_fault_stack(tss, &mut mapper, &mut frame_allocator);
         init_idt();
         x86_64::instructions::interrupts::enable();
 
@@ -122,7 +125,9 @@ impl Kernel {
             e_phentsz
         );
 
-        let mut entry_point = 0;
+        let e_entry = u64::from_le_bytes(data[24..32].try_into().unwrap());
+        let entry_point = e_entry + USER_BASE_VADDR;
+        serial_println!("[hello-user] ELF entry point: {:#x}", entry_point);
 
         for i in 0..e_phnum {
             let off = e_phoff as usize + i as usize * e_phentsz;
@@ -164,7 +169,7 @@ impl Kernel {
                         &data[p_offset as usize..(p_offset as usize + p_filesz as usize)],
                     );
                 }
-                entry_point = p_vaddr; // Update entry point to the last loaded segment
+                // entry_point = p_vaddr; // Update entry point to the last loaded segment
             }
         }
 
@@ -230,6 +235,8 @@ impl Kernel {
                 e   = in(reg) entry,
                 options(noreturn)
             );
+
+            serial_println!("user wrote: {:#x}", unsafe { *(0x500000 as *const u64) });
         }
     }
 }

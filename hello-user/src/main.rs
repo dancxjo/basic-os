@@ -9,9 +9,8 @@ fn panic(_: &PanicInfo) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
-    // For now, just loop forever to prove this code runs.
-    loop {
-        // You could write to a memory-mapped address if you had one.
+pub extern "C" fn _start() {
+    unsafe {
+        *(0x500000 as *mut u64) = 0xB16B00B5B16B00B5;
     }
 }

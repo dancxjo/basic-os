@@ -15,7 +15,7 @@ struct Selectors {
 
 // Store references, not by-value
 static mut GDT: Option<&'static mut GlobalDescriptorTable> = None;
-static mut TSS: Option<&'static mut TaskStateSegment> = None;
+pub static mut TSS: Option<&'static mut TaskStateSegment> = None;
 static mut SELECTORS: Option<Selectors> = None;
 
 pub fn init_gdt() {
