@@ -103,9 +103,10 @@ pub struct Graph {
 
 impl Graph {
     pub fn new() -> Self {
+        serial_println!("Establishing graph");
         Self {
             uuid_map: BTreeMap::new(),
-            things: Vec::new(),
+            things: Vec::with_capacity(2),
             facts: Vec::new(),
             kinds: Vec::new(),
             predicates: Vec::new(),

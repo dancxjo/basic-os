@@ -1,159 +1,174 @@
-use crate::serial_println;
-use crate::thing::Thingable;
-use alloc::vec::Vec;
-use limine::{memory_map::EntryType, request::MemoryMapRequest};
+//! memory.rs — ThingOS memory management: paging, allocator, and memory map
+
+use alloc::boxed::Box;
+use core::{mem::MaybeUninit, ops::Range};
+use limine::memory_map::{Entry, EntryType};
 use linked_list_allocator::LockedHeap;
-use serde::{Deserialize, Serialize};
-use thing_macros::Thing;
 use x86_64::{
-    VirtAddr,
+    PhysAddr, VirtAddr,
     registers::control::Cr3,
-    structures::paging::{OffsetPageTable, PageTable},
+    structures::paging::{
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
+        Size4KiB,
+    },
 };
 
-const HEAP_SIZE_IN_MIBS: usize = 4;
-const HEAP_SIZE_IN_BYTES: usize = HEAP_SIZE_IN_MIBS * 1024 * 1024;
-static mut HEAP: [u8; HEAP_SIZE_IN_BYTES] = [0; HEAP_SIZE_IN_BYTES];
-pub const HEAP_START: u64 = 0x_4444_4444_0000;
-pub const HEAP_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
+use crate::serial_println;
 
+/// Virtual heap location and size (mapped by the kernel)
+pub const HEAP_START: u64 = 0x_4444_4444_0000;
+pub const HEAP_SIZE: usize = 64 * 1024 * 1024;
+
+/// Global heap allocator used by Box, Vec, etc.
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-pub fn init_initial_allocator() {
-    #[allow(static_mut_refs)]
-    unsafe {
-        ALLOCATOR.lock().init(HEAP.as_mut_ptr(), HEAP_SIZE_IN_BYTES);
+/// Max number of usable memory ranges to track (early boot)
+const MAX_RANGES: usize = 64;
+static mut FRAME_RANGES: [MaybeUninit<Range<PhysAddr>>; MAX_RANGES] = {
+    const UNINIT: MaybeUninit<Range<PhysAddr>> = MaybeUninit::uninit();
+    [UNINIT; MAX_RANGES]
+};
+
+/// Boot-time frame allocator using static memory (no heap)
+pub struct BootFrameAllocator {
+    ranges: &'static mut [Range<PhysAddr>],
+    current_range: usize,
+}
+
+impl BootFrameAllocator {
+    pub fn new(entries: &[Entry]) -> Self {
+        let mut count = 0;
+        unsafe {
+            for entry in entries.iter() {
+                if entry.entry_type == EntryType::USABLE && count < MAX_RANGES {
+                    let start = PhysAddr::new(entry.base);
+                    let end = PhysAddr::new(entry.base + entry.length);
+                    FRAME_RANGES[count].write(start..end);
+                    count += 1;
+                }
+            }
+
+            #[allow(static_mut_refs)]
+            let slice = core::slice::from_raw_parts_mut(
+                FRAME_RANGES.as_mut_ptr() as *mut Range<PhysAddr>,
+                count,
+            );
+
+            BootFrameAllocator {
+                ranges: slice,
+                current_range: 0,
+            }
+        }
     }
 }
 
-use core::{mem::MaybeUninit, range::Range};
+unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
+    fn allocate_frame(&mut self) -> Option<PhysFrame> {
+        while self.current_range < self.ranges.len() {
+            let range = &mut self.ranges[self.current_range];
+            let start = align_up(range.start.as_u64(), 0x1000);
 
-static mut MAPPER: MaybeUninit<OffsetPageTable> = MaybeUninit::uninit();
-
-pub unsafe fn init_paging(
-    physical_memory_offset: VirtAddr,
-) -> &'static mut OffsetPageTable<'static> {
-    serial_println!("Initializing paging...");
-    let l4_table = unsafe { active_level_4_table(physical_memory_offset) };
-    serial_println!("L4 table acquired");
-    let page_table_root = unsafe { OffsetPageTable::new(l4_table, physical_memory_offset) };
-    #[allow(static_mut_refs)]
-    unsafe {
-        MAPPER.write(page_table_root);
-    }
-    #[allow(static_mut_refs)]
-    unsafe {
-        MAPPER.assume_init_mut()
+            if start < range.end.as_u64() {
+                let frame = PhysFrame::containing_address(PhysAddr::new(start));
+                range.start = PhysAddr::new(start + 0x1000);
+                return Some(frame);
+            } else {
+                self.current_range += 1;
+            }
+        }
+        None
     }
 }
 
-unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
-    let (frame, _) = Cr3::read();
-    let phys = frame.start_address();
-    let virt = offset + phys.as_u64();
+/// Aligns `addr` up to the nearest multiple of `align`
+fn align_up(addr: u64, align: u64) -> u64 {
+    (addr + align - 1) & !(align - 1)
+}
+
+/// Initializes memory: paging, heap, and frame allocator
+pub unsafe fn init(
+    hhdm_offset: VirtAddr,
+) -> (&'static mut OffsetPageTable<'static>, BootFrameAllocator) {
+    serial_println!("Initializing memory...");
+
+    let level_4_table = unsafe { active_level_4_table(hhdm_offset) };
+    let mut mapper = unsafe { OffsetPageTable::new(level_4_table, hhdm_offset) };
+    let memory_entries = get_memory_entries_copy();
+    let mut frame_allocator = BootFrameAllocator::new(memory_entries);
+
+    map_heap(&mut mapper, &mut frame_allocator);
+    unsafe { ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE) };
+
+    (Box::leak(Box::new(mapper)), frame_allocator)
+}
+
+/// Get mutable access to the active level 4 page table
+unsafe fn active_level_4_table(phys_offset: VirtAddr) -> &'static mut PageTable {
+    let (level_4_phys, _) = Cr3::read();
+    let virt = phys_offset + level_4_phys.start_address().as_u64();
     unsafe { &mut *(virt.as_mut_ptr()) }
 }
 
-#[used]
-static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
+/// Maps the heap region into virtual memory using 4 KiB pages
+fn map_heap<M: Mapper<Size4KiB>, F: FrameAllocator<Size4KiB>>(
+    mapper: &mut M,
+    frame_allocator: &mut F,
+) {
+    let heap_start = VirtAddr::new(HEAP_START);
+    let heap_end = heap_start + HEAP_SIZE as u64;
+    let page_range = Page::range_inclusive(
+        Page::containing_address(heap_start),
+        Page::containing_address(VirtAddr::new(heap_end.as_u64() - 1)),
+    );
 
-#[derive(Clone, Copy, Debug)]
-pub struct MemoryRegion {
-    pub base: u64,
-    pub len: u64,
-    pub kind: &'static str,
+    for page in page_range {
+        let frame = frame_allocator
+            .allocate_frame()
+            .expect("Out of physical frames during heap mapping!");
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+
+        unsafe {
+            mapper
+                .map_to(page, frame, flags, frame_allocator)
+                .expect("map_to failed")
+                .flush();
+        }
+    }
 }
 
-static mut CACHED_REGIONS: Option<&'static [MemoryRegion]> = None;
+use limine::request::MemoryMapRequest;
 
-fn collect_memory_regions() -> &'static [MemoryRegion] {
-    static mut REGIONS: [MemoryRegion; 128] = [MemoryRegion {
-        base: 0,
-        len: 0,
-        kind: "unknown",
-    }; 128];
+const MAX_ENTRIES: usize = 64;
+static mut MEMORY_ENTRY_COPY: [Entry; MAX_ENTRIES] = [Entry {
+    base: 0,
+    length: 0,
+    entry_type: EntryType::RESERVED,
+}; MAX_ENTRIES];
+
+#[used]
+static MEMORY_MAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
+
+pub fn get_memory_entries_copy() -> &'static [Entry] {
+    let response = unsafe {
+        MEMORY_MAP_REQUEST
+            .get_response()
+            .expect("No memory map response from Limine")
+    };
+
+    let entries = response.entries();
+    let mut count = 0;
 
     unsafe {
-        if let Some(cached) = CACHED_REGIONS {
-            return cached;
-        }
-
-        let response = MEMMAP_REQUEST
-            .get_response()
-            .expect("No memory map from Limine");
-        let entries = response.entries();
-
-        let mut count = 0;
-
-        for entry in entries {
-            let kind = match entry.entry_type {
-                EntryType::USABLE => "usable",
-                EntryType::RESERVED => "reserved",
-                EntryType::ACPI_RECLAIMABLE => "acpi_reclaimable",
-                EntryType::ACPI_NVS => "acpi_nvs",
-                EntryType::BAD_MEMORY => "bad_memory",
-                EntryType::BOOTLOADER_RECLAIMABLE => "bootloader_reclaimable",
-                EntryType::FRAMEBUFFER => "framebuffer",
-                _ => "unknown",
-            };
-
-            REGIONS[count] = MemoryRegion {
-                base: entry.base,
-                len: entry.length,
-                kind,
+        for &entry_ref in entries.iter().take(MAX_ENTRIES) {
+            MEMORY_ENTRY_COPY[count] = Entry {
+                base: entry_ref.base,
+                length: entry_ref.length,
+                entry_type: entry_ref.entry_type,
             };
             count += 1;
         }
 
-        let result = &REGIONS[..count];
-        CACHED_REGIONS = Some(result);
-        result
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Thing)]
-pub struct BootFrameAllocator {
-    pub usable_ranges: Vec<MemoryRange>,
-    pub current_range: usize,
-    pub next: usize,
-}
-
-impl BootFrameAllocator {
-    pub fn new(usable_ranges: Vec<MemoryRange>) -> Self {
-        BootFrameAllocator {
-            usable_ranges,
-            current_range: 0,
-            next: 0,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MemoryRange {
-    pub start: usize,
-    pub end: usize,
-}
-
-impl From<Range<usize>> for MemoryRange {
-    fn from(range: Range<usize>) -> Self {
-        MemoryRange {
-            start: range.start,
-            end: range.end,
-        }
-    }
-}
-
-impl Into<core::ops::Range<usize>> for MemoryRange {
-    fn into(self) -> core::ops::Range<usize> {
-        self.start..self.end
-    }
-}
-
-pub fn print_memory_regions() {
-    let regions = collect_memory_regions();
-    serial_println!("Available memory regions:");
-    for region in regions {
-        serial_println!("{:?}", region);
+        &MEMORY_ENTRY_COPY[..count]
     }
 }
