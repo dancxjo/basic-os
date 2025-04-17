@@ -134,8 +134,38 @@ impl Graph {
             .map(move |i| &mut self.things[i])
     }
 
+    pub fn find(&self, f: impl FnMut(&&Thing) -> bool) -> Option<&Thing> {
+        self.things.iter().find(f)
+    }
+
     pub fn find_mut(&mut self, f: impl Fn(&&mut Thing) -> bool) -> Option<&mut Thing> {
         self.things.iter_mut().find(f)
+    }
+
+    pub fn get_typed<T: 'static>(&self, uuid: &Uuid) -> Option<&T> {
+        self.get(uuid)?.data.as_typed::<T>()
+    }
+
+    pub fn get_typed_mut<T: 'static>(&mut self, uuid: &Uuid) -> Option<&mut T> {
+        self.get_mut(uuid)?.data.as_typed_mut::<T>(uuid.clone())
+    }
+
+    pub fn find_typed<T: 'static>(&self, f: impl Fn(&T) -> bool) -> Option<&T> {
+        self.things.iter().find_map(|thing| {
+            thing
+                .data
+                .as_typed::<T>()
+                .and_then(|typed| if f(typed) { Some(typed) } else { None })
+        })
+    }
+
+    pub fn find_typed_mut<T: 'static>(&mut self, f: impl Fn(&T) -> bool) -> Option<&mut T> {
+        self.things.iter_mut().find_map(|thing| {
+            thing
+                .data
+                .as_typed_mut::<T>(thing.uuid)
+                .and_then(|typed| if f(typed) { Some(typed) } else { None })
+        })
     }
 
     pub fn print_things(&self) {

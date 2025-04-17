@@ -171,7 +171,7 @@ kernel:
 	$(MAKE) -C kernel
 
 hello-user/hello-user:
-	RUSTFLAGS="-C relocation-model=static" cargo build --manifest-path ./hello-user/Cargo.toml --release --target x86_64-unknown-none
+	RUSTFLAGS="-C relocation-model=static -C link-args="-Thello-user.ld" cargo build --manifest-path ./hello-user/Cargo.toml --release --target x86_64-unknown-none
 	cp -v ./hello-user/target/x86_64-unknown-none/release/hello-user ./hello-user
 
 $(IMAGE_NAME).iso: limine/limine kernel hello-user/hello-user

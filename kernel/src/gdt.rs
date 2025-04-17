@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use x86_64::VirtAddr;
 use x86_64::instructions::segmentation::{CS, DS, Segment};
 use x86_64::instructions::tables::load_tss;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
@@ -28,14 +29,15 @@ pub fn init_gdt() {
         GDT = Some(gdt_ref);
         TSS = Some(tss_ref);
     }
-
     // 3) Now use those same references for your descriptor config:
     #[allow(static_mut_refs)]
     let gdt = unsafe { GDT.as_mut().unwrap() };
     #[allow(static_mut_refs)]
     let tss = unsafe { TSS.as_mut().unwrap() };
 
-    // e.g. tss.ist[0] = VirtAddr::new(some_stack_top);
+    // e.g. tss.interrupt_stack_table[0] = VirtAddr::new(some_stack_top);
+    let double_fault_stack_top: u64 = 0x4444_7000_0000 + 4096 * 5;
+    tss.interrupt_stack_table[0] = VirtAddr::new(double_fault_stack_top);
 
     // Kernel segments
     let code_ker = gdt.add_entry(Descriptor::kernel_code_segment());
