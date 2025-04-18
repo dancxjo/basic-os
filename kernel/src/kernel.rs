@@ -1,72 +1,56 @@
-use core::any::Any;
-use core::arch::asm;
+// Kernel using the new Thing-based graph system
 
 use crate::interrupts::init_interrupts;
-use crate::memory::MEMMAP_REQUEST;
-use crate::mouse::Mouse;
-
-use crate::thing::Thing;
-use crate::thingify;
+use crate::os_space::{HHDM_REQUEST, MEMMAP_REQUEST};
+use crate::thing::{Fact, Predicate, Space, Thing, Uri};
+use crate::{does, dump_overlay};
 use crate::{
-    bootloader, dump_overlay,
     framebuffer::Framebuffer,
     gdt::init_gdt,
     idt::{init_double_fault_stack, init_idt},
-    memory::{self, HEAP_SIZE, HEAP_START, map_page_to},
-    message::Message,
-    seed::SeedBlob,
+    memory::{self, HEAP_SIZE, HEAP_START},
     serial_println,
-    thing::{Graph, ThingData, Thingable},
 };
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{boxed::Box, format, sync::Arc};
+use core::arch::asm;
 use limine::request::HhdmRequest;
+use spin::Mutex;
 use x86_64::{
     VirtAddr,
-    structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags as Flags},
+    structures::paging::{FrameAllocator, Mapper},
 };
 
 pub const USER_BASE_VADDR: u64 = 0x4000_0000;
 
 pub struct Kernel {
-    pub graph: Graph,
+    pub graph: Arc<Mutex<dyn Space + 'static>>,
     mapper: &'static mut x86_64::structures::paging::OffsetPageTable<'static>,
     frame_allocator: memory::BootFrameAllocator,
     framebuffer: Framebuffer,
 }
 
-#[used]
-pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
-
 fn get_hhdm_offset() -> VirtAddr {
     let resp = HHDM_REQUEST.get_response().expect("No HHDM response");
-    VirtAddr::new(resp.offset())
+    let offset = resp.offset();
+    serial_println!("HHDM offset: {:#x}", offset);
+    VirtAddr::new(offset)
 }
 
 impl Kernel {
     pub fn spin(&mut self) -> ! {
+        serial_println!("Kernel spin loop started");
         let mut x: usize = 0;
         let mut direction: isize = 1;
-        let mouse_id = self.graph.uuid_of::<Mouse>().unwrap();
         let mut tick: u64 = 0;
 
         loop {
-            // self.framebuffer.clear(0x202020);
-
-            // Draw bouncing block
             self.framebuffer.draw_rect(x, 100, 100, 50, 0x00FF00);
 
-            // Dynamic text
             let msg = format!("tick: {}", tick);
             self.framebuffer.draw_text(&msg, x, 200, 20);
             self.framebuffer.draw_text("ThingOS Kernel UI", 20, 20, 24);
             self.framebuffer
                 .draw_text("Dragons not yet implemented", 20, 50, 16);
-
-            // Draw mouse pointer
-            let mouse: &mut Mouse = self.graph.get_mut::<Mouse>(&mouse_id).unwrap();
-            mouse.poll();
-            serial_println!("Mouse position: ({}, {})", mouse.x, mouse.y);
-            mouse.draw(&mut self.framebuffer);
 
             self.framebuffer.flush();
 
@@ -80,29 +64,10 @@ impl Kernel {
     }
 
     pub fn new() -> Self {
-        let offset = get_hhdm_offset();
-        let (mut mapper, mut frame_allocator) = unsafe { memory::init(offset) };
-        serial_println!("Paging initialized");
-
-        init_gdt();
-        #[allow(static_mut_refs)]
-        let tss = unsafe { crate::gdt::TSS.as_mut().expect("TSS not initialized") };
-        init_double_fault_stack(tss, &mut mapper, &mut frame_allocator);
-        init_idt();
-        init_interrupts();
-        x86_64::instructions::interrupts::enable();
-
-        let graph = Graph::new();
-        let framebuffer = Framebuffer::new().expect("Framebuffer not initialized");
-        let mouse = Mouse::new(&framebuffer);
-        let boxed = Box::new(42_u64);
-        let addr = boxed.as_ref() as *const u64 as usize;
-
-        serial_println!("Boxed value address: {:#x}", addr);
-        assert!(
-            addr >= HEAP_START as usize && addr < (HEAP_START + HEAP_SIZE as u64) as usize,
-            "Boxed value not in heap!"
-        );
+        serial_println!("Creating new Kernel instance");
+        let (mapper, frame_allocator) = Self::init_memory();
+        let graph = Self::init_graph_space();
+        let framebuffer = Self::init_framebuffer();
 
         let mut kernel = Kernel {
             graph,
@@ -111,28 +76,90 @@ impl Kernel {
             framebuffer,
         };
 
-        kernel.init_graph();
-        kernel.print();
+        kernel.populate_graph();
         kernel.map_bootloader_memory();
-        kernel.print();
-        kernel.insert_devices(mouse);
         kernel.print();
 
         kernel
     }
 
-    fn init_graph(&mut self) {
-        self.graph.insert(
-            "message",
-            thingify!(Message::new("ThingOS. People, places, things and ideas.")),
-        );
+    fn init_memory() -> (
+        &'static mut x86_64::structures::paging::OffsetPageTable<'static>,
+        memory::BootFrameAllocator,
+    ) {
+        serial_println!("Initializing memory");
+        let offset = get_hhdm_offset();
+        let (mut mapper, mut frame_allocator) = unsafe { memory::init(offset) };
+        serial_println!("Paging initialized");
 
-        self.graph.insert("kernel.version", thingify!("v0.1.0"));
-        self.graph
-            .insert("kernel.build_id", thingify!(0xDEADBEEF_u64));
+        init_gdt();
+        serial_println!("GDT initialized");
+
+        #[allow(static_mut_refs)]
+        let tss = unsafe { crate::gdt::TSS.as_mut().expect("TSS not initialized") };
+        init_double_fault_stack(tss, &mut mapper, &mut frame_allocator);
+        serial_println!("Double fault stack initialized");
+
+        init_idt();
+        init_interrupts();
+        x86_64::instructions::interrupts::enable();
+        serial_println!("IDT and interrupts initialized");
+
+        (mapper, frame_allocator)
+    }
+
+    fn init_graph_space() -> Arc<Mutex<dyn Space>> {
+        serial_println!("Initializing graph space");
+        Arc::new(Mutex::new(crate::os_space::OsSpace::new()))
+    }
+
+    fn init_framebuffer() -> Framebuffer {
+        serial_println!("Initializing framebuffer");
+        Framebuffer::new().expect("Framebuffer not initialized")
+    }
+
+    fn populate_graph(&mut self) {
+        serial_println!("Populating graph with initial facts");
+        let mut graph = self.graph.lock();
+        let kernel = Uri("os://kernel".into());
+        let screen = Uri("ui://screen/1".into());
+        let process = Uri("proc://1".into());
+
+        graph
+            .assert(Fact::that(
+                kernel.clone(),
+                does!("is"),
+                Uri("kind:kernel".into()),
+            ))
+            .unwrap();
+        graph
+            .assert(Fact::that(
+                screen.clone(),
+                does!("is"),
+                Uri("kind:screen".into()),
+            ))
+            .unwrap();
+        graph
+            .assert(Fact::that(
+                process.clone(),
+                does!("is"),
+                Uri("kind:process".into()),
+            ))
+            .unwrap();
+
+        graph
+            .assert(Fact::that(kernel.clone(), does!("spawn"), process.clone()))
+            .unwrap();
+        graph
+            .assert(Fact::that(kernel.clone(), does!("draw_to"), screen.clone()))
+            .unwrap();
+        graph
+            .assert(Fact::that(process.clone(), does!("open"), screen.clone()))
+            .unwrap();
     }
 
     fn map_bootloader_memory(&mut self) {
+        serial_println!("Mapping bootloader memory to graph");
         let hhdm_response = HHDM_REQUEST.get_response().expect("No HHDM response");
         let memory_map = MEMMAP_REQUEST.get_response().expect("No memory map");
 
@@ -145,35 +172,23 @@ impl Kernel {
             .unwrap_or(0);
 
         let len = max_phys;
+        serial_println!("Memory mapped range: base={:#x}, len={:#x}", base, len);
 
         let slice = unsafe { core::slice::from_raw_parts(base as *const u8, len as usize) };
-        self.graph.insert("allocated memory", thingify!(slice));
-    }
-
-    fn insert_devices(&mut self, mouse: Mouse) {
-        self.graph.insert("mouse", thingify!(mouse));
-        self.graph.insert("cursor.color", thingify!(0xFF0000_u32));
+        let mut graph = self.graph.lock();
+        graph.write_content(&Uri("os://kernel".into()), slice).ok();
     }
 
     fn print(&self) {
-        self.graph.print_things();
-        dump_overlay!(&self.graph);
-    }
-
-    fn get_elf_entry_point(&mut self) -> u64 {
-        let this = self
-            .graph
-            .find_one::<SeedBlob>()
-            .expect("Missing seed_blob");
-        let data = &this.bytes;
-        if &data[0..4] != b"\x7FELF" {
-            panic!("Invalid ELF magic");
+        serial_println!("Printing Thing facts");
+        let thing = Thing {
+            uri: Uri("os://kernel".into()),
+            space: self.graph.clone(),
+        };
+        for fact in thing.facts() {
+            serial_println!("{} {} {}", fact.this.0, fact.predicate.0, fact.that.0);
         }
-        u64::from_le_bytes(data[24..32].try_into().unwrap()) + USER_BASE_VADDR
-    }
-
-    pub fn enrich_graph(&mut self) {
-        serial_println!("[kernel] Enriched graph with bootloader memory map");
-        self.graph.print_things();
+        let graph = self.graph.lock();
+        dump_overlay!(&*graph);
     }
 }

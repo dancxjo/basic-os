@@ -1,10 +1,11 @@
 //! memory.rs — ThingOS memory management: paging, allocator, and memory map
 
+use crate::os_space::HHDM_REQUEST;
+use crate::os_space::MEMMAP_REQUEST;
 use crate::serial_println;
 use alloc::boxed::Box;
 use core::{mem::MaybeUninit, ops::Range};
 use limine::memory_map::EntryType;
-use limine::request::MemoryMapRequest;
 use linked_list_allocator::LockedHeap;
 use x86_64::{
     PhysAddr, VirtAddr,
@@ -14,7 +15,7 @@ use x86_64::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
         Size4KiB,
     },
-    structures::paging::{PageSize, Size1GiB, Size2MiB},
+    structures::paging::{Size1GiB, Size2MiB},
 };
 
 /// Virtual heap location and size (mapped by the kernel)
@@ -39,9 +40,6 @@ pub struct MemoryRegion {
     pub len: u64,
     pub kind: &'static str,
 }
-
-#[used]
-pub static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 
 /// Parse and cache Limine’s memory map
 pub fn collect_memory_regions() -> &'static [MemoryRegion] {

@@ -17,10 +17,13 @@ mod kernel;
 mod memory;
 mod message;
 mod mouse;
+mod os_space;
 mod overlay;
 mod panic;
+mod screen;
 mod seed;
 mod serial;
+mod system_graph;
 mod thing;
 
 #[unsafe(no_mangle)]

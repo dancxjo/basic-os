@@ -1,192 +1,257 @@
-use crate::serial_println;
-use alloc::{
-    boxed::Box,
-    collections::{BTreeMap, BTreeSet},
-    vec::Vec,
-};
-use core::any::Any;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::fmt::Debug;
+use serde::de::DeserializeOwned;
+use spin::Mutex;
 use uuid::Uuid;
 
-#[derive(Debug)]
-pub enum ThingData {
-    None,
-    Bytes(&'static [u8]),
-    Heap(Box<[u8]>),
-    Owned(Box<dyn Any>),
-}
+// ----------------------------
+// Basic Graph Types
+// ----------------------------
 
-impl ThingData {
-    pub fn as_bytes(&self) -> Option<&[u8]> {
-        match self {
-            ThingData::Bytes(b) => Some(b),
-            ThingData::Heap(b) => Some(b),
-            _ => None,
-        }
-    }
-
-    pub fn as_typed<T: 'static>(&self) -> Option<&T> {
-        match self {
-            ThingData::Owned(b) => b.downcast_ref::<T>(),
-            _ => None,
-        }
-    }
-
-    pub fn as_typed_mut<T: 'static>(&mut self, uuid: Uuid) -> Option<&mut T> {
-        match self {
-            ThingData::Owned(b) => {
-                mark_dirty(uuid);
-                b.downcast_mut::<T>()
-            }
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Thing {
-    pub uuid: Uuid,
-    pub kind: &'static str,
-    pub data: ThingData,
-}
-
-impl Thing {
-    pub fn new(kind: &'static str, data: ThingData) -> Self {
-        let seed: &[u8] = match &data {
-            ThingData::Bytes(b) => b,
-            ThingData::Heap(b) => b,
-            ThingData::Owned(_) => kind.as_bytes(),
-            ThingData::None => &[],
-        };
-        let uuid = make_uuid_from_seed(seed);
-        Self { uuid, kind, data }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Fact {
-    pub this: usize,
-    pub that: usize,
-    pub predicate: usize,
+    pub this: Uri,
+    pub predicate: Predicate,
+    pub that: Uri,
 }
 
-#[derive(Debug)]
-pub struct Kind {
-    pub name: &'static str,
-    pub description: &'static str,
-}
-
-#[derive(Debug)]
-pub struct Predicate {
-    pub name: &'static str,
-    pub this_kind: &'static str,
-    pub that_kind: &'static str,
-}
-
-pub struct Graph {
-    pub uuid_map: BTreeMap<Uuid, usize>,
-    pub things: Vec<Thing>,
-    pub facts: Vec<Fact>,
-    pub kinds: Vec<Kind>,
-    pub predicates: Vec<Predicate>,
-    pub dirty_set: BTreeSet<Uuid>,
-}
-
-impl Graph {
-    pub fn new() -> Self {
-        serial_println!("Establishing graph");
-        Self {
-            uuid_map: BTreeMap::new(),
-            things: Vec::with_capacity(2),
-            facts: Vec::new(),
-            kinds: Vec::new(),
-            predicates: Vec::new(),
-            dirty_set: BTreeSet::new(),
-        }
-    }
-
-    pub fn uuid_of<T: Thingable + 'static>(&self) -> Option<Uuid> {
-        self.things
-            .iter()
-            .find_map(|thing| thing.data.as_typed::<T>().map(|_| thing.uuid))
-    }
-
-    pub fn insert(&mut self, _kind: &'static str, data: ThingData) -> Uuid {
-        static mut COUNTER: u128 = 0xABCDEF1234567890;
-        let uuid = unsafe {
-            let value = COUNTER;
-            COUNTER = COUNTER.wrapping_add(1);
-            Uuid::from_u128(value)
-        };
-
-        let thing = Thing {
-            uuid,
-            kind: _kind,
-            data,
-        };
-
-        let idx = self.things.len();
-        self.uuid_map.insert(uuid, idx);
-        self.things.push(thing);
-        uuid
-    }
-
-    pub fn get<T: Thingable + 'static>(&self, uuid: &Uuid) -> Option<&T> {
-        self.uuid_map
-            .get(uuid)
-            .and_then(|&i| self.things.get(i)?.data.as_typed::<T>())
-    }
-
-    pub fn get_mut<T: Thingable + 'static>(&mut self, uuid: &Uuid) -> Option<&mut T> {
-        self.uuid_map
-            .get(uuid)
-            .copied()
-            .and_then(move |i| self.things.get_mut(i)?.data.as_typed_mut::<T>(*uuid))
-    }
-
-    pub fn find<T: Thingable + 'static>(&self, f: impl Fn(&T) -> bool) -> Option<&T> {
-        self.things
-            .iter()
-            .find_map(|thing| thing.data.as_typed::<T>().filter(|typed| f(*typed)))
-    }
-
-    pub fn find_mut<T: Thingable + 'static>(&mut self, f: impl Fn(&T) -> bool) -> Option<&mut T> {
-        self.things.iter_mut().find_map(|thing| {
-            thing
-                .data
-                .as_typed_mut::<T>(thing.uuid)
-                .filter(|typed| f(*typed))
-        })
-    }
-
-    pub fn find_one<T: Thingable + 'static>(&mut self) -> Option<&mut T> {
-        self.find_mut::<T>(|_| true)
-    }
-
-    pub fn print_things(&self) {
-        for (i, thing) in self.things.iter().enumerate() {
-            serial_println!("#{}: {} [{}]", i, thing.uuid, thing.kind);
-        }
-    }
-
-    pub fn print_links(&self) {
-        for fact in &self.facts {
-            let this = self.things[fact.this].uuid;
-            let that = self.things[fact.that].uuid;
-            let pred = self.predicates[fact.predicate].name;
-            serial_println!("{} --{}--> {}", this, pred, that);
+impl Fact {
+    pub fn that(this: Uri, predicate: &Predicate, that: Uri) -> Fact {
+        Fact {
+            this,
+            predicate: predicate.clone(),
+            that,
         }
     }
 }
+// ----------------------------
 
-fn mark_dirty(uuid: Uuid) {
-    serial_println!("Marked dirty: {}", uuid);
-    // Future: queue this uuid or flag its memory page
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Uri(pub String);
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Predicate(pub &'static str);
+
+#[macro_export]
+macro_rules! does {
+    ($lit:literal) => {
+        &Predicate($lit)
+    };
 }
+
+#[macro_export]
+macro_rules! a_kind_of {
+    ($lit:literal) => {
+        $crate::Uri(concat!("kind:", $lit).into())
+    };
+}
+
+// ----------------------------
+// The Space Trait
+// ----------------------------
+
+pub trait Space: Send + Sync {
+    fn protocols(&self) -> &[&'static str];
+
+    fn content(&self, uri: &Uri) -> Option<&[u8]>;
+
+    fn neighbors(&self, from: &Uri, pred: &Predicate) -> Vec<Uri>;
+
+    fn kind(&self, _uri: &Uri) -> Option<Uri> {
+        None
+    }
+
+    fn has_fact(&self, from: &Uri, pred: &Predicate, to: &Uri) -> bool {
+        self.neighbors(from, pred).contains(to)
+    }
+
+    fn write_content(&mut self, _uri: &Uri, _data: &[u8]) -> Result<(), String> {
+        Err("Read-only space".into())
+    }
+
+    fn add_fact(&mut self, _from: &Uri, _pred: Predicate, _to: &Uri) -> Result<(), String> {
+        Err("Read-only space".into())
+    }
+
+    fn assert(&mut self, fact: Fact) -> Result<(), String> {
+        self.add_fact(&fact.this, fact.predicate, &fact.that)
+    }
+
+    fn remove_fact(&mut self, _from: &Uri, _pred: &Predicate, _to: &Uri) -> Result<(), String> {
+        Err("Read-only space".into())
+    }
+
+    fn facts(&self, from: &Uri) -> Vec<Fact> {
+        let mut all = Vec::new();
+        for pred in ["contains", "owns", "maps_to"].iter() {
+            let p = Predicate(*pred);
+            for tgt in self.neighbors(from, &p) {
+                all.push(Fact::that(from.clone(), &p, tgt));
+            }
+        }
+        all
+    }
+}
+
+impl<T: Space + ?Sized> Space for &T {
+    fn protocols(&self) -> &[&'static str] {
+        (**self).protocols()
+    }
+    fn content(&self, uri: &Uri) -> Option<&[u8]> {
+        (**self).content(uri)
+    }
+    fn neighbors(&self, from: &Uri, pred: &Predicate) -> Vec<Uri> {
+        (**self).neighbors(from, pred)
+    }
+    fn kind(&self, uri: &Uri) -> Option<Uri> {
+        (**self).kind(uri)
+    }
+    fn has_fact(&self, from: &Uri, pred: &Predicate, to: &Uri) -> bool {
+        (**self).has_fact(from, pred, to)
+    }
+    fn write_content(&mut self, _uri: &Uri, _data: &[u8]) -> Result<(), String> {
+        // Won't be called, but must exist
+        Err("Cannot write through &T".into())
+    }
+    fn add_fact(&mut self, _from: &Uri, _pred: Predicate, _to: &Uri) -> Result<(), String> {
+        Err("Cannot mutate through &T".into())
+    }
+    fn assert(&mut self, _fact: Fact) -> Result<(), String> {
+        Err("Cannot mutate through &T".into())
+    }
+    fn remove_fact(&mut self, _from: &Uri, _pred: &Predicate, _to: &Uri) -> Result<(), String> {
+        Err("Cannot mutate through &T".into())
+    }
+    fn facts(&self, from: &Uri) -> Vec<Fact> {
+        (**self).facts(from)
+    }
+}
+
+// ----------------------------
+// Thing Proxy
+// ----------------------------
+
+pub struct Thing<'a> {
+    pub uri: Uri,
+    pub space: Arc<Mutex<dyn Space + 'a>>,
+}
+
+impl Thing<'_> {
+    /// Convenience method for accessing this Thing's URI by value.
+    pub fn uri(&self) -> Uri {
+        self.uri.clone()
+    }
+    pub fn with<R>(&self, f: impl FnOnce(&dyn Space) -> R) -> R {
+        let space = self.space.lock();
+        f(&*space)
+    }
+
+    pub fn with_mut<R>(&self, f: impl FnOnce(&mut dyn Space) -> R) -> R {
+        let mut space = self.space.lock();
+        f(&mut *space)
+    }
+
+    pub fn neighbors(&self, pred: &Predicate) -> Vec<Uri> {
+        self.with(|s| s.neighbors(&self.uri, pred))
+    }
+
+    pub fn content(&self) -> Option<Vec<u8>> {
+        self.with(|s| s.content(&self.uri).map(|data| data.to_vec()))
+    }
+
+    pub fn kind(&self) -> Option<Uri> {
+        self.with(|s| s.kind(&self.uri))
+    }
+
+    pub fn facts(&self) -> Vec<Fact> {
+        self.with(|s| s.facts(&self.uri))
+    }
+
+    pub fn write(&self, data: &[u8]) -> Result<(), String> {
+        self.with_mut(|s| s.write_content(&self.uri, data))
+    }
+
+    /// Cast to a Rust type if kind matches and deserialization succeeds.
+    pub fn as_a<T: Thingable>(&self) -> Option<T> {
+        let expected = T::kind_uri();
+        let actual = self.kind()?;
+        if actual != expected {
+            return None;
+        }
+        let content = self.content()?;
+        T::from_bytes(&content)
+    }
+
+    /// Get all related Things via a given predicate
+    pub fn rel(&self, pred: &str) -> Vec<Thing> {
+        let p = Predicate(Box::leak(pred.to_string().into_boxed_str()));
+        let space = self.space.clone();
+        self.neighbors(&p)
+            .into_iter()
+            .map(|uri| Thing {
+                uri,
+                space: space.clone(),
+            })
+            .collect()
+    }
+
+    pub fn related(&self, pred: &str) -> Vec<Thing> {
+        self.rel(pred)
+    }
+
+    pub fn linked(&self, pred: &str) -> Vec<Thing> {
+        self.rel(pred)
+    }
+}
+
+// ----------------------------
+// Thingable Trait
+// ----------------------------
 
 pub trait Thingable: Sized {
-    fn kind() -> &'static str;
-    fn serialize(&self) -> Vec<u8>;
-    fn deserialize(bytes: &[u8]) -> Option<Self>;
+    fn kind_uri() -> Uri;
+    fn from_bytes(data: &[u8]) -> Option<Self>;
+}
+
+impl<T> Thingable for T
+where
+    T: DeserializeOwned,
+{
+    fn kind_uri() -> Uri {
+        Uri(concat!("kind:", stringify!(T)).into())
+    }
+
+    fn from_bytes(data: &[u8]) -> Option<Self> {
+        postcard::from_bytes(data).ok()
+    }
+}
+
+// ----------------------------
+// Optional: ValidationError
+// ----------------------------
+
+#[derive(Debug)]
+pub enum ValidationError {
+    MissingKind,
+    WrongKind { expected: Uri, actual: Uri },
+    NoContent,
+    BadFormat,
+}
+
+impl Thing<'_> {
+    /// Validate cast attempt strictly: kind must match and deserialization must succeed.
+    pub fn for_sure<T: Thingable>(&self) -> Result<T, ValidationError> {
+        let expected = T::kind_uri();
+        let actual = self.kind().ok_or_else(|| ValidationError::MissingKind)?;
+        if actual != expected {
+            return Err(ValidationError::WrongKind { expected, actual });
+        }
+        let content = self.content().ok_or_else(|| ValidationError::NoContent)?;
+        T::from_bytes(&content).ok_or(ValidationError::BadFormat)
+    }
 }
 
 pub fn make_uuid_from_seed(seed: &[u8]) -> Uuid {
@@ -198,12 +263,4 @@ pub fn make_uuid_from_seed(seed: &[u8]) -> Uuid {
         hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7], hash[8], hash[9],
         hash[10], hash[11], hash[12], hash[13], hash[14], hash[15],
     ])
-}
-
-/// Convenience macro to wrap values in ThingData::Owned(Box::new(...))
-#[macro_export]
-macro_rules! thingify {
-    ($value:expr) => {
-        $crate::thing::ThingData::Owned(Box::new($value))
-    };
 }

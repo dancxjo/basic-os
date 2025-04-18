@@ -45,6 +45,7 @@ pub static mut SERIAL1: SerialPort = SerialPort::new(0x3F8);
 #[macro_export]
 macro_rules! serial_print {
     ($($arg:tt)*) => {
+        #[allow(unused_unsafe)]
         unsafe {
             use core::fmt::Write;
             #[allow(static_mut_refs)]

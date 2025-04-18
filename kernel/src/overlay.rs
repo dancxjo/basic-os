@@ -1,16 +1,20 @@
-use crate::serial_println;
-use crate::thing::Graph;
+use crate::{
+    serial_println,
+    thing::{Space, Uri},
+};
+use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{string::String, vec};
 use x86_64::VirtAddr;
 
-/// A diagnostic overlay that prints basic memory and graph info to the serial console.
+/// A diagnostic overlay that prints memory and fact-based graph info to the serial console.
 pub struct DebugOverlay<'a> {
-    graph: &'a Graph,
+    graph: &'a dyn Space,
     heap_start: VirtAddr,
     heap_size: usize,
 }
 
 impl<'a> DebugOverlay<'a> {
-    pub fn new(graph: &'a Graph, heap_start: VirtAddr, heap_size: usize) -> Self {
+    pub fn new(graph: &'a dyn Space, heap_start: VirtAddr, heap_size: usize) -> Self {
         DebugOverlay {
             graph,
             heap_start,
@@ -25,20 +29,32 @@ impl<'a> DebugOverlay<'a> {
             self.heap_start.as_u64(),
             self.heap_start.as_u64() + self.heap_size as u64
         );
-        serial_println!("Number of Things: {}", self.graph.things.len());
 
-        let kinds = self.count_kinds();
-        for (kind, count) in kinds {
+        let mut thing_count = 0;
+        let mut kind_counts: BTreeMap<String, usize> = BTreeMap::new();
+
+        // Naive implementation: we iterate over known kernel Things
+        for uri in self.enumerate_known_uris() {
+            thing_count += 1;
+            if let Some(kind) = self.graph.kind(&uri) {
+                let kind_key = kind.0.clone(); // This is a String
+                *kind_counts.entry(kind_key).or_insert(0) += 1;
+            }
+        }
+
+        serial_println!("Number of Things: {}", thing_count);
+        for (kind, count) in kind_counts {
             serial_println!("  [{}]: {}", kind, count);
         }
     }
 
-    fn count_kinds(&self) -> alloc::collections::BTreeMap<&'static str, usize> {
-        let mut counts = alloc::collections::BTreeMap::new();
-        for thing in &self.graph.things {
-            *counts.entry(thing.kind).or_insert(0) += 1;
-        }
-        counts
+    /// Enumerate a fixed list of known URIs for now. You can expand this or introspect later.
+    fn enumerate_known_uris(&self) -> Vec<Uri> {
+        vec![
+            Uri("os://kernel".into()),
+            Uri("ui://screen/1".into()),
+            Uri("proc://1".into()),
+        ]
     }
 }
 

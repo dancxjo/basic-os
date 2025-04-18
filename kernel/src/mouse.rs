@@ -1,12 +1,6 @@
-use crate::thing::Thingable;
 use crate::{framebuffer::Framebuffer, serial_println};
-use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
-use spinning_top::Spinlock;
-use thing_macros::Thing;
 use x86_64::instructions::port::Port;
 
-#[derive(Debug, Serialize, Deserialize, Thing, Clone)]
 pub struct Mouse {
     pub x: usize,
     pub y: usize,

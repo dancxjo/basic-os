@@ -1,16 +1,8 @@
-use crate::thing::Thingable;
-use crate::{bootloader::get_module, thing::Thing};
-use alloc::{collections::BTreeMap, vec};
+use alloc::vec;
 use core::convert::Infallible;
-use embedded_graphics::{
-    mono_font::{MonoTextStyle, MonoTextStyleBuilder},
-    pixelcolor::Rgb565,
-    prelude::*,
-};
+use embedded_graphics::{mono_font::MonoTextStyleBuilder, pixelcolor::Rgb565, prelude::*};
 use libm::floor;
 use limine::request::FramebufferRequest;
-use serde::{Deserialize, Serialize};
-use thing_macros::Thing;
 
 const MAX_WIDTH: usize = 3840;
 const MAX_HEIGHT: usize = 2160;
