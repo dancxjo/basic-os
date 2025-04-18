@@ -5,16 +5,81 @@
 use crate::serial_println;
 use x86_64::VirtAddr;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
-use x86_64::structures::paging::{FrameAllocator, Page, PageTableFlags, PhysFrame, Size4KiB};
+use x86_64::structures::paging::{FrameAllocator, Page, PageTableFlags};
+use x86_64::structures::tss::TaskStateSegment;
 
 use crate::memory::{BootFrameAllocator, map_page_to};
-use x86_64::structures::tss::TaskStateSegment;
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 const DOUBLE_FAULT_STACK_START: u64 = 0x4444_7000_0000;
 const DOUBLE_FAULT_STACK_SIZE: usize = 5 * 4096; // 20 KiB
 
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum InterruptIndex {
+    Timer = 32,
+    Keyboard = 33,
+    Mouse = 44, // IRQ12
+}
+
+impl InterruptIndex {
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn as_usize(self) -> usize {
+        usize::from(self.as_u8())
+    }
+}
+
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
+
+extern "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: PageFaultErrorCode,
+) {
+    use x86_64::registers::control::Cr2;
+
+    let addr = Cr2::read();
+
+    serial_println!("\u{1F4A8} PAGE FAULT");
+    serial_println!("  Faulting address: {:#018x}", addr);
+    serial_println!("  Error code: {:?}", error_code);
+    serial_println!(
+        "  Instruction pointer: {:#018x}",
+        stack_frame.instruction_pointer.as_u64()
+    );
+    serial_println!(
+        "  Stack pointer:       {:#018x}",
+        stack_frame.stack_pointer.as_u64()
+    );
+    serial_println!("  Code segment:        {:#x}", stack_frame.code_segment);
+    serial_println!("  Stack segment:       {:#x}", stack_frame.stack_segment);
+    serial_println!("  CPU flags:           {:#x}", stack_frame.cpu_flags);
+
+    loop {}
+}
+
+extern "x86-interrupt" fn double_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) -> ! {
+    serial_println!(
+        "EXCEPTION: DOUBLE FAULT\n{:#?}\nError code: {:#x}",
+        stack_frame,
+        error_code
+    );
+    loop {}
+}
+
+extern "x86-interrupt" fn gp_handler(stack_frame: InterruptStackFrame, error_code: u64) {
+    serial_println!(
+        "EXCEPTION: #GP\n{:#?}\nError: {:#x}",
+        stack_frame,
+        error_code
+    );
+    loop {}
+}
 
 pub fn init_idt() {
     unsafe {
@@ -54,51 +119,4 @@ pub fn init_double_fault_stack(
         VirtAddr::new(DOUBLE_FAULT_STACK_START + DOUBLE_FAULT_STACK_SIZE as u64);
 
     serial_println!("Double fault IST stack mapped and configured.");
-}
-
-extern "x86-interrupt" fn page_fault_handler(
-    stack_frame: InterruptStackFrame,
-    error_code: PageFaultErrorCode,
-) {
-    use x86_64::registers::control::Cr2;
-
-    let addr = Cr2::read();
-
-    serial_println!("🧨 PAGE FAULT");
-    serial_println!("  Faulting address: {:#018x}", addr);
-    serial_println!("  Error code: {:?}", error_code);
-    serial_println!(
-        "  Instruction pointer: {:#018x}",
-        stack_frame.instruction_pointer.as_u64()
-    );
-    serial_println!(
-        "  Stack pointer:       {:#018x}",
-        stack_frame.stack_pointer.as_u64()
-    );
-    serial_println!("  Code segment:        {:#x}", stack_frame.code_segment);
-    serial_println!("  Stack segment:       {:#x}", stack_frame.stack_segment);
-    serial_println!("  CPU flags:           {:#x}", stack_frame.cpu_flags);
-
-    loop {}
-}
-
-extern "x86-interrupt" fn double_fault_handler(
-    stack_frame: InterruptStackFrame,
-    error_code: u64,
-) -> ! {
-    serial_println!(
-        "EXCEPTION: DOUBLE FAULT\n{:#?}\nError code: {:#x}",
-        stack_frame,
-        error_code
-    );
-    loop {}
-}
-
-extern "x86-interrupt" fn gp_handler(stack_frame: InterruptStackFrame, error_code: u64) {
-    serial_println!(
-        "EXCEPTION: #GP\n{:#?}\nError: {:#x}",
-        stack_frame,
-        error_code
-    );
-    loop {}
 }

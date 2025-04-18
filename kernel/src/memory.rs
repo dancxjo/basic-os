@@ -41,7 +41,7 @@ pub struct MemoryRegion {
 }
 
 #[used]
-static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
+pub static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 
 /// Parse and cache Limine’s memory map
 pub fn collect_memory_regions() -> &'static [MemoryRegion] {

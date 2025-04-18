@@ -1,16 +1,24 @@
+use core::any::Any;
 use core::arch::asm;
 
+use crate::interrupts::init_interrupts;
+use crate::memory::MEMMAP_REQUEST;
+use crate::mouse::Mouse;
+
+use crate::thing::Thing;
+use crate::thingify;
 use crate::{
     bootloader, dump_overlay,
+    framebuffer::Framebuffer,
     gdt::init_gdt,
     idt::{init_double_fault_stack, init_idt},
     memory::{self, HEAP_SIZE, HEAP_START, map_page_to},
     message::Message,
     seed::SeedBlob,
     serial_println,
-    thing::Graph,
+    thing::{Graph, ThingData, Thingable},
 };
-use alloc::boxed::Box;
+use alloc::{boxed::Box, format, vec::Vec};
 use limine::request::HhdmRequest;
 use x86_64::{
     VirtAddr,
@@ -23,10 +31,11 @@ pub struct Kernel {
     pub graph: Graph,
     mapper: &'static mut x86_64::structures::paging::OffsetPageTable<'static>,
     frame_allocator: memory::BootFrameAllocator,
+    framebuffer: Framebuffer,
 }
 
 #[used]
-static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
+pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
 fn get_hhdm_offset() -> VirtAddr {
     let resp = HHDM_REQUEST.get_response().expect("No HHDM response");
@@ -34,10 +43,127 @@ fn get_hhdm_offset() -> VirtAddr {
 }
 
 impl Kernel {
-    fn get_elf_entry_point(&self) -> u64 {
+    pub fn spin(&mut self) -> ! {
+        let mut x: usize = 0;
+        let mut direction: isize = 1;
+        let mouse_id = self.graph.uuid_of::<Mouse>().unwrap();
+        let mut tick: u64 = 0;
+
+        loop {
+            // self.framebuffer.clear(0x202020);
+
+            // Draw bouncing block
+            self.framebuffer.draw_rect(x, 100, 100, 50, 0x00FF00);
+
+            // Dynamic text
+            let msg = format!("tick: {}", tick);
+            self.framebuffer.draw_text(&msg, x, 200, 20);
+            self.framebuffer.draw_text("ThingOS Kernel UI", 20, 20, 24);
+            self.framebuffer
+                .draw_text("Dragons not yet implemented", 20, 50, 16);
+
+            // Draw mouse pointer
+            let mouse: &mut Mouse = self.graph.get_mut::<Mouse>(&mouse_id).unwrap();
+            mouse.poll();
+            serial_println!("Mouse position: ({}, {})", mouse.x, mouse.y);
+            mouse.draw(&mut self.framebuffer);
+
+            self.framebuffer.flush();
+
+            x = (x as isize + direction) as usize;
+            if x > self.framebuffer.width - 100 || x == 0 {
+                direction *= -1;
+            }
+
+            tick = tick.wrapping_add(1);
+        }
+    }
+
+    pub fn new() -> Self {
+        let offset = get_hhdm_offset();
+        let (mut mapper, mut frame_allocator) = unsafe { memory::init(offset) };
+        serial_println!("Paging initialized");
+
+        init_gdt();
+        #[allow(static_mut_refs)]
+        let tss = unsafe { crate::gdt::TSS.as_mut().expect("TSS not initialized") };
+        init_double_fault_stack(tss, &mut mapper, &mut frame_allocator);
+        init_idt();
+        init_interrupts();
+        x86_64::instructions::interrupts::enable();
+
+        let graph = Graph::new();
+        let framebuffer = Framebuffer::new().expect("Framebuffer not initialized");
+        let mouse = Mouse::new(&framebuffer);
+        let boxed = Box::new(42_u64);
+        let addr = boxed.as_ref() as *const u64 as usize;
+
+        serial_println!("Boxed value address: {:#x}", addr);
+        assert!(
+            addr >= HEAP_START as usize && addr < (HEAP_START + HEAP_SIZE as u64) as usize,
+            "Boxed value not in heap!"
+        );
+
+        let mut kernel = Kernel {
+            graph,
+            mapper,
+            frame_allocator,
+            framebuffer,
+        };
+
+        kernel.init_graph();
+        kernel.print();
+        kernel.map_bootloader_memory();
+        kernel.print();
+        kernel.insert_devices(mouse);
+        kernel.print();
+
+        kernel
+    }
+
+    fn init_graph(&mut self) {
+        self.graph.insert(
+            "message",
+            thingify!(Message::new("ThingOS. People, places, things and ideas.")),
+        );
+
+        self.graph.insert("kernel.version", thingify!("v0.1.0"));
+        self.graph
+            .insert("kernel.build_id", thingify!(0xDEADBEEF_u64));
+    }
+
+    fn map_bootloader_memory(&mut self) {
+        let hhdm_response = HHDM_REQUEST.get_response().expect("No HHDM response");
+        let memory_map = MEMMAP_REQUEST.get_response().expect("No memory map");
+
+        let base = hhdm_response.offset();
+        let max_phys = memory_map
+            .entries()
+            .iter()
+            .map(|e| e.base + e.length)
+            .max()
+            .unwrap_or(0);
+
+        let len = max_phys;
+
+        let slice = unsafe { core::slice::from_raw_parts(base as *const u8, len as usize) };
+        self.graph.insert("allocated memory", thingify!(slice));
+    }
+
+    fn insert_devices(&mut self, mouse: Mouse) {
+        self.graph.insert("mouse", thingify!(mouse));
+        self.graph.insert("cursor.color", thingify!(0xFF0000_u32));
+    }
+
+    fn print(&self) {
+        self.graph.print_things();
+        dump_overlay!(&self.graph);
+    }
+
+    fn get_elf_entry_point(&mut self) -> u64 {
         let this = self
             .graph
-            .find_typed::<SeedBlob>(|_seed| true)
+            .find_one::<SeedBlob>()
             .expect("Missing seed_blob");
         let data = &this.bytes;
         if &data[0..4] != b"\x7FELF" {
@@ -46,209 +172,8 @@ impl Kernel {
         u64::from_le_bytes(data[24..32].try_into().unwrap()) + USER_BASE_VADDR
     }
 
-    pub fn new() -> Self {
-        let offset = get_hhdm_offset();
-        let (mut mapper, mut frame_allocator) = unsafe { memory::init(offset) };
-        serial_println!("Paging initialized");
-        init_gdt();
-        #[allow(static_mut_refs)]
-        let tss = unsafe { crate::gdt::TSS.as_mut().expect("TSS not initialized") };
-        init_double_fault_stack(tss, &mut mapper, &mut frame_allocator);
-        init_idt();
-        x86_64::instructions::interrupts::enable();
-
-        let boxed = Box::new(42_u64);
-        let addr = boxed.as_ref() as *const u64 as usize;
-        serial_println!("Boxed value address: {:#x}", addr);
-        assert!(
-            addr >= HEAP_START as usize && addr < (HEAP_START + HEAP_SIZE as u64) as usize,
-            "Boxed value not in heap!"
-        );
-
-        let mut graph = Graph::new();
-        dump_overlay!(&graph);
-        graph.insert(
-            "message",
-            Message::new("ThingOS. People, places, things and ideas."),
-        );
-        dump_overlay!(&graph);
-
-        Kernel {
-            graph,
-            mapper,
-            frame_allocator,
-        }
-    }
-
-    pub fn spin(&mut self) -> ! {
-        dump_overlay!(&self.graph);
-        self.load_hello_bin();
-        loop {
-            crate::panic::halt();
-        }
-    }
-
-    fn load_hello_bin(&mut self) {
-        if let Some(bin) = bootloader::get_module("hello-user") {
-            serial_println!("Found 'hello-user' module, size {} bytes", bin.len());
-            let entry = self.parse_elf(bin);
-            self.map_hello_user_memory();
-            self.graph.insert(
-                "seed_blob",
-                SeedBlob {
-                    bytes: bin.to_vec(),
-                },
-            );
-            dump_overlay!(&self.graph);
-            self.sprout(entry);
-        } else {
-            serial_println!("Could not find 'hello-user' module");
-        }
-    }
-
-    fn parse_elf(&mut self, data: &[u8]) -> u64 {
-        serial_println!("[hello-user] Parsing ELF headers...");
-        let magic = &data[0..4];
-        if magic != b"\x7FELF" {
-            serial_println!("Not a valid ELF");
-            return 0;
-        }
-
-        let e_phoff = u64::from_le_bytes(data[32..40].try_into().unwrap());
-        let e_phentsz = u16::from_le_bytes(data[54..56].try_into().unwrap()) as usize;
-        let e_phnum = u16::from_le_bytes(data[56..58].try_into().unwrap());
-
-        serial_println!(
-            "[hello-user] PH off {:#x}, count {}, size {}",
-            e_phoff,
-            e_phnum,
-            e_phentsz
-        );
-
-        let e_entry = u64::from_le_bytes(data[24..32].try_into().unwrap());
-        let entry_point = e_entry + USER_BASE_VADDR;
-        serial_println!("[hello-user] ELF entry point: {:#x}", entry_point);
-
-        for i in 0..e_phnum {
-            let off = e_phoff as usize + i as usize * e_phentsz;
-            let ph = &data[off..off + e_phentsz];
-            let p_type = u32::from_le_bytes(ph[0..4].try_into().unwrap());
-            let p_offset = u64::from_le_bytes(ph[8..16].try_into().unwrap());
-            let p_vaddr = u64::from_le_bytes(ph[16..24].try_into().unwrap()) + USER_BASE_VADDR;
-            let p_filesz = u64::from_le_bytes(ph[32..40].try_into().unwrap());
-            let p_memsz = u64::from_le_bytes(ph[40..48].try_into().unwrap());
-
-            if p_type == 1 && p_memsz > 0 {
-                serial_println!(
-                    "[hello-user] Seg {} -> {:#x} filesz {} memsz {}",
-                    i,
-                    p_vaddr,
-                    p_filesz,
-                    p_memsz
-                );
-                use x86_64::structures::paging::Page;
-                let start = VirtAddr::new(p_vaddr);
-                let end = VirtAddr::new(p_vaddr + p_memsz - 1);
-                for page in Page::range_inclusive(
-                    Page::containing_address(start),
-                    Page::containing_address(end),
-                ) {
-                    let frame = self.frame_allocator.allocate_frame().expect("no frame");
-                    map_page_to(
-                        self.mapper,
-                        page,
-                        frame,
-                        Flags::PRESENT | Flags::WRITABLE | Flags::USER_ACCESSIBLE,
-                        &mut self.frame_allocator,
-                    );
-                }
-                unsafe {
-                    let dest =
-                        core::slice::from_raw_parts_mut(p_vaddr as *mut u8, p_filesz as usize);
-                    dest.copy_from_slice(
-                        &data[p_offset as usize..(p_offset as usize + p_filesz as usize)],
-                    );
-                }
-                // entry_point = p_vaddr; // Update entry point to the last loaded segment
-            }
-        }
-
-        entry_point
-    }
-
-    fn map_hello_user_memory(&mut self) {
-        serial_println!("[hello-user] Mapping user memory...");
-        use x86_64::structures::paging::Page;
-        let stack_start = VirtAddr::new(0x7FFF_FFFF_E000);
-        let stack_end = VirtAddr::new(0x8000_0000_0000 - 1); // <- now includes 0x7FFF_FFFF_F000
-
-        // let stack_end = VirtAddr::new(stack_start.as_u64() + 0x4000 - 1);
-        for page in Page::range_inclusive(
-            Page::containing_address(stack_start),
-            Page::containing_address(stack_end),
-        ) {
-            let frame = self.frame_allocator.allocate_frame().expect("no frame");
-            map_page_to(
-                self.mapper,
-                page,
-                frame,
-                Flags::PRESENT | Flags::WRITABLE | Flags::USER_ACCESSIBLE,
-                &mut self.frame_allocator,
-            );
-        }
-        serial_println!("[hello-user] Stack at {:#x}", stack_start);
-    }
-
-    fn sprout(&self, entry: u64) {
-        serial_println!("[sprout] Preparing to enter user mode...");
-        // Properly access the static mutable SELECTORS safely
-        let (mut user_cs, mut user_ds) = {
-            // You need to wrap access to statics in an unsafe block
-            let selectors = unsafe {
-                #[allow(static_mut_refs)]
-                crate::gdt::SELECTORS
-                    .as_ref()
-                    .expect("SELECTORS not initialized")
-            };
-            (selectors.code_usr.0, selectors.data_usr.0)
-        };
-        let user_cs = user_cs | 0x3;
-        let user_ds = user_ds | 0x3;
-
-        let stack_top = 0x7FFF_FFFF_E000u64;
-        let stack = stack_top;
-
-        serial_println!("[sprout] Entry point: {:#x}", entry);
-        serial_println!("[sprout] Stack pointer: {:#x}", stack);
-        serial_println!(
-            "[sprout] Segment selectors: cs={:#x}, ds={:#x}",
-            user_cs,
-            user_ds
-        );
-
-        let entry_byte = unsafe { *(entry as *const u8) };
-        serial_println!("[sprout] Entry memory first byte: {:#x}", entry_byte);
-
-        // 🧠 Sanity check
-        assert!(stack & 0xF == 0, "Stack not 16-byte aligned!");
-
-        unsafe {
-            asm!(
-                "cli",
-                "mov ax, {0:x}", "mov ds, ax", "mov es, ax", "mov fs, ax", "mov gs, ax",
-                "push {1:r}",           // ss
-                "push {2:r}",           // rsp
-                "pushfq",               // rflags
-                "push {3:r}",           // cs
-                "push {4:r}",           // rip
-                "iretq",
-                in(reg) user_ds,
-                in(reg) stack,
-                in(reg) stack,
-                in(reg) user_cs,
-                in(reg) entry,
-                options(noreturn)
-            );
-        }
+    pub fn enrich_graph(&mut self) {
+        serial_println!("[kernel] Enriched graph with bootloader memory map");
+        self.graph.print_things();
     }
 }

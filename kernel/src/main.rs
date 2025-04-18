@@ -9,11 +9,14 @@ extern crate alloc;
 
 mod bootloader;
 mod fiat;
+mod framebuffer;
 mod gdt;
 mod idt;
+mod interrupts;
 mod kernel;
 mod memory;
 mod message;
+mod mouse;
 mod overlay;
 mod panic;
 mod seed;

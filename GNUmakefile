@@ -179,6 +179,7 @@ hello-user/hello-user:
 $(IMAGE_NAME).iso: limine/limine kernel hello-user/hello-user
 	rm -rf iso_root
 	mkdir -p iso_root/boot
+	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
 	cp -v hello-user/hello-user iso_root/boot/
 	mkdir -p iso_root/boot/limine
