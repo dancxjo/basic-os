@@ -41,7 +41,7 @@ impl Mouse {
 
     pub fn draw(&self, fb: &mut Framebuffer) {
         let (x, y) = self.position();
-        fb.draw_circle(x, y, 5, 0xFF0000);
+        // fb.draw_circle(x, y, 5, 0xFF0000);
     }
 
     pub fn poll(&mut self) {

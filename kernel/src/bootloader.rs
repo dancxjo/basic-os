@@ -1,13 +1,24 @@
 extern crate alloc;
 use core::str;
 
-#[used]
-static MODULE_REQUEST: ModuleRequest = ModuleRequest::new();
-
 use alloc::borrow::ToOwned;
 use alloc::{boxed::Box, collections::BTreeMap};
 use core::sync::atomic::{AtomicBool, Ordering};
-use limine::request::ModuleRequest;
+use limine::request::{HhdmRequest, MemoryMapRequest, ModuleRequest};
+use x86_64::VirtAddr;
+
+#[used]
+pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
+
+pub fn get_hhdm_offset() -> VirtAddr {
+    let resp = HHDM_REQUEST.get_response().expect("No HHDM response");
+    VirtAddr::new(resp.offset())
+}
+
+#[used]
+pub static MODULE_REQUEST: ModuleRequest = ModuleRequest::new();
+#[used]
+pub static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 
 static mut MODULE_CACHE: Option<BTreeMap<&'static str, &'static [u8]>> = None;
 static INIT: AtomicBool = AtomicBool::new(false);

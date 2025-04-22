@@ -1,8 +1,4 @@
-//! memory.rs — ThingOS memory management: paging, allocator, and memory map
-
-use crate::os_space::HHDM_REQUEST;
-use crate::os_space::MEMMAP_REQUEST;
-use crate::serial_println;
+use crate::{bootloader::MEMMAP_REQUEST, serial_println};
 use alloc::boxed::Box;
 use core::{mem::MaybeUninit, ops::Range};
 use limine::memory_map::EntryType;
