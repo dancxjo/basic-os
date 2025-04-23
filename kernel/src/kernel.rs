@@ -68,20 +68,9 @@ pub struct Core {
     framebuffer: Framebuffer,
     clock: Clock,
     scheduler: Scheduler,
-    gui: GUI,
 }
 
 impl Core {
-    fn draw_ui(&mut self) {
-        let current_time = self.clock.current_time();
-        self.gui.set_message(format!(
-            "Tick #{} @{}",
-            self.kernel.tick_count(),
-            current_time.to_string(),
-        ));
-        self.gui.output(&mut self.framebuffer);
-    }
-
     fn refresh(&mut self) {
         self.framebuffer.flush();
     }
@@ -102,7 +91,6 @@ impl Core {
                 self.refresh();
                 last_cycle = current_cycle;
             }
-            self.draw_ui();
             self.scheduler.tick(&mut self.clock);
             self.kernel.tick_count = self.kernel.tick_count.wrapping_add(1);
         }
@@ -120,6 +108,10 @@ impl Core {
         self.space.insert(boots_at);
         let i_wuz_here = things::Fact::new(kid, bid, mid, false);
         self.space.insert(things::Thing::new(i_wuz_here));
+
+        let gui = Box::new(GUI::new(&self.framebuffer));
+        let penalty_task = PenaltyTask::new(gui, Some("gooey".to_string()));
+        self.scheduler.add_task(penalty_task);
     }
 
     fn announce_boot(&mut self) {
@@ -156,8 +148,6 @@ impl Core {
         let clock = Clock::new(hpet, rtc);
         let kernel = Kernel::new(0, clock.current_time());
 
-        let gui = GUI::new(&framebuffer);
-
         let core = Core {
             kernel,
             mapper,
@@ -165,8 +155,7 @@ impl Core {
             framebuffer,
             clock,
             space: things::Space::new(),
-            scheduler: Scheduler::new(FRAME_BUDGET_NS),
-            gui,
+            scheduler: Scheduler::new(FRAME_BUDGET_NS * 100),
         };
 
         core

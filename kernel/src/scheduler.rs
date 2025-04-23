@@ -1,6 +1,6 @@
 use crate::{clock::Clock, penalty_task::PenaltyTask};
 use alloc::vec::Vec;
-use log::{info, warn};
+use log::warn;
 
 pub struct Scheduler {
     tasks: Vec<PenaltyTask>,
