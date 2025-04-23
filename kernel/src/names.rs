@@ -1,8 +1,8 @@
 //! Reversible Persona Name Generator from UUIDs
 
+use alloc::string::String;
 use alloc::string::ToString;
 use alloc::{fmt, format};
-use alloc::{fmt::Display, string::String};
 use uuid::Uuid;
 
 const FIRST_NAMES_MASC: &[&str] = &["Harvy", "Homer", "Michael", "Edgar", "Jules"];

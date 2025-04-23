@@ -1,6 +1,5 @@
 // Framebuffer module using embedded-graphics directly without custom draw_* methods
 
-use alloc::format;
 use core::convert::Infallible;
 use embedded_graphics::{
     mono_font::iso_8859_1::FONT_6X10,
@@ -111,121 +110,24 @@ impl Framebuffer {
             *px = encoded;
         }
     }
-}
 
-use embedded_graphics::mono_font::{MonoTextStyle, ascii::FONT_10X20};
-
-use crate::kernel_logger::logger;
-
-// TODO: Just a placeholder for now
-pub fn draw_kernel_ui(framebuffer: &mut crate::framebuffer::Framebuffer, tick_count: u64) {
-    let width = framebuffer.width as i32;
-    let height = framebuffer.height as i32;
-
-    let one_third = width / 3;
-    let two_third = width - one_third;
-
-    // Color palette
-    let background = Rgb565::new(250 >> 3, 250 >> 2, 245 >> 3); // soft parchment background
-    let box_blue = Rgb565::new(200 >> 3, 230 >> 2, 255 >> 3); // pale blue
-    let box_peach = Rgb565::new(255 >> 3, 230 >> 2, 200 >> 3); // warm peach
-    let header_color = Rgb565::new(180 >> 3, 210 >> 2, 240 >> 3); // muted cyan
-    let text_dark = Rgb565::new(30 >> 3, 30 >> 2, 30 >> 3); // deep gray
-
-    // Fill entire background
-    Rectangle::new(Point::zero(), Size::new(width as u32, height as u32))
-        .into_styled(PrimitiveStyle::with_fill(background))
-        .draw(framebuffer)
-        .ok();
-
-    // Rounded panels
-    let log_rect = Rectangle::new(
-        Point::new(20, 20),
-        Size::new(two_third as u32 - 40, height as u32 - 40),
-    );
-    let repl_rect = Rectangle::new(
-        Point::new(two_third + 20, 20),
-        Size::new(one_third as u32 - 40, height as u32 - 40),
-    );
-
-    // Draw filled rounded boxes
-    RoundedRectangle::with_equal_corners(log_rect, Size::new(12, 12))
-        .into_styled(
-            PrimitiveStyleBuilder::new()
-                .fill_color(box_blue)
-                .stroke_color(header_color)
-                .stroke_width(1)
-                .build(),
-        )
-        .draw(framebuffer)
-        .ok();
-
-    RoundedRectangle::with_equal_corners(repl_rect, Size::new(12, 12))
-        .into_styled(
-            PrimitiveStyleBuilder::new()
-                .fill_color(box_peach)
-                .stroke_color(header_color)
-                .stroke_width(1)
-                .build(),
-        )
-        .draw(framebuffer)
-        .ok();
-
-    // Headers
-    let header_height = 30;
-    Rectangle::new(
-        log_rect.top_left,
-        Size::new(log_rect.size.width, header_height),
-    )
-    .into_styled(PrimitiveStyle::with_fill(header_color))
-    .draw(framebuffer)
-    .ok();
-
-    Rectangle::new(
-        repl_rect.top_left,
-        Size::new(repl_rect.size.width, header_height),
-    )
-    .into_styled(PrimitiveStyle::with_fill(header_color))
-    .draw(framebuffer)
-    .ok();
-
-    // Fonts
-    let text_header = MonoTextStyle::new(&FONT_10X20, text_dark);
-    let text_label = MonoTextStyle::new(&FONT_10X20, text_dark);
-    let text_log = MonoTextStyle::new(&FONT_6X10, text_dark);
-
-    // Titles
-    Text::new("ThingOS v0.1", Point::new(30, 40), text_header)
-        .draw(framebuffer)
-        .ok();
-
-    Text::new("REPL INPUT", Point::new(two_third + 30, 40), text_header)
-        .draw(framebuffer)
-        .ok();
-
-    // Tick counter & system log
-    let tick_msg = format!("Tick: {}", tick_count);
-    Text::new(&tick_msg, Point::new(30, 80), text_label)
-        .draw(framebuffer)
-        .ok();
-
-    Text::new("System Log:", Point::new(30, 120), text_label)
-        .draw(framebuffer)
-        .ok();
-
-    let mut y = 140;
-    for entry in logger().iter() {
-        let line = format!("[{}] {}", entry.level, entry.message);
-        Text::with_baseline(&line, Point::new(30, y), text_log, Baseline::Top)
-            .draw(framebuffer)
-            .ok();
-        y += 12;
+    pub fn fb_mut(&mut self) -> &mut [u32] {
+        self.fb
     }
 
-    // REPL input prompt
-    Text::new(">>", Point::new(two_third + 30, 90), text_label)
-        .draw(framebuffer)
-        .ok();
+    pub fn fb_len(&self) -> usize {
+        self.fb.len()
+    }
 
-    framebuffer.flush();
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn pitch_pixels(&self) -> usize {
+        self.pitch_pixels
+    }
 }

@@ -1,3 +1,5 @@
+use core::fmt::{self, Display, Formatter};
+
 use alloc::boxed::Box;
 use log::info;
 use serde::Serialize;
@@ -163,6 +165,16 @@ impl Moment {
         )
         .unwrap();
         s
+    }
+}
+
+impl Display for Moment {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:02}/{:02}/{} {:02}:{:02}:{:02}",
+            self.month, self.day, self.year, self.hour, self.minute, self.second
+        )
     }
 }
 

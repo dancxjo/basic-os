@@ -1,20 +1,30 @@
+use core::borrow::BorrowMut;
+use core::cell::RefCell;
+
 use alloc::boxed::Box;
 use alloc::format;
+use alloc::rc::Rc;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use log::info;
 use serde::Serialize;
 
 use crate::bootloader::get_hhdm_offset;
 use crate::clock::{Clock, HPET, Moment, RTC};
-use crate::framebuffer::draw_kernel_ui;
+use crate::gui::GUI;
 use crate::interrupts::init_interrupts;
+use crate::memory;
 use crate::names::PersonaName;
+use crate::penalty_task::PenaltyTask;
+use crate::scheduler::Scheduler;
 use crate::{
     framebuffer::Framebuffer,
     gdt::init_gdt,
     idt::{init_double_fault_stack, init_idt},
 };
-use crate::{memory, proquints};
+
+/// Target frame time: 60 FPS
+const FRAME_BUDGET_NS: u64 = 16_666_667;
 
 // This is the thingifiable Kernel
 #[derive(Debug, Serialize, Clone, Copy)]
@@ -44,6 +54,11 @@ impl Kernel {
     }
 }
 
+pub trait Task {
+    fn tick(&mut self);
+    fn done(&mut self) -> bool;
+}
+
 // This is the true kernel
 pub struct Core {
     kernel: Kernel,
@@ -52,11 +67,22 @@ pub struct Core {
     frame_allocator: memory::BootFrameAllocator,
     framebuffer: Framebuffer,
     clock: Clock,
+    scheduler: Scheduler,
+    gui: GUI,
 }
 
 impl Core {
-    fn tick(&mut self) {
-        draw_kernel_ui(&mut self.framebuffer, self.kernel.tick_count());
+    fn draw_ui(&mut self) {
+        let current_time = self.clock.current_time();
+        self.gui.set_message(format!(
+            "Tick #{} @{}",
+            self.kernel.tick_count(),
+            current_time.to_string(),
+        ));
+        self.gui.output(&mut self.framebuffer);
+    }
+
+    fn refresh(&mut self) {
         self.framebuffer.flush();
     }
 
@@ -66,9 +92,19 @@ impl Core {
         // TODO: This is the only place to do late initialization
         self.init_late();
         self.announce_boot();
+
+        let mut last_cycle = self.clock.nanos_since_boot();
+        const FRAMERATE: u64 = 60;
         loop {
-            self.kernel.tick();
-            self.tick();
+            // Framebuffer gets priority
+            let current_cycle = self.clock.nanos_since_boot();
+            if current_cycle - last_cycle >= 1_000_000_000 / FRAMERATE {
+                self.refresh();
+                last_cycle = current_cycle;
+            }
+            self.draw_ui();
+            self.scheduler.tick(&mut self.clock);
+            self.kernel.tick_count = self.kernel.tick_count.wrapping_add(1);
         }
     }
 
@@ -79,7 +115,7 @@ impl Core {
         let once_upon_a_time = things::Thing::new(self.clock.booted_at());
         let mid = once_upon_a_time.id.clone();
         self.space.insert(once_upon_a_time);
-        let boots_at = things::Thing::new(things::Verb::from_regular("boots_at"));
+        let boots_at = things::Thing::new(things::Verb::from_regular("(at time) boot"));
         let bid = boots_at.id.clone();
         self.space.insert(boots_at);
         let i_wuz_here = things::Fact::new(kid, bid, mid, false);
@@ -119,6 +155,9 @@ impl Core {
         let rtc = RTC::new();
         let clock = Clock::new(hpet, rtc);
         let kernel = Kernel::new(0, clock.current_time());
+
+        let gui = GUI::new(&framebuffer);
+
         let core = Core {
             kernel,
             mapper,
@@ -126,6 +165,8 @@ impl Core {
             framebuffer,
             clock,
             space: things::Space::new(),
+            scheduler: Scheduler::new(FRAME_BUDGET_NS),
+            gui,
         };
 
         core
