@@ -17,6 +17,7 @@ serde = { version = "1.0", default-features = false, features = [
 ] }
 postcard = { version = "1.0.4", default-features = false, features = ["alloc"] }
 thing_macros = { path = "../thing_macros" }
+things = { path = "../../things" }
 uuid = { version = "1.16.0", default-features = false, features = [] }
 sha2 = { version = "0.10.8", default-features = false, features = [
     "force-soft",
@@ -29,6 +30,8 @@ spinning_top = "0.3.0"
 pic8259 = "0.11.0"
 log = { version = "0.4", default-features = false }
 heapless = "0.8.0"
+erased-serde = { version = "0.4.6", default-features = false, features = ["alloc"] }
+num-bigint = { version = "0.4.6", default-features = false }
 
 [profile.release]
 panic = "abort"

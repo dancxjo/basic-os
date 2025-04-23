@@ -1,4 +1,5 @@
-use crate::{framebuffer::Framebuffer, serial_println};
+use crate::framebuffer::Framebuffer;
+use log::debug;
 use x86_64::instructions::port::Port;
 
 pub struct Mouse {
@@ -39,8 +40,8 @@ impl Mouse {
         (self.x, self.y)
     }
 
-    pub fn draw(&self, fb: &mut Framebuffer) {
-        let (x, y) = self.position();
+    pub fn draw(&self, _fb: &mut Framebuffer) {
+        let (_x, _y) = self.position();
         // fb.draw_circle(x, y, 5, 0xFF0000);
     }
 
@@ -63,7 +64,7 @@ impl Mouse {
                 let dx = PACKET[1] as i8 as isize;
                 let dy = -(PACKET[2] as i8 as isize);
                 self.move_by(dx, dy);
-                serial_println!("[poll] Mouse moved to ({}, {})", self.x, self.y);
+                debug!("[poll] Mouse moved to ({}, {})", self.x, self.y);
             }
         }
     }

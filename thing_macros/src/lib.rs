@@ -2,26 +2,34 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, parse_macro_input};
 
-#[proc_macro_derive(Thing)]
-pub fn derive_thing(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(Kind)]
+pub fn derive_kind(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
-    let kind_str = name.to_string();
+    let type_name = name.to_string();
+
+    let uuid_seed = format!("Kind:{}", type_name);
 
     let expanded = quote! {
-        impl Thingable for #name {
-            fn kind() -> &'static str {
-                #kind_str
+        impl things::Kind for #name {
+            fn type_name(&self) -> &'static str {
+                #type_name
             }
 
-            fn serialize(&self) -> alloc::vec::Vec<u8> {
-                postcard::to_allocvec(self).expect("Serialization failed")
+            fn uuid() -> uuid::Uuid {
+                uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, #uuid_seed.as_bytes())
             }
 
-            fn deserialize(bytes: &[u8]) -> Option<Self> {
-                postcard::from_bytes(bytes).ok()
+            fn as_serialize(&self) -> &dyn erased_serde::Serialize {
+                self
+            }
+
+            fn clone_box(&self) -> Box<dyn things::Kind> {
+                Box::new(self.clone())
             }
         }
+
+        erased_serde::serialize_trait_object!(things::Kind);
     };
 
     TokenStream::from(expanded)

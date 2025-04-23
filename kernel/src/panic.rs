@@ -1,11 +1,11 @@
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use crate::serial_println;
+use log::error;
 
 #[panic_handler]
 fn rust_panic(info: &PanicInfo) -> ! {
-    serial_println!("Kernel panic: {}", info);
+    error!("Kernel panic: {}", info);
     halt();
 }
 

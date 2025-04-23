@@ -1,8 +1,10 @@
-use crate::{bootloader::MEMMAP_REQUEST, serial_println};
+use crate::bootloader::MEMMAP_REQUEST;
 use alloc::boxed::Box;
 use core::{mem::MaybeUninit, ops::Range};
 use limine::memory_map::EntryType;
 use linked_list_allocator::LockedHeap;
+use log::debug;
+use log::info;
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::control::Cr3,
@@ -69,18 +71,15 @@ pub fn collect_memory_regions() -> &'static [MemoryRegion] {
                 len: e.length,
                 kind,
             };
-            serial_println!(
-                "[Debug] region {}: base={:#x} len={:#x} kind={}",
-                count,
-                e.base,
-                e.length,
-                kind
+            debug!(
+                "region {}: base={:#x} len={:#x} kind={}",
+                count, e.base, e.length, kind
             );
             count += 1;
         }
         let slice = &BUFF[..count];
         CACHE = Some(slice);
-        serial_println!("[Debug] total regions = {}", count);
+        debug!("total regions = {}", count);
         slice
     }
 }
@@ -99,7 +98,7 @@ pub fn map_page_to<M, F>(
     match unsafe { mapper.map_to(page, frame, flags, allocator) } {
         Ok(flush) => flush.flush(),
         Err(MapToError::ParentEntryHugePage) => {
-            serial_println!(
+            info!(
                 "[Warning] splitting huge page at virt={:#x}",
                 page.start_address().as_u64()
             );
@@ -107,19 +106,13 @@ pub fn map_page_to<M, F>(
             // Try unmap 2MiB
             let p2 = Page::<Size2MiB>::containing_address(addr);
             if let Ok((_, flush2m)) = mapper.unmap(p2) {
-                serial_println!(
-                    "[Debug] unmap 2MiB huge page at {:#x}",
-                    p2.start_address().as_u64()
-                );
+                info!("unmap 2MiB huge page at {:#x}", p2.start_address().as_u64());
                 flush2m.flush();
             } else {
                 // Fallback unmap 1GiB
                 let p1 = Page::<Size1GiB>::containing_address(addr);
                 let (_, flush1g) = mapper.unmap(p1).expect("failed to unmap 1GiB huge page");
-                serial_println!(
-                    "[Debug] unmap 1GiB huge page at {:#x}",
-                    p1.start_address().as_u64()
-                );
+                info!("unmap 1GiB huge page at {:#x}", p1.start_address().as_u64());
                 flush1g.flush();
             }
             // Retry
@@ -140,24 +133,20 @@ where
     let start = VirtAddr::new(HEAP_START);
     let end = VirtAddr::new(start.as_u64() + HEAP_SIZE as u64);
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-    serial_println!(
-        "[Debug] map_heap: pages {:#x}-{:#x}",
-        start.as_u64(),
-        end.as_u64()
-    );
+    debug!("map_heap: pages {:#x}-{:#x}", start.as_u64(), end.as_u64());
     for page in Page::range_inclusive(
         Page::containing_address(start),
         Page::containing_address(VirtAddr::new(end.as_u64() - 1)),
     ) {
         let frame = frame_allocator.allocate_frame().expect("no frames");
-        // serial_println!(
-        //     "[Debug] page {:?} -> frame {:#x}",
-        //     page,
-        //     frame.start_address().as_u64()
-        // );
+        debug!(
+            "page {:?} -> frame {:#x}",
+            page,
+            frame.start_address().as_u64()
+        );
         map_page_to(mapper, page, frame, flags, frame_allocator);
     }
-    serial_println!("[Debug] map_heap complete");
+    debug!("map_heap complete");
 }
 
 /// Boot-time frame allocator (no heap)
@@ -169,7 +158,7 @@ pub struct BootFrameAllocator {
 impl BootFrameAllocator {
     /// Create a new allocator from the provided memory regions
     pub fn new(regions: &[MemoryRegion]) -> Self {
-        serial_println!("[Debug] BootFrameAllocator::new start");
+        info!("BootFrameAllocator::new start");
         let mut count = 0;
         unsafe {
             for r in regions.iter() {
@@ -178,7 +167,7 @@ impl BootFrameAllocator {
                     let end = (r.base + r.len) & !0xfff;
                     if end > start {
                         FRAME_RANGES[count].write(PhysAddr::new(start)..PhysAddr::new(end));
-                        serial_println!("[Debug] adding range {}: {:#x}-{:#x}", count, start, end);
+                        info!("adding range {}: {:#x}-{:#x}", count, start, end);
                         count += 1;
                     }
                 }
@@ -188,7 +177,7 @@ impl BootFrameAllocator {
                 FRAME_RANGES.as_mut_ptr() as *mut Range<PhysAddr>,
                 count,
             );
-            serial_println!("[Debug] total usable ranges = {}", count);
+            info!("total usable ranges = {}", count);
             BootFrameAllocator {
                 ranges,
                 current_range: 0,
@@ -223,13 +212,13 @@ fn align_up(addr: u64, align: u64) -> u64 {
 pub unsafe fn init(
     hhdm_offset: VirtAddr,
 ) -> (&'static mut OffsetPageTable<'static>, BootFrameAllocator) {
-    serial_println!("Initializing memory...");
+    info!("Initializing memory...");
     let lvl4 = unsafe { active_level_4_table(hhdm_offset) };
     let mut mapper = unsafe { OffsetPageTable::new(lvl4, hhdm_offset) };
     let regions = collect_memory_regions();
     let mut frame_allocator = BootFrameAllocator::new(regions);
-    serial_println!(
-        "[Debug] map heap {:#x}-{:#x}",
+    info!(
+        "map heap {:#x}-{:#x}",
         HEAP_START,
         HEAP_START + HEAP_SIZE as u64
     );
@@ -246,15 +235,12 @@ unsafe fn active_level_4_table(phys_offset: VirtAddr) -> &'static mut PageTable 
 
 /// Debug helper to print detected memory regions
 pub fn print_memory_regions() {
-    serial_println!("[Debug] print_memory_regions start");
+    info!("print_memory_regions start");
     for (i, region) in collect_memory_regions().iter().enumerate() {
-        serial_println!(
-            "[Debug] region[{}] base={:#x} len={:#x} kind={}",
-            i,
-            region.base,
-            region.len,
-            region.kind
+        info!(
+            "region[{}] base={:#x} len={:#x} kind={}",
+            i, region.base, region.len, region.kind
         );
     }
-    serial_println!("[Debug] print_memory_regions end");
+    info!("print_memory_regions end");
 }

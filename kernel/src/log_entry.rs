@@ -1,6 +1,5 @@
 use heapless::String;
-use log::{Level, Metadata, Record};
-use spin::Mutex;
+use log::Level;
 
 #[derive(Debug, Clone)]
 pub struct LogEntry {

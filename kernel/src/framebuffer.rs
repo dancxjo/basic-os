@@ -1,15 +1,17 @@
 // Framebuffer module using embedded-graphics directly without custom draw_* methods
 
-use alloc::{format, vec};
+use alloc::format;
 use core::convert::Infallible;
 use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, iso_8859_1::FONT_6X10},
+    mono_font::iso_8859_1::FONT_6X10,
     pixelcolor::{Rgb565, RgbColor},
     prelude::*,
     primitives::{Primitive, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle},
     text::{Baseline, Text},
 };
 use limine::request::FramebufferRequest;
+use serde::Serialize;
+use thing_macros::Kind;
 
 const MAX_WIDTH: usize = 3840;
 const MAX_HEIGHT: usize = 2160;
@@ -123,89 +125,105 @@ pub fn draw_kernel_ui(framebuffer: &mut crate::framebuffer::Framebuffer, tick_co
     let one_third = width / 3;
     let two_third = width - one_third;
 
-    // Pastel color palette
-    let pastel_mint = Rgb565::new(144 >> 3, 238 >> 2, 144 >> 3); // light green
-    let pastel_peach = Rgb565::new(255 >> 3, 218 >> 2, 185 >> 3); // soft peach
-    let pastel_blue = Rgb565::new(173 >> 3, 216 >> 2, 230 >> 3); // powder blue
-    let pastel_lavender = Rgb565::new(230 >> 3, 230 >> 2, 250 >> 3); // lavender
-    let text_dark = Rgb565::new(32 >> 3, 32 >> 2, 32 >> 3); // dark gray-ish
+    // Color palette
+    let background = Rgb565::new(250 >> 3, 250 >> 2, 245 >> 3); // soft parchment background
+    let box_blue = Rgb565::new(200 >> 3, 230 >> 2, 255 >> 3); // pale blue
+    let box_peach = Rgb565::new(255 >> 3, 230 >> 2, 200 >> 3); // warm peach
+    let header_color = Rgb565::new(180 >> 3, 210 >> 2, 240 >> 3); // muted cyan
+    let text_dark = Rgb565::new(30 >> 3, 30 >> 2, 30 >> 3); // deep gray
 
-    let style_left = PrimitiveStyle::with_fill(pastel_blue);
-    let style_right = PrimitiveStyle::with_fill(pastel_peach);
-    let border_style = PrimitiveStyle::with_stroke(text_dark, 1);
-
-    // Left panel background
-    Rectangle::new(Point::new(0, 0), Size::new(two_third as u32, height as u32))
-        .into_styled(style_left)
+    // Fill entire background
+    Rectangle::new(Point::zero(), Size::new(width as u32, height as u32))
+        .into_styled(PrimitiveStyle::with_fill(background))
         .draw(framebuffer)
         .ok();
 
-    // Right panel background
+    // Rounded panels
+    let log_rect = Rectangle::new(
+        Point::new(20, 20),
+        Size::new(two_third as u32 - 40, height as u32 - 40),
+    );
+    let repl_rect = Rectangle::new(
+        Point::new(two_third + 20, 20),
+        Size::new(one_third as u32 - 40, height as u32 - 40),
+    );
+
+    // Draw filled rounded boxes
+    RoundedRectangle::with_equal_corners(log_rect, Size::new(12, 12))
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .fill_color(box_blue)
+                .stroke_color(header_color)
+                .stroke_width(1)
+                .build(),
+        )
+        .draw(framebuffer)
+        .ok();
+
+    RoundedRectangle::with_equal_corners(repl_rect, Size::new(12, 12))
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .fill_color(box_peach)
+                .stroke_color(header_color)
+                .stroke_width(1)
+                .build(),
+        )
+        .draw(framebuffer)
+        .ok();
+
+    // Headers
+    let header_height = 30;
     Rectangle::new(
-        Point::new(two_third, 0),
-        Size::new(one_third as u32, height as u32),
+        log_rect.top_left,
+        Size::new(log_rect.size.width, header_height),
     )
-    .into_styled(style_right)
+    .into_styled(PrimitiveStyle::with_fill(header_color))
     .draw(framebuffer)
     .ok();
 
-    // Draw rounded panels
-    RoundedRectangle::with_equal_corners(
-        Rectangle::new(
-            Point::new(10, 10),
-            Size::new(two_third as u32 - 20, height as u32 - 20),
-        ),
-        Size::new(8, 8),
+    Rectangle::new(
+        repl_rect.top_left,
+        Size::new(repl_rect.size.width, header_height),
     )
-    .into_styled(border_style)
-    .draw(framebuffer)
-    .ok();
-
-    RoundedRectangle::with_equal_corners(
-        Rectangle::new(
-            Point::new(two_third + 10, 10),
-            Size::new(one_third as u32 - 20, height as u32 - 20),
-        ),
-        Size::new(8, 8),
-    )
-    .into_styled(border_style)
+    .into_styled(PrimitiveStyle::with_fill(header_color))
     .draw(framebuffer)
     .ok();
 
     // Fonts
-    let text_left = MonoTextStyle::new(&FONT_10X20, text_dark);
-    let text_right = MonoTextStyle::new(&FONT_10X20, text_dark);
-    let log_style = MonoTextStyle::new(&FONT_10X20, text_dark);
+    let text_header = MonoTextStyle::new(&FONT_10X20, text_dark);
+    let text_label = MonoTextStyle::new(&FONT_10X20, text_dark);
+    let text_log = MonoTextStyle::new(&FONT_6X10, text_dark);
 
-    // Left panel text
-    Text::new("ThingOS v0.1", Point::new(30, 40), text_left)
+    // Titles
+    Text::new("ThingOS v0.1", Point::new(30, 40), text_header)
         .draw(framebuffer)
         .ok();
 
+    Text::new("REPL INPUT", Point::new(two_third + 30, 40), text_header)
+        .draw(framebuffer)
+        .ok();
+
+    // Tick counter & system log
     let tick_msg = format!("Tick: {}", tick_count);
-    Text::new(&tick_msg, Point::new(30, 70), text_left)
+    Text::new(&tick_msg, Point::new(30, 80), text_label)
         .draw(framebuffer)
         .ok();
 
-    Text::new("System Log:", Point::new(30, 110), text_left)
+    Text::new("System Log:", Point::new(30, 120), text_label)
         .draw(framebuffer)
         .ok();
 
     let mut y = 140;
     for entry in logger().iter() {
         let line = format!("[{}] {}", entry.level, entry.message);
-        Text::with_baseline(&line, Point::new(30, y), log_style, Baseline::Top)
+        Text::with_baseline(&line, Point::new(30, y), text_log, Baseline::Top)
             .draw(framebuffer)
             .ok();
-        y += 24;
+        y += 12;
     }
 
-    // Right panel text
-    Text::new("REPL INPUT", Point::new(two_third + 30, 40), text_right)
-        .draw(framebuffer)
-        .ok();
-
-    Text::new(">>", Point::new(two_third + 30, 80), text_right)
+    // REPL input prompt
+    Text::new(">>", Point::new(two_third + 30, 90), text_label)
         .draw(framebuffer)
         .ok();
 
