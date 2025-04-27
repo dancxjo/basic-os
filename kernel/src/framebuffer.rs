@@ -1,16 +1,9 @@
-// Framebuffer module using embedded-graphics directly without custom draw_* methods
-
 use core::convert::Infallible;
 use embedded_graphics::{
-    mono_font::iso_8859_1::FONT_6X10,
     pixelcolor::{Rgb565, RgbColor},
     prelude::*,
-    primitives::{Primitive, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle},
-    text::{Baseline, Text},
 };
 use limine::request::FramebufferRequest;
-use serde::Serialize;
-use thing_macros::Kind;
 
 const MAX_WIDTH: usize = 3840;
 const MAX_HEIGHT: usize = 2160;
@@ -111,10 +104,6 @@ impl Framebuffer {
         }
     }
 
-    pub fn fb_mut(&mut self) -> &mut [u32] {
-        self.fb
-    }
-
     pub fn fb_len(&self) -> usize {
         self.fb.len()
     }
@@ -129,5 +118,9 @@ impl Framebuffer {
 
     pub fn pitch_pixels(&self) -> usize {
         self.pitch_pixels
+    }
+
+    pub fn backbuffer_mut(&mut self) -> &mut [u32] {
+        self.backbuffer
     }
 }

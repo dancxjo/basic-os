@@ -3,39 +3,42 @@
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
 
-use kernel::Core;
 use kernel_logger::init_logger;
 use log::info;
+use thingos::ThingOS;
 
 extern crate alloc;
 
+mod beat;
 mod bootloader;
 mod clock;
+mod effects;
 mod framebuffer;
 mod gdt;
 mod gui;
 mod gui_output;
 mod idt;
 mod interrupts;
-mod kernel;
 mod kernel_logger;
 mod log_entry;
 mod memory;
 mod mouse;
 mod names;
 mod panic;
-mod penalty_task;
+mod pattern;
 mod proquints;
-mod scheduler;
 mod screen;
-mod seed;
 mod serial;
+mod space;
+mod thing;
+mod thingos;
+mod verb;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     init_logger();
-    info!("Initializing kernel...");
-    let mut k = Core::new();
-    info!("Kernel initialized. Spin, spin, sugar...");
-    k.spin();
+    info!("Initializing ThingOS...");
+    let mut os = ThingOS::new();
+    info!("Running ThingOS...");
+    os.run();
 }

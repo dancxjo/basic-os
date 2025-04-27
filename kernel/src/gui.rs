@@ -1,10 +1,12 @@
-use crate::clock::Clock;
+use crate::beat::Beat;
 use crate::framebuffer::Framebuffer;
-use crate::gui_output::{self, GuiOutputBuffer};
-use crate::kernel::Task;
+use crate::gui_output::GuiOutputBuffer;
 use crate::kernel_logger::logger;
-use alloc::format;
+use crate::space::Space;
+use crate::thing::Fact;
 use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::{format, vec};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::text::Baseline;
 use embedded_graphics::{
@@ -13,10 +15,16 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle},
     text::Text,
 };
+use serde::Serialize;
+use uuid::Uuid;
 
+#[derive(Clone, Serialize)]
 pub struct GUI {
     buffer: GuiOutputBuffer,
     message: String,
+    self_id: Option<Uuid>,
+    verb_id: Option<Uuid>,
+    output_id: Option<Uuid>,
 }
 
 impl GUI {
@@ -24,7 +32,20 @@ impl GUI {
         GUI {
             buffer: GuiOutputBuffer::from_framebuffer(framebuffer),
             message: String::new(),
+            self_id: None,
+            verb_id: None,
+            output_id: None,
         }
+    }
+
+    pub fn set_ids(&mut self, self_id: Uuid, verb_id: Uuid, output_id: Uuid) {
+        self.self_id = Some(self_id);
+        self.verb_id = Some(verb_id);
+        self.output_id = Some(output_id);
+    }
+
+    pub fn get_ids(&self) -> (Option<Uuid>, Option<Uuid>, Option<Uuid>) {
+        (self.self_id, self.verb_id, self.output_id)
     }
 
     pub fn set_message(&mut self, message: String) {
@@ -35,7 +56,7 @@ impl GUI {
         self.buffer.blit_to(framebuffer);
     }
 
-    fn draw(&mut self) {
+    pub fn draw(&mut self) {
         let width = self.buffer.width as i32;
         let height = self.buffer.height as i32;
         let one_third = width / 3;
@@ -47,13 +68,11 @@ impl GUI {
         let header_color = Rgb565::new(180 >> 3, 210 >> 2, 240 >> 3);
         let text_dark = Rgb565::new(30 >> 3, 30 >> 2, 30 >> 3);
 
-        // Clear background
         Rectangle::new(Point::zero(), Size::new(width as u32, height as u32))
             .into_styled(PrimitiveStyle::with_fill(background))
             .draw(&mut self.buffer)
             .ok();
 
-        // Panels
         let log_rect = Rectangle::new(
             Point::new(20, 20),
             Size::new(two_third as u32 - 40, height as u32 - 40),
@@ -85,7 +104,6 @@ impl GUI {
             .draw(&mut self.buffer)
             .ok();
 
-        // Text
         let text_header = MonoTextStyle::new(&FONT_10X20, text_dark);
         let text_label = MonoTextStyle::new(&FONT_10X20, text_dark);
         let text_log = MonoTextStyle::new(&FONT_6X10, text_dark);
@@ -122,12 +140,13 @@ impl GUI {
     }
 }
 
-impl Task for GUI {
-    fn tick(&mut self) {
+impl Beat for GUI {
+    fn beat(&mut self, self_id: Uuid, _space: &Space) -> Vec<Fact> {
         self.draw();
-    }
 
-    fn done(&mut self) -> bool {
-        false
+        match (self.self_id, self.verb_id, self.output_id) {
+            (Some(id), Some(verb), Some(output)) => vec![Fact::new(id, verb, output, false)],
+            _ => Vec::new(),
+        }
     }
 }

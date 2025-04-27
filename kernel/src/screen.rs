@@ -1,29 +1,39 @@
-use alloc::vec::Vec;
-use uuid::Uuid;
+use embedded_graphics::prelude::DrawTarget;
+use serde::Serialize;
 
+use crate::framebuffer::Framebuffer;
+use crate::gui_output::GuiOutputBuffer;
+
+#[derive(Clone, Serialize)]
 pub struct Screen {
-    pub width: u32,
-    pub height: u32,
-    pub background_id: Option<Uuid>, // "tiles" predicate
-    pub overlays: Vec<Uuid>,         // e.g., windows, cursors, log views, etc.
+    pub buffer: GuiOutputBuffer,
 }
 
 impl Screen {
-    pub fn new(width: u32, height: u32) -> Self {
-        Screen {
-            width,
-            height,
-            background_id: None,
-            overlays: Vec::new(),
+    pub fn new(framebuffer: &Framebuffer) -> Self {
+        Self {
+            buffer: GuiOutputBuffer::from_framebuffer(framebuffer),
         }
     }
 
-    // fn background(&self) -> Option<&[u8]> {
-    //     let screen = kernel
-    //         .graph
-    //         .find_one_thing::<Screen>()
-    //         .expect("Screen not found");
-    //     let id = screen.uuid.clone();
-    //     let background = kernel.graph.get_thing_that::<&[u8]>("tiles", id);
-    // }
+    /// Blit the current screen buffer to the real framebuffer
+    pub fn blit_to(&self, framebuffer: &mut Framebuffer) {
+        self.buffer.blit_to(framebuffer);
+    }
+
+    /// Expose buffer for drawing
+    pub fn buffer_mut(&mut self) -> &mut GuiOutputBuffer {
+        &mut self.buffer
+    }
+
+    /// Clear the screen
+    pub fn clear(&mut self, color: embedded_graphics::pixelcolor::Rgb565) {
+        self.buffer
+            .draw_iter(core::iter::empty::<embedded_graphics::Pixel<_>>())
+            .ok();
+        let encoded = super::gui_output::encode_color_rgb565(color);
+        for px in self.buffer.pixels.iter_mut() {
+            *px = encoded;
+        }
+    }
 }

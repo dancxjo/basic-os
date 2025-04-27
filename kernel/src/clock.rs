@@ -1,6 +1,5 @@
 use core::fmt::{self, Display, Formatter};
 
-use alloc::boxed::Box;
 use log::info;
 use serde::Serialize;
 use thing_macros::Kind;
