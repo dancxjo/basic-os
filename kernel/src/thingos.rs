@@ -1,93 +1,169 @@
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::beat::Beat;
 use crate::bootloader::get_hhdm_offset;
 use crate::clock::{Clock, HPET, RTC};
 use crate::framebuffer::Framebuffer;
 use crate::gui::GUI;
+use crate::idt::init_fault_handlers;
 use crate::mouse::Mouse;
-use crate::pattern::Pattern;
+use crate::paging::{BootFrameAllocator, init_paging};
 use crate::screen::Screen;
-use crate::space::Space;
-use crate::thing::{Fact, Thing};
-use crate::verb::Verb;
+use crate::{kthread, println, serial};
 
 use alloc::rc::Rc;
-use alloc::vec::Vec;
-use alloc::{format, vec};
-use log::{debug, info};
-use uuid::Uuid;
+use log::info;
+use x86_64::structures::paging::frame;
 
-/// Target frame time: 60 FPS
-const FRAME_BUDGET_NS: u64 = 16_666_667;
+static KEYBOARD_COUNT: AtomicUsize = AtomicUsize::new(0);
+static MOUSE_COUNT: AtomicUsize = AtomicUsize::new(0);
+static GUI_COUNT: AtomicUsize = AtomicUsize::new(0);
+static FRAMEBUFFER_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub struct ThingOS {
-    space: Rc<RefCell<Space>>,
-    clock: Clock,
+    clock: Rc<RefCell<Clock>>,
     framebuffer: Rc<RefCell<Framebuffer>>,
-    screen_id: Uuid,
-    mouse_id: Uuid,
     gui: Rc<RefCell<GUI>>,
+    mouse: Rc<RefCell<Mouse>>,
+    screen: Rc<RefCell<Screen>>,
 }
 
 impl ThingOS {
     pub fn new() -> Self {
         info!("Bootstrapping ThingOS...");
 
-        let (mapper, mut frame_allocator) = unsafe { crate::memory::init(get_hhdm_offset()) };
+        // 1. Set up GDT first (so CPU segment registers are sane)
+        info!("Initializing GDT...");
         crate::gdt::init_gdt();
+        info!("GDT initialized.");
+
         #[allow(static_mut_refs)]
         let tss = unsafe { crate::gdt::TSS.as_mut().expect("TSS not initialized") };
-        crate::idt::init_double_fault_stack(tss, mapper, &mut frame_allocator);
-        crate::idt::init_idt();
-        crate::interrupts::init_interrupts();
-        x86_64::instructions::interrupts::enable();
+        info!("Acquired TSS.");
+        init_fault_handlers(); // <==== Early fault handlers ONLY
+        info!("Fault handlers initialized.");
 
+        // 🛑 PAUSE: Paging is being set up *before* double fault stack is mapped!
+        // This will cause problems if paging touches unmapped stack memory during early faults.
+        // You should map the double fault stack *before* setting up paging entirely.
+
+        let frame_allocator = BootFrameAllocator::init();
+        info!("Acquired frame allocator.");
+
+        // 📌 INIT PAGING: This is okay, but you need to be careful that your `init_paging`
+        // does not itself call `Cr3::write()` too early if your double fault stack is not yet ready.
+        info!("Initializing paging...");
+        let mut mapper = unsafe { init_paging(frame_allocator) };
+        info!("Initialized paging.");
+        #[allow(unconditional_panic)]
+        let fail = 1 / 0;
+        loop {}
+
+        // ✅ Correct: initialize the double fault stack (map it now!)
+        info!("Initializing double-fault stack...");
+        // crate::idt::init_double_fault_stack(tss, &mut mapper, frame_allocator);
+        info!("Double-fault stack initialized.");
+
+        // ✅ Load the IDT
+        info!("Initializing IDT...");
+        // crate::idt::init_idt();
+        info!("IDT initialized.");
+
+        // 🛑 DANGER: Enabling interrupts **before** initializing APIC timer!
+        // You cannot safely enable interrupts yet!
+        // APIC could fire and CPU has no fully safe timer IRQ handler yet!
+
+        // ❗ MOVE THIS LATER ❗
+        // info!("Enabling interrupts...");
+        // x86_64::instructions::interrupts::enable(); // <- move this AFTER interrupts::init_interrupts
+
+        // ✅ Now initialize interrupts fully (APIC, LAPIC, etc.)
+        crate::interrupts::init_interrupts();
+        log::info!("Interrupts initialized (APIC mode).");
+
+        // ✅ NOW enable interrupts
+        info!("Enabling interrupts...");
+        x86_64::instructions::interrupts::enable();
+        info!("GDT and IDT initialized; interrupts enabled.");
+
+        // ✅ Now initialize drivers
         let framebuffer = Rc::new(RefCell::new(
             Framebuffer::new().expect("Framebuffer not available"),
         ));
         let hpet = HPET::new(0xFED00000);
         let rtc = RTC::new();
-        let clock = Clock::new(hpet, rtc);
-
-        let space = Rc::new(RefCell::new(Space::new()));
-        let mouse = Mouse::new(&framebuffer.borrow());
-        let mouse_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"mouse");
-        let mouse_thing = Thing::new(mouse);
-        space.borrow_mut().insert(mouse_thing);
-        // Screen setup
-        let screen = Screen::new(&framebuffer.borrow());
-        let screen_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"screen");
-
-        // GUI setup
+        let clock = Rc::new(RefCell::new(Clock::new(hpet, rtc)));
+        let mouse = Rc::new(RefCell::new(Mouse::new(&framebuffer.borrow())));
+        let screen = Rc::new(RefCell::new(Screen::new(&framebuffer.borrow())));
         let gui = Rc::new(RefCell::new(GUI::new(&framebuffer.borrow())));
-        let verb = Verb::from_regular("is_ready_to_draw_to");
-        let verb_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, verb.name.as_bytes());
-        let gui_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"gui");
-        gui.borrow_mut().set_ids(gui_id, verb_id, screen_id);
 
         info!("ThingOS initialized.");
 
         Self {
-            space,
             clock,
             framebuffer,
-            screen_id,
             gui,
-            mouse_id,
+            mouse,
+            screen,
         }
     }
 
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
-        let mut last_cycle = self.clock.nanos_since_boot();
-        let space = self.space.borrow();
-        let mut space_mut = self.space.borrow_mut();
+        // Spawn kernel threads
+        kthread::spawn(keyboard_thread);
+        kthread::spawn(mouse_thread);
+        kthread::spawn(gui_thread);
+        kthread::spawn(framebuffer_thread);
 
+        // Forever loop (idle thread)
         loop {
-            let now = self.clock.nanos_since_boot();
-            let beat_facts = beat_all_things(&mut space);
-            space.commit(beat_facts);
+            serial_println!(
+                "Idle: keyboard={} mouse={} gui={} framebuffer={} ",
+                KEYBOARD_COUNT.load(Ordering::Relaxed),
+                MOUSE_COUNT.load(Ordering::Relaxed),
+                GUI_COUNT.load(Ordering::Relaxed),
+                FRAMEBUFFER_COUNT.load(Ordering::Relaxed)
+            );
+            for _ in 0..50_000_000 {
+                core::hint::spin_loop();
+            }
+        }
+    }
+}
+
+extern "C" fn keyboard_thread() {
+    loop {
+        KEYBOARD_COUNT.fetch_add(1, Ordering::Relaxed);
+        for _ in 0..10_000_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+extern "C" fn mouse_thread() {
+    loop {
+        MOUSE_COUNT.fetch_add(1, Ordering::Relaxed);
+        for _ in 0..10_000_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+extern "C" fn gui_thread() {
+    loop {
+        GUI_COUNT.fetch_add(1, Ordering::Relaxed);
+        for _ in 0..10_000_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+extern "C" fn framebuffer_thread() {
+    loop {
+        FRAMEBUFFER_COUNT.fetch_add(1, Ordering::Relaxed);
+        for _ in 0..10_000_000 {
+            core::hint::spin_loop();
         }
     }
 }

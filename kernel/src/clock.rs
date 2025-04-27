@@ -2,7 +2,6 @@ use core::fmt::{self, Display, Formatter};
 
 use log::info;
 use serde::Serialize;
-use thing_macros::Kind;
 use x86_64::instructions::port::Port;
 
 #[derive(Debug, Clone, Serialize)]

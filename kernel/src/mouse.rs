@@ -1,9 +1,6 @@
-use crate::{beat::Beat, framebuffer::Framebuffer, space::Space, thing::Fact};
-use alloc::vec;
-use alloc::{format, vec::Vec};
+use crate::framebuffer::Framebuffer;
 use log::debug;
 use serde::Serialize;
-use uuid::Uuid;
 use x86_64::instructions::port::Port;
 
 #[derive(Clone, Serialize)]
@@ -72,18 +69,5 @@ impl Mouse {
                 debug!("[poll] Mouse moved to ({}, {})", self.x, self.y);
             }
         }
-    }
-}
-
-impl Beat for Mouse {
-    fn beat(&mut self, self_id: Uuid, _space: &Space) -> Vec<Fact> {
-        self.poll();
-
-        let moved_to = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"moved_to");
-
-        let pos_string = format!("{},{}", self.x, self.y);
-        let pos_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, pos_string.as_bytes());
-
-        vec![Fact::new(self_id, moved_to, pos_id, false)]
     }
 }

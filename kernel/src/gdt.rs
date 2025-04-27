@@ -1,3 +1,5 @@
+use core::arch::asm;
+
 #[allow(static_mut_refs)]
 use alloc::boxed::Box;
 use x86_64::VirtAddr;
@@ -19,10 +21,32 @@ static mut GDT: Option<&'static mut GlobalDescriptorTable> = None;
 pub static mut TSS: Option<&'static mut TaskStateSegment> = None;
 pub static mut SELECTORS: Option<Selectors> = None;
 
+unsafe fn reload_cs(new_cs: SegmentSelector) {
+    unsafe {
+        asm!(
+            "push {sel}",
+            "lea {tmp}, [2f + rip]",
+            "push {tmp}",
+            "retfq",
+            "2:",
+            sel = in(reg) u64::from(new_cs.0),
+            tmp = lateout(reg) _,
+            options(preserves_flags)
+        )
+    };
+}
+
+static mut GDT_STORAGE: Option<GlobalDescriptorTable> = None;
+static mut TSS_STORAGE: Option<TaskStateSegment> = None;
+
 pub fn init_gdt() {
-    // 1. Leak GDT and TSS into static memory
-    let gdt: &'static mut GlobalDescriptorTable = Box::leak(Box::new(GlobalDescriptorTable::new()));
-    let tss: &'static mut TaskStateSegment = Box::leak(Box::new(TaskStateSegment::new()));
+    unsafe { GDT_STORAGE = Some(GlobalDescriptorTable::new()) };
+    unsafe { TSS_STORAGE = Some(TaskStateSegment::new()) };
+
+    #[allow(static_mut_refs)]
+    let gdt = unsafe { GDT_STORAGE.as_mut().unwrap() };
+    #[allow(static_mut_refs)]
+    let tss = unsafe { TSS_STORAGE.as_mut().unwrap() };
     // 2. Set up IST for double fault
     let df_stack_top = 0x4444_7000_0000 + 5 * 4096;
     tss.interrupt_stack_table[0] = VirtAddr::new(df_stack_top);
@@ -42,7 +66,7 @@ pub fn init_gdt() {
         TSS = Some(&mut *(tss as *mut _));
 
         gdt.load();
-        CS::set_reg(code_ker);
+        reload_cs(code_ker);
         DS::set_reg(data_ker);
         load_tss(tss_sel);
 

@@ -1,116 +1,72 @@
-//! idt.rs — Interrupt Descriptor Table setup for ThingOS
+//! idt.rs — Early and Late IDT setup for ThingOS
 
 #![allow(static_mut_refs)]
 
-use log::{error, info};
+use crate::interrupts::lapic_end_of_interrupt;
 use x86_64::VirtAddr;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
-use x86_64::structures::paging::{FrameAllocator, Page, PageTableFlags};
-use x86_64::structures::tss::TaskStateSegment;
-
-use crate::memory::{BootFrameAllocator, map_page_to};
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
-const DOUBLE_FAULT_STACK_START: u64 = 0x4444_7000_0000;
-const DOUBLE_FAULT_STACK_SIZE: usize = 5 * 4096; // 20 KiB
 
-#[derive(Debug, Clone, Copy)]
-#[repr(u8)]
-pub enum InterruptIndex {
-    Timer = 32,
-    Keyboard = 33,
-    Mouse = 44, // IRQ12
-}
-
-impl InterruptIndex {
-    pub fn as_u8(self) -> u8 {
-        self as u8
-    }
-
-    pub fn as_usize(self) -> usize {
-        usize::from(self.as_u8())
-    }
-}
+// === Internal ===
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 extern "x86-interrupt" fn page_fault_handler(
-    stack_frame: InterruptStackFrame,
-    error_code: PageFaultErrorCode,
+    _stack_frame: InterruptStackFrame,
+    _error_code: PageFaultErrorCode,
 ) {
-    use x86_64::registers::control::Cr2;
-
-    let addr = Cr2::read();
-
-    error!(
-        "\u{1F4A8} PAGE FAULT\nFaulting address: {:#018x}\nError code: {:?}\nInstruction pointer: {:#018x}\nStack pointer: {:#018x}\nCode segment:        {:#x}\nStack segment:       {:#x}\nCPU flags:           {:#x}",
-        addr,
-        error_code,
-        stack_frame.instruction_pointer.as_u64(),
-        stack_frame.stack_pointer.as_u64(),
-        stack_frame.code_segment,
-        stack_frame.stack_segment,
-        stack_frame.cpu_flags,
-    );
-
+    log::error!("Page fault occurred! {:?}: {:?}", _error_code, _stack_frame);
     loop {}
 }
 
 extern "x86-interrupt" fn double_fault_handler(
-    stack_frame: InterruptStackFrame,
-    error_code: u64,
+    _stack_frame: InterruptStackFrame,
+    _error_code: u64,
 ) -> ! {
-    error!(
-        "EXCEPTION: DOUBLE FAULT\n{:#?}\nError code: {:#x}",
-        stack_frame, error_code
-    );
+    log::error!("Double fault occurred!");
     loop {}
 }
 
-extern "x86-interrupt" fn gp_handler(stack_frame: InterruptStackFrame, error_code: u64) {
-    error!(
-        "EXCEPTION: #GP\n{:#?}\nError: {:#x}",
-        stack_frame, error_code
-    );
+extern "x86-interrupt" fn general_protection_fault_handler(
+    _stack_frame: InterruptStackFrame,
+    _error_code: u64,
+) {
+    log::error!("General protection fault occurred!");
     loop {}
 }
 
-pub fn init_idt() {
+extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    lapic_end_of_interrupt();
+}
+
+extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    lapic_end_of_interrupt();
+}
+
+// === Public API ===
+
+/// Install only fault handlers (no device IRQs yet)
+pub fn init_fault_handlers() {
     unsafe {
         IDT.page_fault.set_handler_fn(page_fault_handler);
-        IDT.general_protection_fault.set_handler_fn(gp_handler);
         IDT.double_fault
             .set_handler_fn(double_fault_handler)
             .set_stack_index(DOUBLE_FAULT_IST_INDEX);
+        IDT.general_protection_fault
+            .set_handler_fn(general_protection_fault_handler);
         IDT.load();
     }
-    info!("IDT initialized and loaded.");
+    log::info!("Fault handlers initialized (PageFault, DoubleFault, GPFault).");
 }
 
-pub fn init_double_fault_stack(
-    tss: &mut TaskStateSegment,
-    mapper: &mut x86_64::structures::paging::OffsetPageTable,
-    frame_allocator: &mut BootFrameAllocator,
-) {
-    let start = VirtAddr::new(DOUBLE_FAULT_STACK_START);
-    let end = start + DOUBLE_FAULT_STACK_SIZE;
-
-    for page in Page::range_inclusive(
-        Page::containing_address(start),
-        Page::containing_address(end - 1u64),
-    ) {
-        let frame = frame_allocator.allocate_frame().expect("no frame");
-        map_page_to(
-            mapper,
-            page,
-            frame,
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-            frame_allocator,
-        );
+/// Install device handlers (after memory is ready)
+pub fn init_device_handlers() {
+    unsafe {
+        IDT[32].set_handler_fn(timer_interrupt_handler); // Timer IRQ
+        IDT[0xFF].set_handler_fn(spurious_interrupt_handler); // Spurious
+        IDT[0xFE].set_handler_fn(spurious_interrupt_handler); // Another spurious
+        IDT.load(); // reload IDT after updates
     }
-
-    tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
-        VirtAddr::new(DOUBLE_FAULT_STACK_START + DOUBLE_FAULT_STACK_SIZE as u64);
-
-    info!("Double fault IST stack mapped and configured.");
+    log::info!("Device interrupt handlers initialized (Timer, Spurious).");
 }

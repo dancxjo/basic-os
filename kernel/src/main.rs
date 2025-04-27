@@ -4,15 +4,12 @@
 #![feature(new_range_api)]
 
 use kernel_logger::init_logger;
-use log::info;
 use thingos::ThingOS;
 
 extern crate alloc;
 
-mod beat;
 mod bootloader;
 mod clock;
-mod effects;
 mod framebuffer;
 mod gdt;
 mod gui;
@@ -20,25 +17,28 @@ mod gui_output;
 mod idt;
 mod interrupts;
 mod kernel_logger;
+mod kthread;
 mod log_entry;
-mod memory;
 mod mouse;
-mod names;
 mod panic;
-mod pattern;
-mod proquints;
 mod screen;
+#[macro_use]
 mod serial;
-mod space;
-mod thing;
+mod allocator;
+mod paging;
+mod stack;
 mod thingos;
-mod verb;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     init_logger();
-    info!("Initializing ThingOS...");
     let mut os = ThingOS::new();
-    info!("Running ThingOS...");
     os.run();
+}
+
+#[macro_export]
+macro_rules! println {
+    ($($arg:tt)*) => {
+        serial_println!($($arg)*);
+    };
 }
