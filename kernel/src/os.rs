@@ -1,26 +1,31 @@
+use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use log::info;
+use x86_64::structures::paging::{Mapper, Page, PageTableFlags, PhysFrame, Size4KiB};
+use x86_64::{PhysAddr, VirtAddr};
 
+use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::bootloader::get_hhdm_offset;
+use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::framebuffer::Framebuffer;
+use crate::gdt::init_gdt;
 use crate::gui::GUI;
-use crate::idt::init_fault_handlers;
+use crate::idt::{init_idt, install_basic_irq_handlers};
+use crate::interrupts::{init_apic, init_interrupts};
+use crate::kthread;
 use crate::mouse::Mouse;
-use crate::paging::{BootFrameAllocator, init_paging};
+use crate::pic::init_pic;
 use crate::screen::Screen;
-use crate::{kthread, println, serial};
-
-use alloc::rc::Rc;
-use log::info;
-use x86_64::structures::paging::frame;
+use crate::stack::init_kernel_stack;
 
 static KEYBOARD_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MOUSE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static GUI_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FRAMEBUFFER_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-pub struct ThingOS {
+pub struct OS {
     clock: Rc<RefCell<Clock>>,
     framebuffer: Rc<RefCell<Framebuffer>>,
     gui: Rc<RefCell<GUI>>,
@@ -28,63 +33,45 @@ pub struct ThingOS {
     screen: Rc<RefCell<Screen>>,
 }
 
-impl ThingOS {
+impl OS {
     pub fn new() -> Self {
-        info!("Bootstrapping ThingOS...");
+        info!("Ready? Set? Go!");
 
-        // 1. Set up GDT first (so CPU segment registers are sane)
-        info!("Initializing GDT...");
-        crate::gdt::init_gdt();
-        info!("GDT initialized.");
+        bootstrap_step!("GDT", {
+            init_gdt();
+        });
 
-        #[allow(static_mut_refs)]
-        let tss = unsafe { crate::gdt::TSS.as_mut().expect("TSS not initialized") };
-        info!("Acquired TSS.");
-        init_fault_handlers(); // <==== Early fault handlers ONLY
-        info!("Fault handlers initialized.");
+        bootstrap_step!("stack recursion tests", {
+            let depth = test_stack_recursion(10);
+            assert_eq!(depth, 10);
+        });
 
-        // 🛑 PAUSE: Paging is being set up *before* double fault stack is mapped!
-        // This will cause problems if paging touches unmapped stack memory during early faults.
-        // You should map the double fault stack *before* setting up paging entirely.
+        let mapper = bootstrap_step!("paging", {
+            let physical_memory_offset = get_hhdm_offset();
+            unsafe { init_paging(physical_memory_offset) }
+        });
 
         let frame_allocator = BootFrameAllocator::init();
-        info!("Acquired frame allocator.");
 
-        // 📌 INIT PAGING: This is okay, but you need to be careful that your `init_paging`
-        // does not itself call `Cr3::write()` too early if your double fault stack is not yet ready.
-        info!("Initializing paging...");
-        let mut mapper = unsafe { init_paging(frame_allocator) };
-        info!("Initialized paging.");
-        #[allow(unconditional_panic)]
-        let fail = 1 / 0;
-        loop {}
+        bootstrap_step!("stack", {
+            unsafe { init_kernel_stack(mapper, frame_allocator) };
+        });
 
-        // ✅ Correct: initialize the double fault stack (map it now!)
-        info!("Initializing double-fault stack...");
-        // crate::idt::init_double_fault_stack(tss, &mut mapper, frame_allocator);
-        info!("Double-fault stack initialized.");
+        bootstrap_step!("heap", {
+            init_heap(mapper, frame_allocator);
+        });
 
-        // ✅ Load the IDT
-        info!("Initializing IDT...");
-        // crate::idt::init_idt();
-        info!("IDT initialized.");
+        bootstrap_step!("heap basic test", {
+            test_heap_basic();
+        });
 
-        // 🛑 DANGER: Enabling interrupts **before** initializing APIC timer!
-        // You cannot safely enable interrupts yet!
-        // APIC could fire and CPU has no fully safe timer IRQ handler yet!
+        bootstrap_step!("IDT", {
+            init_idt();
+        });
 
-        // ❗ MOVE THIS LATER ❗
-        // info!("Enabling interrupts...");
-        // x86_64::instructions::interrupts::enable(); // <- move this AFTER interrupts::init_interrupts
-
-        // ✅ Now initialize interrupts fully (APIC, LAPIC, etc.)
-        crate::interrupts::init_interrupts();
-        log::info!("Interrupts initialized (APIC mode).");
-
-        // ✅ NOW enable interrupts
-        info!("Enabling interrupts...");
-        x86_64::instructions::interrupts::enable();
-        info!("GDT and IDT initialized; interrupts enabled.");
+        bootstrap_step!("interrupts", {
+            init_interrupts();
+        });
 
         // ✅ Now initialize drivers
         let framebuffer = Rc::new(RefCell::new(
@@ -132,6 +119,16 @@ impl ThingOS {
     }
 }
 
+#[macro_export]
+macro_rules! bootstrap_step {
+    ($desc:expr, $block:expr) => {{
+        info!("Initializing {}...", $desc);
+        let result = $block;
+        info!("Init {} complete.\n", $desc);
+        result
+    }};
+}
+
 extern "C" fn keyboard_thread() {
     loop {
         KEYBOARD_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -166,4 +163,45 @@ extern "C" fn framebuffer_thread() {
             core::hint::spin_loop();
         }
     }
+}
+
+fn test_stack_recursion(depth: usize) -> usize {
+    if depth == 0 {
+        0
+    } else {
+        1 + test_stack_recursion(depth - 1)
+    }
+}
+
+pub fn test_heap_basic() {
+    use alloc::boxed::Box;
+    use alloc::rc::Rc;
+    use alloc::vec::Vec;
+
+    info!("Testing heap allocation...");
+
+    // Test 1: Box allocation
+    let heap_box = Box::new(42);
+    assert_eq!(*heap_box, 42);
+    info!("Box allocation OK.");
+
+    // Test 2: Vec allocation
+    let mut heap_vec = Vec::new();
+    for i in 0..10 {
+        heap_vec.push(i);
+    }
+    assert_eq!(heap_vec.len(), 10);
+    assert_eq!(heap_vec[3], 3);
+    info!("Vec allocation OK.");
+
+    // Test 3: Rc allocation
+    let heap_rc = Rc::new(9001);
+    assert_eq!(*heap_rc, 9001);
+    info!("Rc allocation OK.");
+
+    drop(heap_box);
+    drop(heap_vec);
+    drop(heap_rc);
+
+    info!("Heap test completed successfully!");
 }

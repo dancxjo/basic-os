@@ -9,8 +9,6 @@ use limine::request::{HhdmRequest, MemoryMapRequest, ModuleRequest};
 use log::{debug, info};
 use x86_64::VirtAddr;
 
-use crate::paging::MemoryRegion;
-
 #[used]
 pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
@@ -55,6 +53,13 @@ pub fn get_module(name: &str) -> Option<&'static [u8]> {
                 .map(|(_, v)| *v)
         })
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MemoryRegion {
+    pub base: u64,
+    pub len: u64,
+    pub kind: &'static str,
 }
 
 pub fn collect_memory_regions() -> &'static [MemoryRegion] {
@@ -111,4 +116,13 @@ pub fn print_memory_regions() {
         );
     }
     info!("print_memory_regions end");
+}
+
+pub fn find_usable_stack_base() -> Option<u64> {
+    for region in collect_memory_regions().iter() {
+        if region.kind == "usable" && region.len >= (5 * 4096) {
+            return Some(region.base);
+        }
+    }
+    None
 }

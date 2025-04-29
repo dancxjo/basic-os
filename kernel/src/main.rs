@@ -3,8 +3,10 @@
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
 
+use core::arch::asm;
+
 use kernel_logger::init_logger;
-use thingos::ThingOS;
+use os::OS;
 
 extern crate alloc;
 
@@ -25,15 +27,21 @@ mod screen;
 #[macro_use]
 mod serial;
 mod allocator;
-mod paging;
+mod os;
+mod pic;
 mod stack;
-mod thingos;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     init_logger();
-    let mut os = ThingOS::new();
+    let mut os = OS::new();
     os.run();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _start() -> ! {
+    // unsafe { init_stack() };
+    kmain();
 }
 
 #[macro_export]

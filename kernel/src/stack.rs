@@ -1,35 +1,47 @@
-use x86_64::structures::paging::{FrameAllocator, Mapper, PageTableFlags, Size4KiB};
+use x86_64::{
+    VirtAddr,
+    structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags},
+};
 
-pub const STACK_START: u64 = 0xffff8000007f8000; // Bottom of stack (lowest address)
-pub const STACK_SIZE: usize = 32 * 1024; // 32 KiB
-pub const STACK_TOP: u64 = STACK_START + STACK_SIZE as u64;
+use crate::allocator::BootFrameAllocator;
 
-pub fn map_kernel_stack<M: Mapper<Size4KiB>>(
-    mapper: &mut M,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+/// A 20 KB stack (5 pages)
+#[repr(C, align(16))]
+pub struct KernelStack([u8; 4096 * 5]);
+
+pub static mut KERNEL_STACK: KernelStack = KernelStack([0; 4096 * 5]);
+
+const KERNEL_STACK_VIRT_BASE: u64 = 0xffff_8800_0000_0000;
+const KERNEL_STACK_PAGES: usize = 5;
+
+pub static mut KERNEL_STACK_TOP: VirtAddr = VirtAddr::zero();
+/// Allocate and map a kernel stack at a fresh virtual address
+pub unsafe fn init_kernel_stack(
+    mapper: &mut OffsetPageTable,
+    frame_allocator: &mut BootFrameAllocator,
 ) {
-    use x86_64::VirtAddr;
-    use x86_64::structures::paging::Page;
+    let stack_start = VirtAddr::new(KERNEL_STACK_VIRT_BASE);
+    let mut page = Page::containing_address(stack_start);
 
-    let stack_start = VirtAddr::new(STACK_START);
-    let stack_end = stack_start + STACK_SIZE as u64;
-
-    for page in Page::range_inclusive(
-        Page::containing_address(stack_start),
-        Page::containing_address(stack_end - 1u64),
-    ) {
+    for _ in 0..KERNEL_STACK_PAGES {
         let frame = frame_allocator
             .allocate_frame()
-            .expect("No frame for stack!");
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+            .expect("Out of physical frames!");
 
         unsafe {
             mapper
-                .map_to(page, frame, flags, frame_allocator)
-                .expect("stack map_to failed")
-                .flush();
-        }
+                .map_to(
+                    page,
+                    frame,
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+                    frame_allocator,
+                )
+                .expect("map_to failed (stack)")
+                .flush()
+        };
+
+        page = page + 1;
     }
 
-    log::info!("Kernel stack mapped.");
+    unsafe { KERNEL_STACK_TOP = stack_start + (KERNEL_STACK_PAGES as u64 * 4096) };
 }
