@@ -9,9 +9,15 @@ fn main() {
 
     // Compile and link the context switch assembly file
     cc::Build::new()
-        .file("src/switch_context.s")
-        .compile("switch_context");
-
+        .file("src/tick_handler.S")
+        .compile("tick_handler");
     // Re-run if the assembly file changes
-    println!("cargo:rerun-if-changed=src/switch_context.s");
+    println!("cargo:rerun-if-changed=src/tick_handler.S");
+
+    // Compile and link the context switch assembly file
+    cc::Build::new()
+        .file("src/switch_to_task.S")
+        .compile("switch_to_task");
+    // Re-run if the assembly file changes
+    println!("cargo:rerun-if-changed=src/switch_to_task.S");
 }

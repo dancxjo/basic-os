@@ -19,11 +19,11 @@ mod gui_output;
 mod idt;
 mod interrupts;
 mod kernel_logger;
-mod kthread;
 mod log_entry;
 mod mouse;
 mod panic;
 mod screen;
+mod tasks;
 #[macro_use]
 mod serial;
 mod allocator;

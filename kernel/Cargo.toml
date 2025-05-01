@@ -32,15 +32,13 @@ log = { version = "0.4", default-features = false }
 heapless = "0.8.0"
 erased-serde = { version = "0.4.6", default-features = false, features = ["alloc"] }
 num-bigint = { version = "0.4.6", default-features = false }
-x86_64 = { version = "0.14.11", default-features = false, features = [
+x86_64  = { version = "0.14.11", default-features = false, features = [
     "instructions",
     "abi_x86_interrupt",
 ] }
-
 [features]
-default=["pic"]
+default=["apic"]
 apic = []
-pic = []
 
 [profile.release]
 panic = "abort"

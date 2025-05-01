@@ -2,23 +2,21 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use log::info;
-use x86_64::structures::paging::{Mapper, Page, PageTableFlags, PhysFrame, Size4KiB};
-use x86_64::{PhysAddr, VirtAddr};
+use x86_64::instructions::interrupts;
 
 use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::bootloader::get_hhdm_offset;
-use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::framebuffer::Framebuffer;
 use crate::gdt::init_gdt;
 use crate::gui::GUI;
-use crate::idt::{init_idt, install_basic_irq_handlers};
-use crate::interrupts::{init_apic, init_interrupts};
-use crate::kthread;
+use crate::idt::init_idt;
+use crate::interrupts::init_interrupts;
 use crate::mouse::Mouse;
-use crate::pic::init_pic;
+use crate::panic::halt;
 use crate::screen::Screen;
 use crate::stack::init_kernel_stack;
+use crate::{bootstrap_step, tasks};
 
 static KEYBOARD_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MOUSE_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -71,6 +69,7 @@ impl OS {
 
         bootstrap_step!("interrupts", {
             init_interrupts();
+            interrupts::disable();
         });
 
         // ✅ Now initialize drivers
@@ -97,24 +96,21 @@ impl OS {
 
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
-        // Spawn kernel threads
-        kthread::spawn(keyboard_thread);
-        kthread::spawn(mouse_thread);
-        kthread::spawn(gui_thread);
-        kthread::spawn(framebuffer_thread);
 
-        // Forever loop (idle thread)
+        // Spawn kernel threads
+        tasks::spawn(keyboard_thread);
+        tasks::spawn(mouse_thread);
+        tasks::spawn(gui_thread);
+        tasks::spawn(framebuffer_thread);
+
+        interrupts::enable();
+
+        let first = tasks::first_stack_pointer();
+        log::info!("Jumping to first task at stack {:p}", first);
+        unsafe { tasks::switch_to_task(first) }
+
         loop {
-            serial_println!(
-                "Idle: keyboard={} mouse={} gui={} framebuffer={} ",
-                KEYBOARD_COUNT.load(Ordering::Relaxed),
-                MOUSE_COUNT.load(Ordering::Relaxed),
-                GUI_COUNT.load(Ordering::Relaxed),
-                FRAMEBUFFER_COUNT.load(Ordering::Relaxed)
-            );
-            for _ in 0..50_000_000 {
-                core::hint::spin_loop();
-            }
+            halt();
         }
     }
 }
@@ -129,8 +125,23 @@ macro_rules! bootstrap_step {
     }};
 }
 
-extern "C" fn keyboard_thread() {
+#[unsafe(no_mangle)]
+extern "C" fn keyboard_thread() -> ! {
+    info!("Keyboard thread running...");
     loop {
+        info!("Keyboard thread running...");
+
+        let rflags: u64;
+        unsafe {
+            core::arch::asm!(
+                "pushfq",
+                "pop {}",
+                out(reg) rflags,
+                options(nomem, preserves_flags),
+            );
+        }
+        log::info!("RFLAGS in thread: {:#x}", rflags);
+
         KEYBOARD_COUNT.fetch_add(1, Ordering::Relaxed);
         for _ in 0..10_000_000 {
             core::hint::spin_loop();
@@ -138,17 +149,21 @@ extern "C" fn keyboard_thread() {
     }
 }
 
-extern "C" fn mouse_thread() {
+#[unsafe(no_mangle)]
+extern "C" fn mouse_thread() -> ! {
+    info!("Mouse thread running...");
     loop {
+        info!("Mouse thread running...");
         MOUSE_COUNT.fetch_add(1, Ordering::Relaxed);
         for _ in 0..10_000_000 {
             core::hint::spin_loop();
         }
     }
 }
-
-extern "C" fn gui_thread() {
+#[unsafe(no_mangle)]
+extern "C" fn gui_thread() -> ! {
     loop {
+        info!("GUI thread running...");
         GUI_COUNT.fetch_add(1, Ordering::Relaxed);
         for _ in 0..10_000_000 {
             core::hint::spin_loop();
@@ -156,8 +171,10 @@ extern "C" fn gui_thread() {
     }
 }
 
-extern "C" fn framebuffer_thread() {
+#[unsafe(no_mangle)]
+extern "C" fn framebuffer_thread() -> ! {
     loop {
+        info!("Framebuffer thread running...");
         FRAMEBUFFER_COUNT.fetch_add(1, Ordering::Relaxed);
         for _ in 0..10_000_000 {
             core::hint::spin_loop();

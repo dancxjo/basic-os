@@ -97,7 +97,7 @@ pub fn init_interrupts() {
     let rflags = x86_64::registers::rflags::read();
     info!("RFLAGS: {:#x}", rflags.bits());
 
-    x86_64::instructions::interrupts::enable(); // Only one sti here
+    // x86_64::instructions::interrupts::enable(); // Only one sti here
 }
 
 pub fn init_apic() {
@@ -129,7 +129,7 @@ fn lapic_end_of_interrupt() {
     }
 }
 
-pub fn end_of_interrupt() {
+pub fn end_of_interrupt(irq: u8) {
     #[cfg(feature = "apic")]
     {
         lapic_end_of_interrupt();
@@ -137,6 +137,6 @@ pub fn end_of_interrupt() {
 
     #[cfg(not(feature = "apic"))]
     {
-        pic_end_of_interrupt(0);
+        pic_end_of_interrupt(irq);
     }
 }

@@ -1,10 +1,8 @@
 //! idt.rs — ThingOS Interrupt Descriptor Table Setup (fault handlers only)
 
 use core::mem::MaybeUninit;
-use log::error;
+use log::{error, info};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
-
-use crate::kthread;
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 
@@ -63,23 +61,14 @@ pub fn init_idt() {
     }
 }
 
-extern "x86-interrupt" fn tick_handler(_stack_frame: InterruptStackFrame) {
-    log::info!("Timer interrupt received.");
-    kthread::schedule();
-    crate::pic::pic_end_of_interrupt(0);
-}
-
-extern "x86-interrupt" fn dummy_keyboard_handler(_stack_frame: InterruptStackFrame) {
-    log::info!("Keyboard interrupt received.");
-    crate::pic::pic_end_of_interrupt(1);
+unsafe extern "C" {
+    fn tick_handler();
 }
 
 pub fn install_basic_irq_handlers() {
+    #[allow(static_mut_refs)]
+    let idt = unsafe { IDT.assume_init_mut() };
     unsafe {
-        #[allow(static_mut_refs)]
-        let idt = IDT.assume_init_mut();
-
-        idt[32].set_handler_fn(tick_handler);
-        idt[33].set_handler_fn(dummy_keyboard_handler);
+        idt[32].set_handler_addr(core::mem::transmute(tick_handler as *const ()));
     }
 }
