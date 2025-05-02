@@ -72,6 +72,10 @@ impl OS {
             interrupts::disable();
         });
 
+        bootstrap_step!("tasks", {
+            tasks::init_tasks();
+        });
+
         // ✅ Now initialize drivers
         let framebuffer = Rc::new(RefCell::new(
             Framebuffer::new().expect("Framebuffer not available"),
@@ -98,17 +102,15 @@ impl OS {
         info!("ThingOS running...");
 
         // Spawn kernel threads
-        tasks::spawn(keyboard_thread);
-        tasks::spawn(mouse_thread);
-        tasks::spawn(gui_thread);
-        tasks::spawn(framebuffer_thread);
+        // tasks::spawn(keyboard_thread);
+        // tasks::spawn(mouse_thread);
+        // tasks::spawn(gui_thread);
+        // tasks::spawn(framebuffer_thread);
+
+        // tasks::kickstart();
 
         interrupts::enable();
-
-        let first = tasks::first_stack_pointer();
-        log::info!("Jumping to first task at stack {:p}", first);
-        unsafe { tasks::switch_to_task(first) }
-
+        keyboard_thread();
         loop {
             halt();
         }
@@ -126,21 +128,10 @@ macro_rules! bootstrap_step {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn keyboard_thread() -> ! {
+extern "C" fn keyboard_thread() {
     info!("Keyboard thread running...");
     loop {
         info!("Keyboard thread running...");
-
-        let rflags: u64;
-        unsafe {
-            core::arch::asm!(
-                "pushfq",
-                "pop {}",
-                out(reg) rflags,
-                options(nomem, preserves_flags),
-            );
-        }
-        log::info!("RFLAGS in thread: {:#x}", rflags);
 
         KEYBOARD_COUNT.fetch_add(1, Ordering::Relaxed);
         for _ in 0..10_000_000 {
@@ -150,7 +141,7 @@ extern "C" fn keyboard_thread() -> ! {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn mouse_thread() -> ! {
+extern "C" fn mouse_thread() {
     info!("Mouse thread running...");
     loop {
         info!("Mouse thread running...");
@@ -161,7 +152,7 @@ extern "C" fn mouse_thread() -> ! {
     }
 }
 #[unsafe(no_mangle)]
-extern "C" fn gui_thread() -> ! {
+extern "C" fn gui_thread() {
     loop {
         info!("GUI thread running...");
         GUI_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -172,7 +163,7 @@ extern "C" fn gui_thread() -> ! {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn framebuffer_thread() -> ! {
+extern "C" fn framebuffer_thread() {
     loop {
         info!("Framebuffer thread running...");
         FRAMEBUFFER_COUNT.fetch_add(1, Ordering::Relaxed);

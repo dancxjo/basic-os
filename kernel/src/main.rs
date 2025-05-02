@@ -23,13 +23,13 @@ mod log_entry;
 mod mouse;
 mod panic;
 mod screen;
-mod tasks;
 #[macro_use]
 mod serial;
 mod allocator;
 mod os;
 mod pic;
 mod stack;
+mod tasks;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {

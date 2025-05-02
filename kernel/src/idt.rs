@@ -57,7 +57,6 @@ pub fn init_idt() {
             .set_handler_fn(general_protection_fault_handler);
         install_basic_irq_handlers();
         idt.load();
-        log::info!("Error-only IDT initialized and loaded statically.");
     }
 }
 
