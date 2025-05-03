@@ -34,6 +34,13 @@ pub fn spawn(entry: extern "C" fn()) {
         for (i, task) in tasks.iter_mut().enumerate() {
             if task.is_none() {
                 let next = init_task(entry);
+                for (i, val) in (0..18).map(|i| unsafe {
+                    let ptr = (next.stack_pointer as *const u64).add(i);
+                    (i, *ptr)
+                }) {
+                    log::info!("FabricatedStack[{}] = {:#018x}", i, val);
+                }
+
                 log::info!("ALLOCATED STACK: {:p} for task {}", next.stack_pointer, i);
                 log::info!("Spawned task {} at entry {:?}", i, entry as *const ());
                 *task = Some(next);
@@ -64,9 +71,10 @@ pub fn kickstart() {
             .expect("Task 0 not initialized")
             .stack_pointer as *const u64
     };
-    for i in 0..16 {
+    for i in 0..18 {
         log::info!("SP[{}] = {:#018x}", i, unsafe { *sp.offset(i) });
     }
+    log::info!("Calling switch_to_task with RSP = {:p}", first);
     unsafe {
         switch_to_task(first); // Assembly function that restores context and iretqs
     }
@@ -74,6 +82,7 @@ pub fn kickstart() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn schedule(old_rsp: *mut usize) -> *mut usize {
+    log::info!("Scheduling...");
     const CONTEXT_SIZE: isize = 15; // 15 registers pushed by tick_handler
 
     unsafe {
@@ -90,11 +99,7 @@ pub extern "C" fn schedule(old_rsp: *mut usize) -> *mut usize {
                 end_of_interrupt(0);
                 return old_rsp;
             }
-            let rsp = (next_rsp as usize & !0xF) as *mut u8;
-            assert_eq!(rsp as usize % 16, 0, "RSP must be 16-byte aligned");
-
-            info!("next rsp is {:?} adjusted to {:?}", next_rsp, rsp);
-            assert_eq!(rsp as usize % 16, 0, "Initial stack not 16-byte aligned!");
+            let rsp = next_rsp;
 
             CURRENT_TASK = next_task;
 
@@ -135,29 +140,38 @@ fn find_next_task() -> Option<usize> {
 }
 
 pub fn init_task(entry: extern "C" fn()) -> Task {
-    const NUM_GP_REGS: usize = 0;
-    const IRET_FRAME_SIZE: usize = 3; // RIP, CS, RFLAGS
-    const TOTAL_ENTRIES: usize = NUM_GP_REGS + IRET_FRAME_SIZE;
+    const NUM_GPR: usize = 15;
+    const IRET_FRAME: usize = 3;
+    const TOTAL_ENTRIES: usize = NUM_GPR + IRET_FRAME;
 
     let (mut stack, raw_top) = allocate_stack();
 
     let tentative_rsp = unsafe { (raw_top as *mut usize).sub(TOTAL_ENTRIES) };
+    // Align to 16 bytes (just in case)
     let aligned_rsp = (tentative_rsp as usize & !0xF) as *mut usize;
 
     unsafe {
-        *aligned_rsp.add(NUM_GP_REGS + 0) = entry as usize; // RIP
-        *aligned_rsp.add(NUM_GP_REGS + 1) = 0x08; // CS
-        *aligned_rsp.add(NUM_GP_REGS + 2) = 0x202; // RFLAGS
-
-        for i in 0..NUM_GP_REGS {
-            *aligned_rsp.add(i) = 0xDEADBEEFDEADBEEF;
+        // Fill registers with sentinels
+        for i in 0..NUM_GPR {
+            *aligned_rsp.add(i) = 0x1111000000000000 + i as usize;
         }
+
+        // iretq frame (MUST be last 3)
+        *aligned_rsp.add(NUM_GPR + 0) = entry as usize; // RIP
+        *aligned_rsp.add(NUM_GPR + 1) = 0x08; // CS
+        *aligned_rsp.add(NUM_GPR + 2) = 0x202; // RFLAGS
     }
 
-    log::info!("Stack pointer for new task: {:#018x}", aligned_rsp as usize);
+    log::info!("Fabricated task stack at {:p} (aligned)", aligned_rsp);
+    for i in 0..(TOTAL_ENTRIES) {
+        log::info!("FabricatedStack[{}] = {:#018x}", i, unsafe {
+            *aligned_rsp.add(i)
+        });
+    }
 
     Task {
-        stack_pointer: aligned_rsp as *mut u8,
+        // Stack pointer must point TO the RIP (i.e. skip GPRs)
+        stack_pointer: unsafe { aligned_rsp.add(NUM_GPR) } as *mut u8,
         _stack: stack,
     }
 }
@@ -166,36 +180,35 @@ fn allocate_stack() -> (Box<[u8]>, *mut u8) {
     let mut stack: Box<[u8]> = vec![0u8; STACK_SIZE].into_boxed_slice();
     let stack_ptr = stack.as_mut_ptr();
     let stack_top = unsafe { stack_ptr.add(STACK_SIZE) };
+    log::info!("Allocated stack from {:p} to {:p}", stack_ptr, stack_top);
+
     (stack, stack_top)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn check_alignment(rsp: usize) {
     info!("Is this aligned? RSP = {:#018x}", rsp);
-    //assert_eq!(rsp % 16, 0, "RSP is not 16-byte aligned!");
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn log_stack_frame(frame: *const u64) {
-    // SAFETY: We trust the assembly caller to pass a valid stack frame
+pub extern "C" fn spy_context(context_rsp: *const u64) {
     unsafe {
-        let regs = core::slice::from_raw_parts(frame, 15);
-
-        log::info!("--- Stack Frame @ {:p} ---", frame);
-        log::info!("RAX: {:016x}", regs[0]);
-        log::info!("RBX: {:016x}", regs[1]);
-        log::info!("RCX: {:016x}", regs[2]);
-        log::info!("RDX: {:016x}", regs[3]);
-        log::info!("RBP: {:016x}", regs[4]);
-        log::info!("RDI: {:016x}", regs[5]);
-        log::info!("RSI: {:016x}", regs[6]);
-        log::info!("R8 : {:016x}", regs[7]);
-        log::info!("R9 : {:016x}", regs[8]);
-        log::info!("R10: {:016x}", regs[9]);
-        log::info!("R11: {:016x}", regs[10]);
-        log::info!("R12: {:016x}", regs[11]);
-        log::info!("R13: {:016x}", regs[12]);
-        log::info!("R14: {:016x}", regs[13]);
-        log::info!("R15: {:016x}", regs[14]);
-    }
+        let ctx = core::slice::from_raw_parts(context_rsp, 15);
+        log::info!("--- Gathered Context ---");
+        log::info!("R15: 0x{:016x}", ctx[0]);
+        log::info!("R14: 0x{:016x}", ctx[1]);
+        log::info!("R13: 0x{:016x}", ctx[2]);
+        log::info!("R12: 0x{:016x}", ctx[3]);
+        log::info!("R11: 0x{:016x}", ctx[4]);
+        log::info!("R10: 0x{:016x}", ctx[5]);
+        log::info!(" R9: 0x{:016x}", ctx[6]);
+        log::info!(" R8: 0x{:016x}", ctx[7]);
+        log::info!("RSI: 0x{:016x}", ctx[8]);
+        log::info!("RDI: 0x{:016x}", ctx[9]);
+        log::info!("RBP: 0x{:016x}", ctx[10]);
+        log::info!("RDX: 0x{:016x}", ctx[11]);
+        log::info!("RCX: 0x{:016x}", ctx[12]);
+        log::info!("RBX: 0x{:016x}", ctx[13]);
+        log::info!("RAX: 0x{:016x}", ctx[14]);
+    };
 }

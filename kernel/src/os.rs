@@ -102,18 +102,19 @@ impl OS {
         info!("ThingOS running...");
 
         // Spawn kernel threads
-        // tasks::spawn(keyboard_thread);
+        tasks::spawn(keyboard_thread);
         // tasks::spawn(mouse_thread);
         // tasks::spawn(gui_thread);
         // tasks::spawn(framebuffer_thread);
-
+        info!("Enabling interrupts...");
+        interrupts::enable();
+        info!("Interrupts enabled.");
         // tasks::kickstart();
 
-        interrupts::enable();
-        keyboard_thread();
-        loop {
-            halt();
-        }
+        // keyboard_thread();
+        log::info!("Halting");
+        loop {}
+        halt();
     }
 }
 
@@ -129,6 +130,11 @@ macro_rules! bootstrap_step {
 
 #[unsafe(no_mangle)]
 extern "C" fn keyboard_thread() {
+    loop {
+        unsafe {
+            core::arch::asm!("hlt");
+        }
+    }
     info!("Keyboard thread running...");
     loop {
         info!("Keyboard thread running...");
