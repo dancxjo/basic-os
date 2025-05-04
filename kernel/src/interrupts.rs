@@ -1,15 +1,11 @@
 // interrupts.rs — APIC-based interrupt management for ThingOS
 
-use core::arch::asm;
 
 use log::info;
 use x86_64::instructions::port::Port;
 use x86_64::registers::model_specific::Msr;
 
-use crate::pic::{init_pic, pic_end_of_interrupt};
-use crate::{bootstrap_step, pic};
 use x86_64::registers::control::{Cr2, Cr3};
-use x86_64::registers::rflags::RFlags;
 
 // IA32_APIC_BASE MSR address (0x1B)
 const IA32_APIC_BASE: u32 = 0x1B;

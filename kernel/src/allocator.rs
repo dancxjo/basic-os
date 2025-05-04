@@ -2,7 +2,6 @@
 
 use core::mem::MaybeUninit;
 use core::ops::Range;
-use limine::{memory_map::EntryType, request::MemoryMapRequest};
 use linked_list_allocator::LockedHeap;
 use x86_64::{
     PhysAddr, VirtAddr,

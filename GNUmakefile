@@ -171,18 +171,11 @@ limine/limine:
 kernel:
 	$(MAKE) -C kernel
 
-hello-user/hello-user:
-	cargo build --release --manifest-path hello-user/Cargo.toml --target x86_64-unknown-none
-	cp -v hello-user/target/x86_64-unknown-none/release/hello-user hello-user/hello-user
-	@echo "✅ hello-user built and copied. Entry point:"
-	readelf -h hello-user/hello-user | grep 'Entry point'
-
-$(IMAGE_NAME).iso: limine/limine kernel hello-user/hello-user
+$(IMAGE_NAME).iso: limine/limine kernel
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
-	cp -v hello-user/hello-user iso_root/boot/
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT

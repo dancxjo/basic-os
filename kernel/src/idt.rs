@@ -1,7 +1,7 @@
 //! idt.rs — ThingOS Interrupt Descriptor Table Setup (fault handlers only)
 
 use core::mem::MaybeUninit;
-use log::{error, info};
+use log::error;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;

@@ -1,11 +1,13 @@
 .global tick_handler
 .type tick_handler, @function
 
+.extern spy_context
+.extern dummy_task
+
+.section .text
 tick_handler:
 
-gather_context:
-    call spy_context
-
+    // Save general-purpose registers
     pushq %rax
     pushq %rbx
     pushq %rcx
@@ -22,47 +24,50 @@ gather_context:
     pushq %r14
     pushq %r15
 
-    movq %rsp, %rdi          # rdi = &saved_regs
-    call schedule            # rax = new_rsp
+    // At this point:
+    // [RSP + 0]  = r15
+    // [RSP + 8]  = r14
+    // ...
+    // [RSP + 112] = rax
+    // [RSP + 120] = return RIP
+    // [RSP + 128] = CS
+    // [RSP + 136] = RFLAGS
 
-    cmp %rax, %rdi           # switching to a new stack?
-    jne restore_stack
-    jmp rollback             # else resume same task
+    // Capture current context
+    movq %rsp, %rdi
+    call spy_context
 
-restore_stack:
-    movq %rax, %rsp          # switch to new task's stack
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rsi
-    popq %rdi
-    popq %rbp
-    popq %rdx
-    popq %rcx
-    popq %rbx
-    popq %rax
-    iretq                    # enter new task
+    // Allocate new stack manually (1 page)
+    movq $4096, %rdi
+    call alloc_stack       // assume: alloc_stack(len) -> %rax = base ptr
+                           // or replace this with a pointer to static memory
 
-rollback:
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rsi
-    popq %rdi
-    popq %rbp
-    popq %rdx
-    popq %rcx
-    popq %rbx
-    popq %rax
-    iretq                    # return to interrupted task
+    // rax = base of new stack
+    addq $4096, %rax       // stack_top = base + 4096
+    movq %rax, %rsi        // rsi = new_rsp
 
+    // We need to reserve space for:
+    // - 15 GPRs
+    // - RIP, CS, RFLAGS
+    subq $8*18, %rsi       // new rsp = stack_top - (18*8)
+
+    // Copy 18 * 8 bytes from current RSP to rsi
+    movq %rsp, %rdi        // rdi = old rsp
+    movq $18, %rcx         // number of qwords to copy
+.copy_loop:
+    movq (%rdi), %rdx
+    movq %rdx, (%rsi)
+    addq $8, %rdi
+    addq $8, %rsi
+    loop .copy_loop
+
+    // Now rsi points to end of copied region, back it up
+    subq $8*18, %rsi       // rsi = new_rsp (again)
+
+    // Overwrite new RIP with dummy_task
+    movq $dummy_task, %rdx
+    movq %rdx, 15*8(%rsi)  // offset for RIP
+
+    // Load new stack and iretq
+    movq %rsi, %rsp
+    iretq

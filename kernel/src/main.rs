@@ -3,7 +3,6 @@
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
 
-use core::arch::asm;
 
 use kernel_logger::init_logger;
 use os::OS;
