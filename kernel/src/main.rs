@@ -3,8 +3,8 @@
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
 
-
 use kernel_logger::init_logger;
+use multiprocessing::load_trampoline;
 use os::OS;
 
 extern crate alloc;
@@ -20,6 +20,7 @@ mod interrupts;
 mod kernel_logger;
 mod log_entry;
 mod mouse;
+mod multiprocessing;
 mod panic;
 mod screen;
 #[macro_use]
@@ -33,6 +34,9 @@ mod tasks;
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     init_logger();
+    load_trampoline();
+    log::info!("Kernel started");
+    log::info!("Loading OS");
     let mut os = OS::new();
     os.run();
 }

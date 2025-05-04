@@ -319,6 +319,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-cpuid"
+version = "10.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c297679cb867470fa8c9f67dbba74a78d78e3e98d7cf2b08d6d71540f797332"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -449,6 +458,7 @@ dependencies = [
  "pic8259",
  "postcard",
  "ps2-mouse",
+ "raw-cpuid",
  "serde",
  "sha2",
  "spin 0.10.0",

@@ -36,6 +36,9 @@ x86_64  = { version = "0.14.11", default-features = false, features = [
     "instructions",
     "abi_x86_interrupt",
 ] }
+raw-cpuid = "10.5.0"
+
+
 [features]
 default=["apic"]
 apic = []

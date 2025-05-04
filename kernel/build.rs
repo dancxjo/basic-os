@@ -1,42 +1,49 @@
-use std::{fs, process::Command};
+use std::{env, fs, process::Command};
 
 fn main() {
-    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-
-    // Tell cargo to pass the linker script to the linker
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     println!("cargo:rustc-link-arg=-Tlinker-{arch}.ld");
-
-    // Re-run if the linker script changes
     println!("cargo:rerun-if-changed=linker-{arch}.ld");
 
-    // Compile and link the context switch assembly file
-    cc::Build::new()
-        .file("src/tick_handler.S")
-        .compile("tick_handler");
-    // Re-run if the assembly file changes
-    println!("cargo:rerun-if-changed=src/tick_handler.S");
+    for file in ["src/tick_handler.S", "src/switch_to_task.S"] {
+        println!("cargo:rerun-if-changed={file}");
+        let obj_name = std::path::Path::new(file)
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap();
 
-    // Compile and link the context switch assembly file
-    cc::Build::new()
-        .file("src/switch_to_task.S")
-        .compile("switch_to_task");
-    // Re-run if the assembly file changes
-    println!("cargo:rerun-if-changed=src/switch_to_task.S");
+        cc::Build::new().file(file).flag("-m64").compile(obj_name);
+    }
 
-    println!("cargo:rerun-if-changed=ap_trampoline.S");
-    println!("cargo:rerun-if-changed=ap_trampoline.ld");
-
-    // Output path
+    // Assemble AP trampoline to ELF .o
+    println!("cargo:rerun-if-changed=ap_trampoline.asm");
     let out_dir = env::var("OUT_DIR").unwrap();
-    let output_bin = format!("{}/ap_trampoline.bin", out_dir);
+    let trampoline_o = format!("{}/ap_trampoline.o", out_dir);
+    let trampoline_bin = format!("{}/ap_trampoline.bin", out_dir);
 
-    // Run the assembler
     let status = Command::new("nasm")
-        .args(&["-f", "bin", "ap_trampoline.S", "-o", &output_bin])
+        .args(&["-f", "elf32", "ap_trampoline.asm", "-o", &trampoline_o])
         .status()
-        .expect("Failed to assemble trampoline");
+        .expect("NASM failed");
     assert!(status.success());
 
-    // Copy to kernel image, or make available for include_bytes!
-    fs::copy(&output_bin, "ap_trampoline.bin").unwrap();
+    // Link to flat binary
+    let status = Command::new("ld")
+        .args(&[
+            "-T",
+            "ap_trampoline.ld",
+            "-m",
+            "elf_i386",
+            "-nostdlib",
+            "-o",
+            &trampoline_bin,
+            &trampoline_o,
+        ])
+        .status()
+        .expect("ld failed");
+    assert!(status.success());
+
+    // Optional: copy to project root
+    fs::copy(&trampoline_bin, "ap_trampoline.bin").unwrap();
 }
