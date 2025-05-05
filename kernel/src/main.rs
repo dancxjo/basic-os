@@ -3,9 +3,9 @@
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
 
-
 use kernel_logger::init_logger;
-use os::OS;
+use panic::halt;
+use system::System;
 
 extern crate alloc;
 
@@ -25,15 +25,15 @@ mod screen;
 #[macro_use]
 mod serial;
 mod allocator;
-mod os;
 mod pic;
 mod stack;
+mod system;
 mod tasks;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     init_logger();
-    let mut os = OS::new();
+    let mut os = System::new();
     os.run();
 }
 

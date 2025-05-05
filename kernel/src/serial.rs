@@ -66,7 +66,9 @@ macro_rules! serial_println {
 #[doc(hidden)]
 pub fn _print(args: core::fmt::Arguments) {
     use core::fmt::Write;
-    SERIAL1.lock().write_fmt(args).unwrap();
+    if let Some(mut serial) = SERIAL1.try_lock() {
+        let _ = serial.write_fmt(args);
+    }
 }
 
 pub fn init_serial() {

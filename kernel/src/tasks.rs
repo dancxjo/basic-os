@@ -1,333 +1,284 @@
-//! tasks.rs — Tiny preemptive task manager for ThingOS
-
-use core::mem::MaybeUninit;
-
-use alloc::boxed::Box;
-use alloc::vec;
-use log::info;
-
 use crate::interrupts::end_of_interrupt;
+use core::ptr;
+use log::info;
+use spin::Mutex;
+use x86_64::structures::paging::{FrameAllocator, Mapper};
 
-pub struct Task {
-    pub(crate) stack_pointer: *mut u8,
-    pub(crate) _stack: Box<[u8]>, // Keep the memory alive
-}
-
-const MAX_TASKS: usize = 8;
-const STACK_SIZE: usize = 4096 * 4; // 16 KiB
-static mut TASKS: MaybeUninit<[Option<Task>; MAX_TASKS]> = MaybeUninit::uninit();
-
-static mut CURRENT_TASK: usize = 0;
-
-pub fn init_tasks() {
-    unsafe {
-        #[allow(static_mut_refs)]
-        TASKS.write(core::array::from_fn(|_| None));
-    }
-}
-
-pub fn spawn(entry: extern "C" fn()) {
-    unsafe {
-        #[allow(static_mut_refs)]
-        let tasks = TASKS.assume_init_mut();
-        for (i, task) in tasks.iter_mut().enumerate() {
-            if task.is_none() {
-                let next = init_task(entry);
-                for (i, val) in (0..18).map(|i| unsafe {
-                    let ptr = (next.stack_pointer as *const u64).sub(18 - i);
-                    (i, *ptr)
-                }) {
-                    log::info!("FabricatedStack[{}] = {:#018x}", i, val);
-                }
-
-                log::info!("ALLOCATED STACK: {:p} for task {}", next.stack_pointer, i);
-                log::info!("Spawned task {} at entry {:?}", i, entry as *const ());
-                *task = Some(next);
-                return;
-            }
-        }
-    };
-    panic!("Too many tasks — maximum of {}", MAX_TASKS);
-}
-
-unsafe extern "C" {
-    pub fn switch_to_task(rsp: *const u8) -> !;
-}
-
-pub fn kickstart() {
-    let first = unsafe {
-        #[allow(static_mut_refs)]
-        TASKS.assume_init_ref()[0]
-            .as_ref()
-            .expect("Task 0 not initialized")
-            .stack_pointer
-    };
-    log::info!("Jumping to first task at stack {:p}", first);
-    #[allow(static_mut_refs)]
-    let sp = unsafe {
-        TASKS.assume_init_ref()[0]
-            .as_ref()
-            .expect("Task 0 not initialized")
-            .stack_pointer as *const u64
-    };
-    for i in 0..18 {
-        log::info!("SP[{}] = {:#018x}", i, unsafe { *sp.offset(-(17 - i)) });
-    }
-    log::info!("Calling switch_to_task with RSP = {:p}", first);
-    unsafe {
-        switch_to_task(first); // Assembly function that restores context and iretqs
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn schedule(old_rsp: *mut usize) -> *mut usize {
-    log::info!("Scheduling...");
-    const CONTEXT_SIZE: isize = 15;
-
-    unsafe {
-        let current = CURRENT_TASK;
-
-        if let Some(next_task) = find_next_task() {
-            #[allow(static_mut_refs)]
-            let next_rsp = TASKS.assume_init_ref()[next_task]
-                .as_ref()
-                .expect("Task not found")
-                .stack_pointer;
-            if next_rsp.is_null() {
-                log::warn!("Next task {} has null stack pointer!", next_task);
-                end_of_interrupt(0);
-                return old_rsp;
-            }
-
-            CURRENT_TASK = next_task;
-            log::info!(
-                "Switching to task {}, RSP = {:p} (saved old RSP was {:p})",
-                next_task,
-                next_rsp,
-                old_rsp
-            );
-
-            end_of_interrupt(0);
-            return next_rsp as *mut usize;
-        }
-
-        log::warn!("No runnable tasks found. Staying on current task.");
-        end_of_interrupt(0);
-        old_rsp
-    }
-}
-
-fn find_next_task() -> Option<usize> {
-    unsafe {
-        let mut next = CURRENT_TASK;
-        #[allow(static_mut_refs)]
-        let tasks = TASKS.assume_init_ref();
-        for _ in 0..MAX_TASKS {
-            next = (next + 1) % MAX_TASKS;
-            if tasks[next]
-                .as_ref()
-                .map_or(false, |task| !task.stack_pointer.is_null())
-            {
-                return Some(next);
-            }
-        }
-        None
-    }
-}
-
-pub fn init_task(entry: extern "C" fn()) -> Task {
-    const NUM_GPR: usize = 15;
-    const IRET_FRAME: usize = 3;
-    const TOTAL_ENTRIES: usize = NUM_GPR + IRET_FRAME;
-
-    let (mut stack, raw_top) = allocate_stack();
-
-    let aligned_rsp = unsafe {
-        let start = raw_top.sub(TOTAL_ENTRIES * 8);
-        assert_eq!(start as usize % 16, 0, "Initial stack not 16-byte aligned!");
-        let mut ptr = start as *mut u64;
-
-        // GPRs in rollback pop order (will be popped *after* switch to task stack)
-        for i in 0..NUM_GPR {
-            *ptr.add(i) = 0xdeadbeefdeadbee0u64 - i as u64;
-        }
-
-        // iret frame (to match order expected by iretq)
-        *ptr.add(NUM_GPR + 0) = entry as usize as u64; // RIP
-        *ptr.add(NUM_GPR + 1) = 0x08; // CS
-        *ptr.add(NUM_GPR + 2) = 0x202; // RFLAGS (IF=1)
-
-        ptr.add(NUM_GPR + 3) as *mut u8
-    };
-
-    log::info!("Fabricated task stack at {:p} (aligned)", aligned_rsp);
-
-    Task {
-        stack_pointer: aligned_rsp,
-        _stack: stack,
-    }
-}
-
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
-#[repr(align(16))]
-struct Aligned(u8);
-
-fn allocate_stack() -> (Box<[u8]>, *mut u8) {
-    let mut stack: Box<[Aligned]> = vec![Aligned(0); STACK_SIZE].into_boxed_slice();
-    let stack_ptr = stack.as_mut_ptr() as *mut u8;
-    let stack_top = unsafe { stack_ptr.add(STACK_SIZE) };
-    log::info!("Allocated stack from {:p} to {:p}", stack_ptr, stack_top);
-
-    (
-        unsafe {
-            Box::from_raw(core::slice::from_raw_parts_mut(
-                stack.as_mut_ptr() as *mut u8,
-                STACK_SIZE,
-            ))
-        },
-        stack_top,
-    )
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn check_alignment(rsp: usize) {
-    info!("Is this aligned? RSP = {:#018x}", rsp);
+pub struct IretFrame {
+    pub rip: u64,
+    pub cs: u64,
+    pub rflags: u64,
+    pub rsp: u64,
+    pub ss: u64,
 }
 
 #[repr(C)]
-pub struct InterruptContext {
-    r15: u64,
-    r14: u64,
-    r13: u64,
-    r12: u64,
-    r11: u64,
-    r10: u64,
-    r9: u64,
-    r8: u64,
-    rsi: u64,
-    rdi: u64,
-    rbp: u64,
-    rdx: u64,
-    rcx: u64,
-    rbx: u64,
-    rax: u64,
-    rip: u64,
-    cs: u64,
-    rflags: u64,
-    // rsp, ss would follow if we returned to user space
+#[derive(Debug, Clone, Copy)]
+pub struct GeneralRegisters {
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9: u64,
+    pub r8: u64,
+    pub rsi: u64,
+    pub rdi: u64,
+    pub rbp: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rbx: u64,
+    pub rax: u64,
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn spy_context(ptr: *const InterruptContext) {
-    let ctx = unsafe { &*ptr };
-    serial_println!("=== INTERRUPT CONTEXT DUMP ===");
-    serial_println!(" RIP: {:016x}", ctx.rip);
-    serial_println!(" CS : {:016x}", ctx.cs);
-    serial_println!(" RFLAGS: {:016x}", ctx.rflags);
-    serial_println!(" RAX: {:016x}", ctx.rax);
-    serial_println!(" RBX: {:016x}", ctx.rbx);
-    serial_println!(" RCX: {:016x}", ctx.rcx);
-    serial_println!(" RDX: {:016x}", ctx.rdx);
-    serial_println!(" RSI: {:016x}", ctx.rsi);
-    serial_println!(" RDI: {:016x}", ctx.rdi);
-    serial_println!(" RBP: {:016x}", ctx.rbp);
-    // serial_println!(" RSP: {:016x}", ctx.rsp);
-    serial_println!(" R8 : {:016x}", ctx.r8);
-    serial_println!(" R9 : {:016x}", ctx.r9);
-    serial_println!(" R10: {:016x}", ctx.r10);
-    serial_println!(" R11: {:016x}", ctx.r11);
-    serial_println!(" R12: {:016x}", ctx.r12);
-    serial_println!(" R13: {:016x}", ctx.r13);
-    serial_println!(" R14: {:016x}", ctx.r14);
-    serial_println!(" R15: {:016x}", ctx.r15);
+#[repr(C)]
+#[derive(Debug)]
+pub struct Task {
+    pub entry_point: extern "C" fn(),
+    pub stack_top: u64,
+    pub saved_regs: GeneralRegisters,
+    pub saved_frame: IretFrame,
+    pub initialized: bool,
 }
 
-use core::alloc::{GlobalAlloc, Layout};
-use core::ptr::null_mut;
+impl Task {
+    pub fn new(
+        entry: extern "C" fn(),
+        index: usize,
+        mapper: &mut x86_64::structures::paging::OffsetPageTable,
+        frame_allocator: &mut crate::allocator::BootFrameAllocator,
+    ) -> Self {
+        let mut task = Self {
+            entry_point: entry,
+            stack_top: 0,
+            saved_regs: GeneralRegisters {
+                r15: 0,
+                r14: 0,
+                r13: 0,
+                r12: 0,
+                r11: 0,
+                r10: 0,
+                r9: 0,
+                r8: 0,
+                rsi: 0,
+                rdi: 0,
+                rbp: 0,
+                rdx: 0,
+                rcx: 0,
+                rbx: 0,
+                rax: 0,
+            },
+            saved_frame: IretFrame {
+                rip: 0,
+                cs: 0,
+                rflags: 0,
+                rsp: 0,
+                ss: 0,
+            },
+            initialized: false,
+        };
 
-// Replace with your actual allocator
-extern crate alloc;
-use alloc::alloc::alloc;
-
-#[unsafe(no_mangle)]
-pub extern "C" fn alloc_stack(size: usize) -> *mut u8 {
-    // Ensure alignment to 16 bytes
-    let layout = Layout::from_size_align(size, 16).unwrap();
-
-    // Allocate from the global allocator
-    let ptr = unsafe { alloc(layout) };
-
-    if ptr.is_null() {
-        panic!("alloc_stack: failed to allocate stack of {} bytes", size);
+        task.allocate_stack_if_needed(mapper, frame_allocator, index);
+        task.prepare_if_needed();
+        task
     }
 
-    ptr
+    pub fn prepare_if_needed(&mut self) {
+        if !self.initialized {
+            self.saved_frame = IretFrame {
+                rip: self.entry_point as u64,
+                cs: 0x08,
+                rflags: 0x202,
+                rsp: self.stack_top,
+                ss: 0x10,
+            };
+            self.initialized = true;
+        }
+        info!("Task initialized");
+    }
+
+    pub fn stack_base_for_task(index: usize) -> u64 {
+        const STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
+        const STACK_SIZE: u64 = 4096 * 5;
+        STACK_REGION_BASE + index as u64 * STACK_SIZE
+    }
+
+    pub fn allocate_stack_if_needed(
+        &mut self,
+        mapper: &mut x86_64::structures::paging::OffsetPageTable,
+        frame_allocator: &mut crate::allocator::BootFrameAllocator,
+        index: usize,
+    ) {
+        if self.stack_top == 0 {
+            use x86_64::VirtAddr;
+            use x86_64::structures::paging::{Page, PageTableFlags};
+
+            let base_virt = Self::stack_base_for_task(index);
+            let start = VirtAddr::new(base_virt);
+            let mut page = Page::containing_address(start);
+
+            for _ in 0..5 {
+                let frame = frame_allocator
+                    .allocate_frame()
+                    .expect("Out of physical frames for task stack");
+
+                unsafe {
+                    mapper
+                        .map_to(
+                            page,
+                            frame,
+                            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+                            frame_allocator,
+                        )
+                        .expect("map_to failed (task stack)")
+                        .flush();
+                }
+
+                page = page + 1;
+            }
+
+            self.stack_top = base_virt + 5 * 4096;
+        }
+        info!("Stack allocated for task {}", index);
+    }
+
+    pub fn context_ptr(&self) -> *const u8 {
+        &self.saved_regs as *const _ as *const u8
+    }
+
+    pub fn context_mut_ptr(&mut self) -> *mut u8 {
+        &mut self.saved_regs as *mut _ as *mut u8
+    }
 }
 
-#[unsafe(no_mangle)]
-pub fn prepare_task_stack(entry_point: extern "C" fn() -> !) -> *mut u8 {
-    const NUM_GPRS: usize = 15;
-    const STACK_SIZE: usize = 4096;
+pub struct Scheduler {
+    pub tasks: [Option<Task>; 4],
+    pub current: usize,
+    pub last_switched_at: u64,
+    pub now_fn: fn() -> u64,
+}
 
-    let layout = Layout::from_size_align(STACK_SIZE, 16).unwrap();
-    let raw = unsafe { alloc::alloc::alloc(layout) };
-    assert!(!raw.is_null());
-
-    let stack_top = unsafe { raw.add(STACK_SIZE) };
-    let mut sp = stack_top as *mut u64;
-    unsafe {
-        // Push RFLAGS
-        sp = unsafe { sp.offset(-1) };
-        *sp = 0x10282;
-
-        // Push CS
-        sp = unsafe { sp.offset(-1) };
-        *sp = 0x08;
-
-        // Push RIP
-        sp = unsafe { sp.offset(-1) };
-        *sp = entry_point as u64;
-
-        let regs = [
-            0x0000000000000000, // r15
-            0x0000000000000000, // r14
-            0x0000000000000000, // r13
-            0x0000000000000000, // r12
-            0x0000000000000010, // r11
-            0x0000000000000002, // r10
-            0x0000000000000001, // r9
-            0x0000000000000000, // r8
-            0x0000000000000000, // rsi
-            0xffffffff81fda8d0, // rdi
-            0x0000000000000000, // rbp
-            0x0000000000000001, // rdx
-            0x0000000000000000, // rcx
-            0x0000000000000000, // rbx
-            0xffff80007fe1ca20, // rax
-        ];
-
-        for &val in regs.iter().rev() {
-            sp = unsafe { sp.offset(-1) };
-            *sp = val;
+impl Scheduler {
+    pub const fn new(now_fn: fn() -> u64) -> Self {
+        Scheduler {
+            tasks: [None, None, None, None],
+            current: 0,
+            last_switched_at: 0,
+            now_fn,
         }
     }
-    let context_base = sp; // stack[0]
-    let iret_rsp = unsafe { sp.add(NUM_GPRS) }; // stack[15]
 
-    // Print the stack (optional)
-    for i in 0..(NUM_GPRS + 3) {
-        serial_println!("FabricatedStack[{}] = 0x{:016x}", i, unsafe {
-            *context_base.add(i)
-        });
+    pub fn spawn(
+        &mut self,
+        entry: extern "C" fn(),
+        index: usize,
+        mapper: &mut x86_64::structures::paging::OffsetPageTable,
+        frame_allocator: &mut crate::allocator::BootFrameAllocator,
+    ) {
+        let task = Task::new(entry, index, mapper, frame_allocator);
+        info!("Task {} spawned", index);
+        self.tasks[index] = Some(task);
     }
 
-    iret_rsp as *mut u8 // return pointer to RIP slot (stack[15])
+    pub fn next_ready_task(&mut self, now: u64) -> Option<&mut Task> {
+        let delta = now - self.last_switched_at;
+        if delta < 12500 {
+            // info!("Skipping switch ({} ticks too soon)", 2500 - delta);
+            return None;
+        }
+
+        for i in 0..self.tasks.len() {
+            let index = (self.current + i) % self.tasks.len();
+            if let Some(ref mut task) = self.tasks[index] {
+                self.current = index;
+                self.last_switched_at = now; // ✅ Move it here!
+                return Some(task);
+            }
+        }
+
+        None
+    }
+
+    pub fn start_first(&self) -> ! {
+        unsafe extern "C" {
+            fn restore_context(saved: *const u8) -> !;
+        }
+        info!("Starting first task");
+        if let Some(task) = self.tasks[0].as_ref() {
+            let ctx = task.context_ptr();
+            unsafe {
+                restore_context(ctx);
+            }
+        } else {
+            panic!("No task in slot 0 to start");
+        }
+    }
+}
+
+pub static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new(crate::clock::ticks_since_boot));
+#[unsafe(no_mangle)]
+pub static mut CURRENT_TASK: *mut Task = core::ptr::null_mut();
+
+unsafe extern "C" {
+    fn restore_context(ctx: *const u8) -> !;
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dummy_task() -> ! {
-    serial_println!("Dummy task entered!");
-    loop {
-        x86_64::instructions::hlt();
+pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
+    use core::ptr;
+
+    unsafe {
+        if !CURRENT_TASK.is_null() {
+            let task = &mut *CURRENT_TASK;
+            ptr::copy_nonoverlapping(
+                current_rsp,
+                task.context_mut_ptr(),
+                core::mem::size_of::<GeneralRegisters>(),
+            );
+        }
+
+        let mut scheduler = SCHEDULER.lock();
+        let now = (scheduler.now_fn)();
+        let next = scheduler.next_ready_task(now).map(|t| t as *mut Task);
+        let current = CURRENT_TASK;
+        drop(scheduler);
+
+        match next {
+            Some(task_ptr) => {
+                CURRENT_TASK = task_ptr;
+                end_of_interrupt(0);
+                restore_context((*task_ptr).context_ptr());
+            }
+            None => {
+                end_of_interrupt(0);
+                // info!("No switch occurred, returning to current task.");
+                restore_context((*current).context_ptr());
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rust_prepare_task_if_needed(task: &mut Task) {
+    task.prepare_if_needed();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rust_get_context_ptr(task: &Task) -> *const u8 {
+    task.context_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn save_current_context(ctx_ptr: *const u8) {
+    unsafe {
+        let regs_ptr = ctx_ptr as *const GeneralRegisters;
+        let frame_ptr = ctx_ptr.add(core::mem::size_of::<GeneralRegisters>()) as *const IretFrame;
+
+        let task = &mut *CURRENT_TASK;
+        ptr::copy_nonoverlapping(regs_ptr, &mut task.saved_regs, 1);
+        ptr::copy_nonoverlapping(frame_ptr, &mut task.saved_frame, 1);
     }
 }

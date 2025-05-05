@@ -1,7 +1,7 @@
 //! idt.rs — ThingOS Interrupt Descriptor Table Setup (fault handlers only)
 
 use core::mem::MaybeUninit;
-use log::error;
+use log::{error, info};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
@@ -18,7 +18,9 @@ extern "x86-interrupt" fn page_fault_handler(
         "Page fault! Error Code: {:?} Frame: {:?}",
         error_code, stack_frame
     );
-    loop {}
+    loop {
+        info!("Page fault handler called");
+    }
 }
 
 extern "x86-interrupt" fn double_fault_handler(

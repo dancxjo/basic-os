@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -6,6 +7,7 @@ use x86_64::instructions::interrupts;
 
 use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::bootloader::get_hhdm_offset;
+use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::framebuffer::Framebuffer;
 use crate::gdt::init_gdt;
@@ -16,22 +18,21 @@ use crate::mouse::Mouse;
 use crate::panic::halt;
 use crate::screen::Screen;
 use crate::stack::init_kernel_stack;
-use crate::{bootstrap_step, tasks};
+use crate::tasks::{SCHEDULER, Scheduler};
 
 static KEYBOARD_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MOUSE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static GUI_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FRAMEBUFFER_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-pub struct OS {
-    clock: Rc<RefCell<Clock>>,
+pub struct System {
     framebuffer: Rc<RefCell<Framebuffer>>,
     gui: Rc<RefCell<GUI>>,
     mouse: Rc<RefCell<Mouse>>,
     screen: Rc<RefCell<Screen>>,
 }
 
-impl OS {
+impl System {
     pub fn new() -> Self {
         info!("Ready? Set? Go!");
 
@@ -44,19 +45,19 @@ impl OS {
             assert_eq!(depth, 10);
         });
 
-        let mapper = bootstrap_step!("paging", {
+        let mut mapper = bootstrap_step!("paging", {
             let physical_memory_offset = get_hhdm_offset();
             unsafe { init_paging(physical_memory_offset) }
         });
 
-        let frame_allocator = BootFrameAllocator::init();
+        let mut frame_allocator = BootFrameAllocator::init();
 
         bootstrap_step!("stack", {
-            unsafe { init_kernel_stack(mapper, frame_allocator) };
+            unsafe { init_kernel_stack(&mut mapper, &mut frame_allocator) };
         });
 
         bootstrap_step!("heap", {
-            init_heap(mapper, frame_allocator);
+            init_heap(&mut mapper, &mut frame_allocator);
         });
 
         bootstrap_step!("heap basic test", {
@@ -73,24 +74,31 @@ impl OS {
         });
 
         bootstrap_step!("tasks", {
-            tasks::init_tasks();
+            let mut scheduler = SCHEDULER.lock();
+            scheduler.spawn(keyboard_thread, 0, &mut mapper, &mut frame_allocator);
+            scheduler.spawn(mouse_thread, 1, &mut mapper, &mut frame_allocator);
+            // scheduler.spawn(gui_thread, 2, &mut mapper, &mut frame_allocator);
         });
 
-        // ✅ Now initialize drivers
         let framebuffer = Rc::new(RefCell::new(
             Framebuffer::new().expect("Framebuffer not available"),
         ));
+
         let hpet = HPET::new(0xFED00000);
         let rtc = RTC::new();
-        let clock = Rc::new(RefCell::new(Clock::new(hpet, rtc)));
+
+        // Only create the Clock once
+        let clock_boxed = Box::new(Clock::new(hpet, rtc));
+        let clock_static: &'static Clock = Box::leak(clock_boxed);
+        crate::clock::set_global_clock(clock_static);
+
+        // These may still use Rc if needed for UI wiring
         let mouse = Rc::new(RefCell::new(Mouse::new(&framebuffer.borrow())));
         let screen = Rc::new(RefCell::new(Screen::new(&framebuffer.borrow())));
         let gui = Rc::new(RefCell::new(GUI::new(&framebuffer.borrow())));
 
         info!("ThingOS initialized.");
-
         Self {
-            clock,
             framebuffer,
             gui,
             mouse,
@@ -100,21 +108,9 @@ impl OS {
 
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
-
-        // Spawn kernel threads
-        tasks::spawn(keyboard_thread);
-        // tasks::spawn(mouse_thread);
-        // tasks::spawn(gui_thread);
-        // tasks::spawn(framebuffer_thread);
-        info!("Enabling interrupts...");
         interrupts::enable();
-        info!("Interrupts enabled.");
-        // tasks::kickstart();
-
-        // keyboard_thread();
-        log::info!("Halting");
-        loop {}
-        halt();
+        let scheduler = SCHEDULER.lock();
+        scheduler.start_first();
     }
 }
 
@@ -131,39 +127,37 @@ macro_rules! bootstrap_step {
 #[unsafe(no_mangle)]
 extern "C" fn keyboard_thread() {
     loop {
-        unsafe {
-            core::arch::asm!("hlt");
+        let how_long = KEYBOARD_COUNT.load(Ordering::Relaxed);
+        if how_long % 2000 == 0 {
+            serial_println!("<");
         }
-    }
-    info!("Keyboard thread running...");
-    loop {
-        info!("Keyboard thread running...");
-
         KEYBOARD_COUNT.fetch_add(1, Ordering::Relaxed);
-        for _ in 0..10_000_000 {
-            core::hint::spin_loop();
+        for _ in 0..10000000 {
+            unsafe { core::arch::asm!("pause") };
         }
     }
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn mouse_thread() {
-    info!("Mouse thread running...");
     loop {
-        info!("Mouse thread running...");
         MOUSE_COUNT.fetch_add(1, Ordering::Relaxed);
-        for _ in 0..10_000_000 {
-            core::hint::spin_loop();
+        let how_long = MOUSE_COUNT.load(Ordering::Relaxed);
+        if how_long % 5000 == 0 {
+            serial_println!(">");
+        }
+
+        for _ in 0..1000000 {
+            unsafe { core::arch::asm!("pause") };
         }
     }
 }
 #[unsafe(no_mangle)]
 extern "C" fn gui_thread() {
     loop {
-        info!("GUI thread running...");
         GUI_COUNT.fetch_add(1, Ordering::Relaxed);
-        for _ in 0..10_000_000 {
-            core::hint::spin_loop();
+        for _ in 0..1000000 {
+            unsafe { core::arch::asm!("pause") };
         }
     }
 }
@@ -171,10 +165,9 @@ extern "C" fn gui_thread() {
 #[unsafe(no_mangle)]
 extern "C" fn framebuffer_thread() {
     loop {
-        info!("Framebuffer thread running...");
         FRAMEBUFFER_COUNT.fetch_add(1, Ordering::Relaxed);
-        for _ in 0..10_000_000 {
-            core::hint::spin_loop();
+        for _ in 0..1000000 {
+            unsafe { core::arch::asm!("pause") };
         }
     }
 }

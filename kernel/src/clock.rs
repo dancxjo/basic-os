@@ -4,6 +4,17 @@ use log::info;
 use serde::Serialize;
 use x86_64::instructions::port::Port;
 
+static mut CLOCK: Option<&'static Clock> = None;
+
+pub fn set_global_clock(clock: &'static Clock) {
+    unsafe {
+        CLOCK = Some(clock);
+    }
+}
+
+pub fn ticks_since_boot() -> u64 {
+    unsafe { CLOCK.expect("Global clock not set").ticks_since_boot() }
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct Clock {
     hpet: HPET,

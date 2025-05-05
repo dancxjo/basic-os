@@ -1,6 +1,5 @@
 // interrupts.rs — APIC-based interrupt management for ThingOS
 
-
 use log::info;
 use x86_64::instructions::port::Port;
 use x86_64::registers::model_specific::Msr;
@@ -125,7 +124,7 @@ fn lapic_end_of_interrupt() {
     }
 }
 
-pub fn end_of_interrupt(irq: u8) {
+pub fn end_of_interrupt(_irq: u8) {
     #[cfg(feature = "apic")]
     {
         lapic_end_of_interrupt();
@@ -133,6 +132,6 @@ pub fn end_of_interrupt(irq: u8) {
 
     #[cfg(not(feature = "apic"))]
     {
-        pic_end_of_interrupt(irq);
+        pic_end_of_interrupt(_irq);
     }
 }
