@@ -77,7 +77,11 @@ impl System {
             let mut scheduler = SCHEDULER.lock();
             scheduler.spawn(keyboard_thread, 0, &mut mapper, &mut frame_allocator);
             scheduler.spawn(mouse_thread, 1, &mut mapper, &mut frame_allocator);
-            // scheduler.spawn(gui_thread, 2, &mut mapper, &mut frame_allocator);
+            scheduler.spawn(gui_thread, 2, &mut mapper, &mut frame_allocator);
+            scheduler.spawn(keyboard_thread, 3, &mut mapper, &mut frame_allocator);
+            scheduler.spawn(mouse_thread, 4, &mut mapper, &mut frame_allocator);
+            scheduler.spawn(gui_thread, 5, &mut mapper, &mut frame_allocator);
+            scheduler.spawn(keyboard_thread, 6, &mut mapper, &mut frame_allocator);
         });
 
         let framebuffer = Rc::new(RefCell::new(
@@ -129,7 +133,7 @@ extern "C" fn keyboard_thread() {
     loop {
         let how_long = KEYBOARD_COUNT.load(Ordering::Relaxed);
         if how_long % 2000 == 0 {
-            serial_println!("<");
+            // serial_println!("<");
         }
         KEYBOARD_COUNT.fetch_add(1, Ordering::Relaxed);
         for _ in 0..10000000 {
@@ -141,11 +145,11 @@ extern "C" fn keyboard_thread() {
 #[unsafe(no_mangle)]
 extern "C" fn mouse_thread() {
     loop {
-        MOUSE_COUNT.fetch_add(1, Ordering::Relaxed);
         let how_long = MOUSE_COUNT.load(Ordering::Relaxed);
         if how_long % 5000 == 0 {
-            serial_println!(">");
+            // serial_println!(">");
         }
+        MOUSE_COUNT.fetch_add(1, Ordering::Relaxed);
 
         for _ in 0..1000000 {
             unsafe { core::arch::asm!("pause") };

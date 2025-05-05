@@ -155,7 +155,7 @@ impl Task {
 }
 
 pub struct Scheduler {
-    pub tasks: [Option<Task>; 4],
+    pub tasks: [Option<Task>; 10],
     pub current: usize,
     pub last_switched_at: u64,
     pub now_fn: fn() -> u64,
@@ -164,7 +164,7 @@ pub struct Scheduler {
 impl Scheduler {
     pub const fn new(now_fn: fn() -> u64) -> Self {
         Scheduler {
-            tasks: [None, None, None, None],
+            tasks: [None, None, None, None, None, None, None, None, None, None],
             current: 0,
             last_switched_at: 0,
             now_fn,
@@ -185,18 +185,21 @@ impl Scheduler {
 
     pub fn next_ready_task(&mut self, now: u64) -> Option<&mut Task> {
         let delta = now - self.last_switched_at;
-        if delta < 12500 {
-            // info!("Skipping switch ({} ticks too soon)", 2500 - delta);
+        if delta < 2500 {
+            info!("Skipping switch ({} ticks too soon)", 2500 - delta);
             return None;
         }
 
-        for i in 0..self.tasks.len() {
-            let index = (self.current + i) % self.tasks.len();
-            if let Some(ref mut task) = self.tasks[index] {
-                self.current = index;
-                self.last_switched_at = now; // ✅ Move it here!
-                return Some(task);
-            }
+        let mut index = self.current + 1;
+        if index >= 6 {
+            index = 0;
+        }
+
+        if let Some(ref mut task) = self.tasks[index] {
+            self.current = index;
+            self.last_switched_at = now; // ✅ Move it here!
+            info!("Switching to task {}", index);
+            return Some(task);
         }
 
         None
