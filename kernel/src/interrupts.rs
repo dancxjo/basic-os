@@ -101,6 +101,36 @@ pub fn init_apic() {
     setup_apic_timer();
 }
 
+const IO_APIC_BASE: usize = 0xFEC00000;
+
+pub unsafe fn io_apic_write(index: u8, value: u32) {
+    let reg_sel = IO_APIC_BASE as *mut u32;
+    let reg_win = (IO_APIC_BASE + 0x10) as *mut u32;
+
+    unsafe { core::ptr::write_volatile(reg_sel, index as u32) };
+    unsafe { core::ptr::write_volatile(reg_win, value) };
+}
+
+pub unsafe fn io_apic_read(index: u8) -> u32 {
+    let reg_sel = IO_APIC_BASE as *mut u32;
+    let reg_win = (IO_APIC_BASE + 0x10) as *mut u32;
+
+    unsafe { core::ptr::write_volatile(reg_sel, index as u32) };
+    unsafe { core::ptr::read_volatile(reg_win) }
+}
+
+pub unsafe fn init_io_apic_irq(irq: u8, vector: u8, apic_id: u8) {
+    unsafe {
+        let redir_index = 0x10 + (irq * 2);
+
+        // Write high dword (destination field: bits 56–63)
+        io_apic_write(redir_index + 1, (apic_id as u32) << 24);
+
+        // Write low dword (vector | fixed delivery | unmasked)
+        let flags = vector as u32; // delivery mode: fixed (000), physical dest (0), unmasked (0)
+        io_apic_write(redir_index, flags);
+    }
+}
 // /// Switch to the newly mapped kernel stack before enabling interrupts
 // pub unsafe fn switch_to_kernel_stack() {
 //     info!("Switching to safe kernel stack at {:#x}", STACK_TOP);

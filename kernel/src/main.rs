@@ -25,10 +25,11 @@ mod screen;
 #[macro_use]
 mod serial;
 mod allocator;
+mod input;
 mod pic;
+mod ps2;
 mod stack;
 mod system;
-mod tasks;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
@@ -39,7 +40,6 @@ pub extern "C" fn kmain() -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    // unsafe { init_stack() };
     kmain();
 }
 
