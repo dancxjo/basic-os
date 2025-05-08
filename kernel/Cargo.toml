@@ -36,6 +36,7 @@ x86_64  = { version = "0.14.11", default-features = false, features = [
     "instructions",
     "abi_x86_interrupt",
 ] }
+base-x = { version = "0.2.11", default-features = false }
 [features]
 default=["apic"]
 apic = []

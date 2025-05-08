@@ -9,9 +9,11 @@ use system::System;
 extern crate alloc;
 
 mod bootloader;
+mod canon;
 mod clock;
 mod framebuffer;
 mod gdt;
+mod graph;
 mod gui;
 mod gui_output;
 mod idt;

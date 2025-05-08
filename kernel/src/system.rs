@@ -9,6 +9,7 @@ use crate::bootloader::get_hhdm_offset;
 use crate::clock::{Clock, HPET, RTC};
 use crate::framebuffer::Framebuffer;
 use crate::gdt::init_gdt;
+use crate::graph::{Graph, bootstrap_graph};
 use crate::gui::GUI;
 use crate::idt::init_idt;
 use crate::input::{KEYBOARD_BUFFER, KEYBOARD_HEAD, process_scancode};
@@ -23,6 +24,7 @@ pub struct System {
     gui: Rc<RefCell<GUI>>,
     clock: Rc<RefCell<Clock>>,
     screen: Rc<RefCell<Screen>>,
+    graph: Rc<RefCell<Graph>>,
 }
 
 impl System {
@@ -47,6 +49,8 @@ impl System {
         bootstrap_step!("heap", {
             init_heap(&mut mapper, &mut frame_allocator);
         });
+
+        let graph = bootstrap_step!("graph", { Rc::new(RefCell::new(bootstrap_graph())) });
 
         bootstrap_step!("IDT", {
             init_idt();
@@ -81,6 +85,7 @@ impl System {
             gui,
             clock,
             screen,
+            graph,
         }
     }
 
