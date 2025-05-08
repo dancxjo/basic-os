@@ -4,7 +4,6 @@
 #![feature(new_range_api)]
 
 use kernel_logger::init_logger;
-use panic::halt;
 use system::System;
 
 extern crate alloc;
@@ -22,6 +21,7 @@ mod log_entry;
 mod mouse;
 mod panic;
 mod screen;
+mod tasks;
 #[macro_use]
 mod serial;
 mod allocator;

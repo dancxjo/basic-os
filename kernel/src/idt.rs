@@ -4,7 +4,10 @@ use crate::{
     input::{keyboard_interrupt_handler, mouse_interrupt_handler},
     interrupts::{end_of_interrupt, init_io_apic_irq},
 };
+use core::sync::atomic::{AtomicU64, Ordering};
+use log::{error, info};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 
 // === Internal ===
@@ -42,8 +45,6 @@ extern "x86-interrupt" fn general_protection_fault_handler(
     );
     loop {}
 }
-
-use core::sync::atomic::{AtomicU64, Ordering};
 
 static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
 
