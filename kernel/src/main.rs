@@ -8,6 +8,7 @@ use system::System;
 
 extern crate alloc;
 
+mod allocator;
 mod bootloader;
 mod canon;
 mod clock;
@@ -17,21 +18,19 @@ mod graph;
 mod gui;
 mod gui_output;
 mod idt;
+mod input;
 mod interrupts;
 mod kernel_logger;
 mod log_entry;
 mod mouse;
 mod panic;
-mod screen;
-mod tasks;
-#[macro_use]
-mod serial;
-mod allocator;
-mod input;
 mod pic;
 mod ps2;
+mod screen;
+mod serial;
 mod stack;
 mod system;
+mod tasks;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {

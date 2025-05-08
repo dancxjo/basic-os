@@ -1,10 +1,11 @@
 use alloc::collections::BTreeMap;
+use alloc::fmt;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, fmt::Debug};
-use alloc::{fmt, vec};
 use erased_serde::Serialize as ErasedSerialize;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -29,6 +30,7 @@ pub trait KindMeta: ErasedSerialize + Debug + Send + Sync + 'static + Clone + fm
 // -------------------------------
 // Macro: kind_meta!
 // -------------------------------
+#[macro_export]
 macro_rules! kind_meta {
     ($t:ty, $name:expr) => {
         impl KindMeta for $t {}
@@ -219,21 +221,33 @@ impl Graph {
         self.things.insert(thing.id, Arc::new(thing));
     }
 
+    fn name_thing(&self, id: Uuid) -> String {
+        match id {
+            canon::NOTHING => "nothing".into(),
+            canon::SYSTEM => "system".into(),
+            canon::JOURNAL => "journal".into(),
+            _ => self
+                .get_thing(&id)
+                .map(|t| format!("{}", t))
+                .unwrap_or_else(|| format!("{} ({})", "something", uuid_base36(&id))),
+        }
+    }
+
+    fn name_verb(&self, verb: Uuid) -> String {
+        match verb {
+            canon::NOTHING => "does nothing to".into(),
+            canon::IS_A => "is a".into(),
+            _ => self
+                .get_thing(&verb)
+                .map(|t| format!("{}", t))
+                .unwrap_or_else(|| format!("{} ({})", "does something to", uuid_base36(&verb))),
+        }
+    }
+
     pub fn add_fact(&mut self, fact: Fact) {
-        let s = self
-            .get_thing(&fact.subject)
-            .map(|t| format!("{}", t))
-            .unwrap_or_else(|| format!("{} ({})", "something", uuid_base36(&fact.subject)));
-
-        let v = self
-            .get_thing(&fact.verb)
-            .map(|t| format!("{}", t))
-            .unwrap_or_else(|| format!("{} ({})", "does something to", uuid_base36(&fact.verb)));
-
-        let o = self
-            .get_thing(&fact.object)
-            .map(|t| format!("{}", t))
-            .unwrap_or_else(|| format!("{} ({})", "something", uuid_base36(&fact.object)));
+        let s = self.name_thing(fact.subject);
+        let v = self.name_verb(fact.verb);
+        let o = self.name_thing(fact.object);
 
         log::info!("{} {} {}", s, v, o);
         self.facts.push(fact);

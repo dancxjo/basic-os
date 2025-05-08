@@ -1,15 +1,9 @@
-use alloc::rc::Rc;
-use core::cell::RefCell;
-use core::sync::atomic::Ordering;
-use log::info;
-use x86_64::instructions::interrupts;
-
 use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::bootloader::get_hhdm_offset;
 use crate::clock::{Clock, HPET, RTC};
 use crate::framebuffer::Framebuffer;
 use crate::gdt::init_gdt;
-use crate::graph::{Graph, bootstrap_graph};
+use crate::graph::{Graph, Kind, KindMeta, bootstrap_graph};
 use crate::gui::GUI;
 use crate::idt::init_idt;
 use crate::input::{KEYBOARD_BUFFER, KEYBOARD_HEAD, process_scancode};
@@ -17,15 +11,19 @@ use crate::interrupts::init_interrupts;
 use crate::screen::Screen;
 use crate::stack::init_kernel_stack;
 use crate::tasks::SCHEDULER;
-use crate::{bootstrap_step, ps2};
+use crate::{bootstrap_step, kind_meta, ps2};
+use alloc::boxed::Box;
+use alloc::fmt;
+use alloc::rc::Rc;
+use core::cell::RefCell;
+use core::sync::atomic::Ordering;
+use log::info;
+use serde::{Deserialize, Serialize};
+use x86_64::instructions::interrupts;
 
-pub struct System {
-    framebuffer: Rc<RefCell<Framebuffer>>,
-    gui: Rc<RefCell<GUI>>,
-    clock: Rc<RefCell<Clock>>,
-    screen: Rc<RefCell<Screen>>,
-    graph: Rc<RefCell<Graph>>,
-}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct System {}
+kind_meta!(System, "system");
 
 impl System {
     pub fn new() -> Self {
@@ -50,8 +48,6 @@ impl System {
             init_heap(&mut mapper, &mut frame_allocator);
         });
 
-        let graph = bootstrap_step!("graph", { Rc::new(RefCell::new(bootstrap_graph())) });
-
         bootstrap_step!("IDT", {
             init_idt();
         });
@@ -59,6 +55,8 @@ impl System {
         bootstrap_step!("interrupts", {
             init_interrupts();
         });
+
+        let graph = bootstrap_step!("graph", { Rc::new(RefCell::new(bootstrap_graph())) });
 
         bootstrap_step!("PS/2 devices", {
             ps2::enable_ps2_devices();
@@ -78,15 +76,8 @@ impl System {
         let clock = Rc::new(RefCell::new(Clock::new(hpet, rtc)));
         let screen = Rc::new(RefCell::new(Screen::new(&framebuffer.borrow())));
         let gui = Rc::new(RefCell::new(GUI::new(&framebuffer.borrow())));
-
         info!("ThingOS initialized.");
-        Self {
-            framebuffer,
-            gui,
-            clock,
-            screen,
-            graph,
-        }
+        Self {}
     }
 
     pub fn run(&mut self) -> ! {
