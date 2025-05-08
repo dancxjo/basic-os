@@ -4,7 +4,6 @@
 #![feature(new_range_api)]
 
 use kernel_logger::init_logger;
-use panic::halt;
 use system::System;
 
 extern crate alloc;
@@ -22,13 +21,15 @@ mod log_entry;
 mod mouse;
 mod panic;
 mod screen;
+mod tasks;
 #[macro_use]
 mod serial;
 mod allocator;
+mod input;
 mod pic;
+mod ps2;
 mod stack;
 mod system;
-mod tasks;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
@@ -39,7 +40,6 @@ pub extern "C" fn kmain() -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    // unsafe { init_stack() };
     kmain();
 }
 
