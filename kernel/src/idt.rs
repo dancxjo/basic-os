@@ -57,7 +57,6 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
     end_of_interrupt(0);
 }
 
-/// Install only fault handlers (no device IRQs yet)
 pub fn init_idt() {
     unsafe {
         IDT.page_fault.set_handler_fn(page_fault_handler);
