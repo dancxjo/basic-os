@@ -9,7 +9,8 @@ override USER_VARIABLE = $(if $(filter $(origin $(1)),default undefined),$(eval 
 $(call USER_VARIABLE,KARCH,x86_64)
 
 # Default user QEMU flags. These are appended to the QEMU command calls.
-$(call USER_VARIABLE,QEMUFLAGS,-m 2G -serial mon:stdio)
+$(call USER_VARIABLE,QEMUFLAGS,-m 4G -serial mon:stdio)
+# $(call USER_VARIABLE,QEMUFLAGS,-m 4G)
 
 override IMAGE_NAME := template-$(KARCH)
 
@@ -170,15 +171,11 @@ limine/limine:
 kernel:
 	$(MAKE) -C kernel
 
-hello-user/hello-user:
-	RUSTFLAGS="-C relocation-model=static" cargo build --manifest-path ./hello-user/Cargo.toml --target wasm32-unknown-unknown
-	cp -v ./hello-user/target/wasm32-unknown-unknown/debug/hello-user.wasm ./hello-user
-
-$(IMAGE_NAME).iso: limine/limine kernel hello-user/hello-user
+$(IMAGE_NAME).iso: limine/limine kernel
 	rm -rf iso_root
 	mkdir -p iso_root/boot
+	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
-	cp -v hello-user/hello-user.wasm iso_root/boot/
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT
@@ -249,6 +246,8 @@ endif
 clean:
 	$(MAKE) -C kernel clean
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
+	rm -rf hello-user/hello-user
+	rm -rf hello-user/hello-user/target
 
 .PHONY: distclean
 distclean: clean

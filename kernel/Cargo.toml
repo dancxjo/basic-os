@@ -4,30 +4,55 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+
 limine = "0.4"
 linked_list_allocator = "0.10"
 spin = "0.10.0"
-x86_64 = { version = "0.14.11", default-features = false, features = [
-    "instructions",
-    "abi_x86_interrupt",
-] }
 serde = { version = "1.0", default-features = false, features = [
     "alloc",
     "derive",
 ] }
 postcard = { version = "1.0.4", default-features = false, features = ["alloc"] }
 thing_macros = { path = "../thing_macros" }
-uuid = { version = "1.16.0", default-features = false, features = [] }
+uuid = { version = "1.16.0", features = [
+    "sha1",
+    "serde",
+    "v5",
+], default-features = false }
 sha2 = { version = "0.10.8", default-features = false, features = [
     "force-soft",
 ] }
-wasmi = { version = "0.44.0", default-features = false, features = ["simd"] }
-
+libm = "0.2.11"
+embedded-graphics = "0.8.1"
+ps2-mouse = "0.1.4"
+lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
+spinning_top = "0.3.0"
+pic8259 = "0.11.0"
+log = { version = "0.4", default-features = false }
+heapless = "0.8.0"
+erased-serde = { version = "0.4.6", default-features = false, features = ["alloc"] }
+num-bigint = { version = "0.4.6", default-features = false }
+x86_64  = { version = "0.14.11", default-features = false, features = [
+    "instructions",
+    "abi_x86_interrupt",
+] }
 [features]
-default = []
+default=["apic"]
+apic = []
 
 [profile.release]
 panic = "abort"
 
 [profile.dev]
 panic = "abort"
+
+[build-dependencies]
+cc = "1.0"
+
+[package.metadata.cargo-xbuild]
+target = "x86_64-unknown-none"
+
+[build]
+rustflags = [
+    "-C", "target-cpu=x86-64",
+]

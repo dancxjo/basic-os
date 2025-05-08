@@ -1,4 +1,7 @@
+//! Serial I/O with synchronized access
+
 use core::fmt::{self, Write};
+use spin::Mutex;
 use x86_64::instructions::port::Port;
 
 pub struct SerialPort {
@@ -40,16 +43,16 @@ impl Write for SerialPort {
     }
 }
 
-pub static mut SERIAL1: SerialPort = SerialPort::new(0x3F8);
+use lazy_static::lazy_static;
+
+lazy_static! {
+    pub static ref SERIAL1: Mutex<SerialPort> = Mutex::new(SerialPort::new(0x3F8));
+}
 
 #[macro_export]
 macro_rules! serial_print {
     ($($arg:tt)*) => {
-        unsafe {
-            use core::fmt::Write;
-            #[allow(static_mut_refs)]
-            let _ = write!(crate::serial::SERIAL1, $($arg)*);
-        }
+        $crate::serial::_print(format_args!($($arg)*));
     };
 }
 
@@ -60,9 +63,14 @@ macro_rules! serial_println {
     ($fmt:expr, $($arg:tt)*) => ($crate::serial_print!(concat!($fmt, "\r\n"), $($arg)*));
 }
 
-pub fn init_serial() {
-    #[allow(static_mut_refs)]
-    unsafe {
-        SERIAL1.init()
+#[doc(hidden)]
+pub fn _print(args: core::fmt::Arguments) {
+    use core::fmt::Write;
+    if let Some(mut serial) = SERIAL1.try_lock() {
+        let _ = serial.write_fmt(args);
     }
+}
+
+pub fn init_serial() {
+    SERIAL1.lock().init();
 }
