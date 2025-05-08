@@ -12,26 +12,34 @@ pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 extern "x86-interrupt" fn page_fault_handler(
-    _stack_frame: InterruptStackFrame,
-    _error_code: PageFaultErrorCode,
+    stack_frame: InterruptStackFrame,
+    error_code: PageFaultErrorCode,
 ) {
-    log::error!("Page fault occurred! {:?}: {:?}", _error_code, _stack_frame);
-    loop {}
+    error!(
+        "Page fault! Error Code: {:?} Frame: {:?}",
+        error_code, stack_frame
+    );
+    loop {
+        info!("Page fault handler called");
+    }
 }
 
 extern "x86-interrupt" fn double_fault_handler(
-    _stack_frame: InterruptStackFrame,
+    stack_frame: InterruptStackFrame,
     _error_code: u64,
 ) -> ! {
-    log::error!("Double fault occurred!");
+    error!("Double fault! Frame: {:?}", stack_frame);
     loop {}
 }
 
 extern "x86-interrupt" fn general_protection_fault_handler(
-    _stack_frame: InterruptStackFrame,
-    _error_code: u64,
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
 ) {
-    log::error!("General protection fault occurred!");
+    error!(
+        "General protection fault! Code: {:?} Frame: {:?}",
+        error_code, stack_frame
+    );
     loop {}
 }
 
