@@ -82,13 +82,10 @@ impl System {
 
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
-        interrupts::enable();
+        let scheduler = SCHEDULER.lock();
 
-        loop {
-            x86_64::instructions::hlt();
-            let scheduler = SCHEDULER.lock();
-            scheduler.start_first();
-        }
+        interrupts::enable();
+        scheduler.start_first();
     }
 }
 
