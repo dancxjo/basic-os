@@ -1,5 +1,5 @@
-use crate::interrupts::end_of_interrupt;
-use crate::serial_print;
+use crate::{interrupts::end_of_interrupt, serial};
+use crate::{serial_print, serial_println};
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 pub static SELECTED_SCREEN: AtomicUsize = AtomicUsize::new(1); // default to Screen 1
@@ -225,20 +225,11 @@ pub fn process_scancode(scancode: u8) {
 }
 
 use spin::Mutex;
+use x86_64::instructions::port::Port;
 use x86_64::structures::idt::InterruptStackFrame;
 
 pub static KEYBOARD_BUFFER: Mutex<[u8; 256]> = Mutex::new([0; 256]);
 pub static KEYBOARD_HEAD: AtomicUsize = AtomicUsize::new(0);
-
-pub struct AtomicPoint {
-    pub x: AtomicUsize,
-    pub y: AtomicUsize,
-}
-
-pub static MOUSE_POS: AtomicPoint = AtomicPoint {
-    x: AtomicUsize::new(0),
-    y: AtomicUsize::new(0),
-};
 
 pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     use x86_64::instructions::port::Port;
@@ -253,12 +244,15 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
     end_of_interrupt(1);
 }
 
+pub static MOUSE_PACKET_BUFFER: Mutex<[u8; 256]> = Mutex::new([0; 256]);
+pub static MOUSE_HEAD: AtomicUsize = AtomicUsize::new(0);
+
 pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    let x = MOUSE_POS.x.load(Ordering::Relaxed);
-    let y = MOUSE_POS.y.load(Ordering::Relaxed);
+    let mut data_port = Port::<u8>::new(0x60);
+    let packet: u8 = unsafe { data_port.read() };
 
-    MOUSE_POS.x.store(x + 1, Ordering::Relaxed);
-    MOUSE_POS.y.store(y + 1, Ordering::Relaxed);
-
+    let head = MOUSE_HEAD.fetch_add(1, Ordering::Relaxed) % 256;
+    let mut buf = MOUSE_PACKET_BUFFER.lock();
+    buf[head] = packet;
     end_of_interrupt(12); // IRQ12
 }
