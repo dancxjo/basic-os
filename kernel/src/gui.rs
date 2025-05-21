@@ -15,6 +15,7 @@ use embedded_graphics::{
 pub struct GUI {
     buffer: GuiOutputBuffer,
     message: String,
+    last_pointer: Option<Point>,
 }
 
 impl GUI {
@@ -22,6 +23,7 @@ impl GUI {
         GUI {
             buffer: GuiOutputBuffer::from_framebuffer(framebuffer),
             message: String::new(),
+            last_pointer: None,
         }
     }
 

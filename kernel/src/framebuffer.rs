@@ -75,7 +75,7 @@ impl Framebuffer {
         })
     }
 
-    fn encode_color_rgb565(&self, color: Rgb565) -> u32 {
+    pub fn encode_color_rgb565(&self, color: Rgb565) -> u32 {
         match self.bpp {
             16 => {
                 let raw: u16 =
@@ -95,6 +95,17 @@ impl Framebuffer {
 
     pub fn flush(&mut self) {
         self.fb.copy_from_slice(&self.backbuffer[..self.fb.len()]);
+    }
+
+    /// Restore the framebuffer to the values in the backbuffer for a specific region
+    pub fn erase_region(&mut self, x: usize, y: usize, width: usize, height: usize) {
+        let start = y * self.pitch_pixels + x;
+        let end = start + (height * self.pitch_pixels) + width;
+        self.fb[start..end].copy_from_slice(&self.backbuffer[start..end]);
+    }
+
+    pub fn dangerous_direct_access_mut(&mut self) -> &mut [u32] {
+        self.fb
     }
 
     pub fn clear(&mut self, color: Rgb565) {

@@ -51,9 +51,9 @@ static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let ticks = TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 
-    if ticks % (100_000 / 60) == 0 {
-        // log::info!("Tick count: {}", ticks);
-    }
+    // if ticks % (100_000 / 60) == 0 {
+    //     // log::info!("Tick count: {}", ticks);
+    // }
 
     end_of_interrupt(0);
 }
