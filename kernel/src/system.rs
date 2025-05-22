@@ -7,7 +7,7 @@ use crate::graph::{Graph, bootstrap_graph};
 use crate::gui::GUI;
 use crate::idt::init_idt;
 use crate::input::{
-    KEYBOARD_BUFFER, KEYBOARD_HEAD, MOUSE_HEAD, MOUSE_PACKET_BUFFER, process_scancode,
+    KEYBOARD_BUFFER, KEYBOARD_HEAD, MOUSE_HEAD, MOUSE_PACKET_BUFFER, MOUSE_TAIL, process_scancode,
 };
 use crate::interrupts::init_interrupts;
 use crate::mouse::{self, Mouse};
@@ -106,25 +106,34 @@ impl System {
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
         interrupts::enable();
-
+        info!("Drawing GUI...");
         self.gui.lock().draw();
         {
-            info!("Drawing GUI...");
+            info!("Transferring GUI output...");
             let mut framebuffer = self.framebuffer.lock();
+            info!("Framebuffer locked.");
             self.gui.lock().output(&mut framebuffer);
+            info!("GUI output drawn.");
             framebuffer.flush();
-            info!("GUI drawn.");
+            info!("Framebuffer flushed.");
+            info!("GUI output transferred.");
         }
 
         loop {
             self.scankeys();
-            self.mouse_tick();
-            let mouse_needs_update = self.mouse.lock().needs_update();
-            if mouse_needs_update {
-                let mouse = self.mouse.lock();
-                let mut framebuffer = self.framebuffer.lock();
-                mouse.draw(&mut framebuffer);
+
+            if let Some((dx, dy)) = self.mouse_tick() {
+                let mut mouse = self.mouse.lock();
+
+                // Draw at the current position before updating it
+                if mouse.needs_update() {
+                    let mut framebuffer = self.framebuffer.lock();
+                    mouse.draw(&mut framebuffer);
+                }
+
+                mouse.move_by(dx, dy);
             }
+
             hlt();
         }
     }
@@ -141,53 +150,57 @@ impl System {
             self.keyboard_index = head;
         }
     }
-
-    fn mouse_tick(&mut self) {
+    fn mouse_tick(&mut self) -> Option<(isize, isize)> {
+        let mut tail = MOUSE_TAIL.load(Ordering::Acquire);
         let head = MOUSE_HEAD.load(Ordering::Acquire);
-        if head != self.mouse_index {
-            let buf = MOUSE_PACKET_BUFFER.lock();
-            for i in self.mouse_index..head {
-                let index = i % 256;
-                let byte = buf[index];
-                self.process_mouse_packet(byte);
-            }
-            self.mouse_index = head;
+        let mut movement = None;
+
+        if tail == head {
+            return None;
         }
+
+        let buf = MOUSE_PACKET_BUFFER.lock();
+        while tail != head {
+            let index = tail % 256;
+            let byte = buf[index];
+            if let Some((x, y)) = self.process_mouse_packet(byte) {
+                movement = Some((x, y));
+            }
+            tail = (tail + 1) % 256;
+        }
+
+        MOUSE_TAIL.store(tail, Ordering::Release);
+        movement
     }
 
-    fn process_mouse_packet(&self, byte: u8) {
+    fn process_mouse_packet(&self, byte: u8) -> Option<(isize, isize)> {
         static MOUSE_PACKET: [AtomicU8; 3] = [AtomicU8::new(0), AtomicU8::new(0), AtomicU8::new(0)];
         static MOUSE_PACKET_INDEX: AtomicU8 = AtomicU8::new(0);
 
         let idx = MOUSE_PACKET_INDEX.load(Ordering::Acquire) as usize;
-        MOUSE_PACKET[idx].store(byte, Ordering::Release);
 
+        if idx == 0 && (byte & 0x08) == 0 {
+            return None;
+        }
+
+        MOUSE_PACKET[idx].store(byte, Ordering::Release);
         let next_idx = idx + 1;
+
         if next_idx >= 3 {
-            let b0 = MOUSE_PACKET[0].load(Ordering::Acquire);
             let b1 = MOUSE_PACKET[1].load(Ordering::Acquire);
             let b2 = MOUSE_PACKET[2].load(Ordering::Acquire);
-
-            let x = if b0 & 0x10 != 0 {
-                (b1 as i8) as i32
-            } else {
-                b1 as i32
-            };
-            let y = if b0 & 0x20 != 0 {
-                (b2 as i8) as i32
-            } else {
-                b2 as i32
-            };
-
-            if x != 0 || y != 0 {
-                let mut mouse = self.mouse.lock();
-                mouse.move_by(x as isize, -y as isize);
-            }
-
             MOUSE_PACKET_INDEX.store(0, Ordering::Release);
+            let dx = b1 as i8 as isize;
+            let dy = -(b2 as i8 as isize);
+            if dx != 0 || dy != 0 {
+                return Some((dx, dy));
+            }
+            return None;
         } else {
             MOUSE_PACKET_INDEX.store(next_idx as u8, Ordering::Release);
         }
+
+        None
     }
 }
 

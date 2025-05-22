@@ -99,9 +99,24 @@ impl Framebuffer {
 
     /// Restore the framebuffer to the values in the backbuffer for a specific region
     pub fn erase_region(&mut self, x: usize, y: usize, width: usize, height: usize) {
-        let start = y * self.pitch_pixels + x;
-        let end = start + (height * self.pitch_pixels) + width;
-        self.fb[start..end].copy_from_slice(&self.backbuffer[start..end]);
+        let screen_width = self.width;
+        let screen_height = self.height;
+        let pitch = self.pitch_pixels;
+
+        for dy in 0..height {
+            let py = y + dy;
+            if py >= screen_height {
+                break;
+            }
+
+            let row_start = py * pitch;
+            let start = row_start + x;
+            let end = (start + width).min(row_start + screen_width);
+
+            if start < end && end <= self.fb.len() && end <= self.backbuffer.len() {
+                self.fb[start..end].copy_from_slice(&self.backbuffer[start..end]);
+            }
+        }
     }
 
     pub fn dangerous_direct_access_mut(&mut self) -> &mut [u32] {

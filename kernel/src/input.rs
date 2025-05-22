@@ -43,17 +43,17 @@ impl DeadKey {
         }
     }
 }
+
 pub fn scancode_to_char(scancode: u8) -> Option<char> {
     let shift = SHIFT.load(Ordering::Relaxed);
     let deadkey = DeadKey::from_usize(DEADKEY.load(Ordering::Relaxed));
 
-    // Check and set dead key
     if deadkey == DeadKey::None {
         match scancode {
             0x28 => {
                 DEADKEY.store(1, Ordering::Relaxed);
                 return None;
-            } // Acute
+            }
             0x29 => {
                 DEADKEY.store(if shift { 5 } else { 2 }, Ordering::Relaxed);
                 return None;
@@ -61,16 +61,15 @@ pub fn scancode_to_char(scancode: u8) -> Option<char> {
             0x2B => {
                 DEADKEY.store(3, Ordering::Relaxed);
                 return None;
-            } // Circumflex
+            }
             0x1A => {
                 DEADKEY.store(4, Ordering::Relaxed);
                 return None;
-            } // Diaeresis
+            }
             _ => {}
         }
     }
 
-    // Apply dead key if active
     let result = match (deadkey, scancode) {
         (DeadKey::Acute, 0x10) => Some('á'),
         (DeadKey::Acute, 0x12) => Some('é'),
@@ -116,12 +115,60 @@ pub fn scancode_to_char(scancode: u8) -> Option<char> {
             (false, 0x02..=0x0B) => Some("1234567890".chars().nth((scancode - 0x02) as usize)?),
             (true, 0x02..=0x0B) => Some("!@#$%^&*()".chars().nth((scancode - 0x02) as usize)?),
 
-            (false, 0x10..=0x19) => Some((b'q' + (scancode - 0x10)) as char),
-            (true, 0x10..=0x19) => Some((b'Q' + (scancode - 0x10)) as char),
-            (false, 0x1E..=0x26) => Some((b'a' + (scancode - 0x1E)) as char),
-            (true, 0x1E..=0x26) => Some((b'A' + (scancode - 0x1E)) as char),
-            (false, 0x2C..=0x32) => Some((b'z' + (scancode - 0x2C)) as char),
-            (true, 0x2C..=0x32) => Some((b'Z' + (scancode - 0x2C)) as char),
+            (false, 0x10) => Some('q'),
+            (true, 0x10) => Some('Q'),
+            (false, 0x11) => Some('w'),
+            (true, 0x11) => Some('W'),
+            (false, 0x12) => Some('e'),
+            (true, 0x12) => Some('E'),
+            (false, 0x13) => Some('r'),
+            (true, 0x13) => Some('R'),
+            (false, 0x14) => Some('t'),
+            (true, 0x14) => Some('T'),
+            (false, 0x15) => Some('y'),
+            (true, 0x15) => Some('Y'),
+            (false, 0x16) => Some('u'),
+            (true, 0x16) => Some('U'),
+            (false, 0x17) => Some('i'),
+            (true, 0x17) => Some('I'),
+            (false, 0x18) => Some('o'),
+            (true, 0x18) => Some('O'),
+            (false, 0x19) => Some('p'),
+            (true, 0x19) => Some('P'),
+
+            (false, 0x1E) => Some('a'),
+            (true, 0x1E) => Some('A'),
+            (false, 0x1F) => Some('s'),
+            (true, 0x1F) => Some('S'),
+            (false, 0x20) => Some('d'),
+            (true, 0x20) => Some('D'),
+            (false, 0x21) => Some('f'),
+            (true, 0x21) => Some('F'),
+            (false, 0x22) => Some('g'),
+            (true, 0x22) => Some('G'),
+            (false, 0x23) => Some('h'),
+            (true, 0x23) => Some('H'),
+            (false, 0x24) => Some('j'),
+            (true, 0x24) => Some('J'),
+            (false, 0x25) => Some('k'),
+            (true, 0x25) => Some('K'),
+            (false, 0x26) => Some('l'),
+            (true, 0x26) => Some('L'),
+
+            (false, 0x2C) => Some('z'),
+            (true, 0x2C) => Some('Z'),
+            (false, 0x2D) => Some('x'),
+            (true, 0x2D) => Some('X'),
+            (false, 0x2E) => Some('c'),
+            (true, 0x2E) => Some('C'),
+            (false, 0x2F) => Some('v'),
+            (true, 0x2F) => Some('V'),
+            (false, 0x30) => Some('b'),
+            (true, 0x30) => Some('B'),
+            (false, 0x31) => Some('n'),
+            (true, 0x31) => Some('N'),
+            (false, 0x32) => Some('m'),
+            (true, 0x32) => Some('M'),
 
             (_, 0x39) => Some(' '),
 
@@ -143,13 +190,12 @@ pub fn scancode_to_char(scancode: u8) -> Option<char> {
             (true, 0x34) => Some('>'),
             (false, 0x35) => Some('/'),
             (true, 0x35) => Some('?'),
-            (false, 0x0F) => Some('\t'), // Tab
-            (true, 0x0F) => Some('\t'),  // Tab (Shift+Tab is still Tab)
-            (false, 0x2B) => Some('\\'), // Backslash
-            (true, 0x2B) => Some('|'),   // Pipe
-            (false, 0x29) => Some('`'),  // Backtick
-            (true, 0x29) => Some('~'),   // Tilde
-
+            (false, 0x0F) => Some('\t'),
+            (true, 0x0F) => Some('\t'),
+            (false, 0x2B) => Some('\\'),
+            (true, 0x2B) => Some('|'),
+            (false, 0x29) => Some('`'),
+            (true, 0x29) => Some('~'),
             _ => None,
         },
     };
@@ -224,6 +270,7 @@ pub fn process_scancode(scancode: u8) {
     }
 }
 
+use log::warn;
 use spin::Mutex;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::InterruptStackFrame;
@@ -246,13 +293,26 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
 
 pub static MOUSE_PACKET_BUFFER: Mutex<[u8; 256]> = Mutex::new([0; 256]);
 pub static MOUSE_HEAD: AtomicUsize = AtomicUsize::new(0);
+pub static MOUSE_TAIL: AtomicUsize = AtomicUsize::new(0);
 
 pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let mut data_port = Port::<u8>::new(0x60);
     let packet: u8 = unsafe { data_port.read() };
 
-    let head = MOUSE_HEAD.fetch_add(1, Ordering::Relaxed) % 256;
+    let head = MOUSE_HEAD.load(Ordering::Relaxed);
+    let next = (head + 1) % 256;
+
+    let tail = MOUSE_TAIL.load(Ordering::Acquire);
+    if next == tail {
+        // Buffer full! Drop packet or handle overflow
+        warn!("Mouse packet buffer overflow!");
+        end_of_interrupt(12);
+        return;
+    }
+
     let mut buf = MOUSE_PACKET_BUFFER.lock();
-    buf[head] = packet;
-    end_of_interrupt(12); // IRQ12
+    buf[head % 256] = packet;
+
+    MOUSE_HEAD.store(next, Ordering::Release);
+    end_of_interrupt(12);
 }

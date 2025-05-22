@@ -3,3 +3,4 @@
 *.iso
 *.hdd
 */target/*
+thing_macros/target/.rustc_info.json
