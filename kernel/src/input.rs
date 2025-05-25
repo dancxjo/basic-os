@@ -254,9 +254,7 @@ pub fn process_scancode(scancode: u8) {
             if let Some(screen) = scancode_to_screen(scancode) {
                 SELECTED_SCREEN.store(screen, Ordering::Relaxed);
                 log::info!("Switched to screen {}", screen);
-                if let Some(system) = SYSTEM.lock().as_mut() {
-                    system.raise_screen(screen);
-                }
+                if let Some(system) = SYSTEM.lock().as_mut() {}
             }
         }
         code if code < 0x80 => {

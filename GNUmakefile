@@ -143,7 +143,7 @@ run-hdd-bios: $(IMAGE_NAME).hdd
 		-M q35 \
 		-hda $(IMAGE_NAME).hdd \
 		$(QEMUFLAGS)
-
+	
 ovmf/ovmf-code-$(KARCH).fd:
 	mkdir -p ovmf
 	curl -Lo $@ https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/ovmf-code-$(KARCH).fd
@@ -167,15 +167,21 @@ limine/limine:
 	git clone https://github.com/limine-bootloader/limine.git --branch=v9.x-binary --depth=1
 	$(MAKE) -C limine
 
+.PHONY: hello_from
+hello_from:
+	cargo build --release --target wasm32-unknown-unknown --manifest-path hello_from/Cargo.toml
+
+
 .PHONY: kernel
 kernel:
 	$(MAKE) -C kernel
 
-$(IMAGE_NAME).iso: limine/limine kernel
+$(IMAGE_NAME).iso: limine/limine kernel hello_from
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
+	cp -v hello_from/target/wasm32-unknown-unknown/release/hello_from.wasm iso_root/boot/hello_from.wasm
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT
@@ -246,8 +252,8 @@ endif
 clean:
 	$(MAKE) -C kernel clean
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
-	rm -rf hello-user/hello-user
-	rm -rf hello-user/hello-user/target
+	rm -rf hello_from/target
+
 
 .PHONY: distclean
 distclean: clean

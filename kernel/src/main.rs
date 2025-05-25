@@ -18,6 +18,7 @@ mod gdt;
 mod graph;
 mod gui;
 mod gui_output;
+mod hello_task;
 mod idt;
 mod input;
 mod interrupts;
@@ -27,11 +28,11 @@ mod mouse;
 mod panic;
 mod pic;
 mod ps2;
+mod scheduler;
 mod screen;
 mod serial;
 mod stack;
 mod system;
-mod tasks;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
