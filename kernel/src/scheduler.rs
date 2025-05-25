@@ -19,7 +19,6 @@ pub struct WasmTask {
     pub store: Store<()>,
     pub instance: Instance,
     pub state: TaskState,
-    pub fuel_remaining: u64,
 }
 
 pub struct Scheduler {
@@ -29,6 +28,8 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
+    const FUEL_QUANTUM: u64 = 50;
+
     pub fn new() -> Self {
         Scheduler {
             tasks: Vec::new(),
@@ -50,20 +51,19 @@ impl Scheduler {
             match task.state {
                 TaskState::Runnable => {
                     self.current = Some(pid);
-                    task.store.set_fuel(task.fuel_remaining).unwrap();
+                    task.store.set_fuel(Self::FUEL_QUANTUM).unwrap();
 
                     if let Ok(main_func) =
                         task.instance.get_typed_func::<(), ()>(&task.store, "main")
                     {
                         match main_func.call(&mut task.store, ()) {
                             Ok(_) => {
-                                task.fuel_remaining = 0;
                                 info!("Task {} completed.", pid);
                                 task.state = TaskState::Finished;
                             }
                             Err(trap) => {
+                                // Check for fuel exhaustion by inspecting the error kind
                                 if trap.to_string().contains("all fuel consumed") {
-                                    task.fuel_remaining = 50;
                                     self.ready_queue.push_back(pid);
                                 } else {
                                     task.state = TaskState::Finished;
@@ -77,38 +77,12 @@ impl Scheduler {
                     }
                 }
                 TaskState::Blocked => {
-                    // Do nothing or handle later
                     info!("Task {} is blocked.", pid);
-                    self.ready_queue.push_back(pid); // Requeue for now
+                    self.ready_queue.push_back(pid);
                 }
                 TaskState::Finished => {
-                    // Task is done — don't requeue
+                    // Do nothing
                 }
-            }
-
-            self.current = Some(pid);
-            task.store.set_fuel(task.fuel_remaining).unwrap();
-
-            if let Ok(main_func) = task.instance.get_typed_func::<(), ()>(&task.store, "main") {
-                match main_func.call(&mut task.store, ()) {
-                    Ok(_) => {
-                        task.fuel_remaining = 0;
-                        info!("Task {} completed.", pid);
-                        task.state = TaskState::Finished;
-                    }
-                    Err(trap) => {
-                        if trap.to_string().contains("all fuel consumed") {
-                            task.fuel_remaining = 50; // example rescheduling quota
-                            self.ready_queue.push_back(pid);
-                        } else {
-                            task.state = TaskState::Finished;
-                            info!("Task {} trapped: {}", pid, trap);
-                        }
-                    }
-                }
-            } else {
-                info!("Task {} has no 'main' function", pid);
-                task.state = TaskState::Finished;
             }
         }
     }

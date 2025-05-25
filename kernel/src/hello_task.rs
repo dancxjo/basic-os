@@ -31,6 +31,5 @@ pub fn create_hello_task(pid: usize) -> anyhow::Result<WasmTask> {
         store,
         instance,
         state: crate::scheduler::TaskState::Runnable,
-        fuel_remaining: 50, // Set initial fuel
     })
 }
