@@ -102,6 +102,7 @@ impl Framebuffer {
         let screen_width = self.width;
         let screen_height = self.height;
         let pitch = self.pitch_pixels;
+        let white = self.encode_color_rgb565(Rgb565::WHITE);
 
         for dy in 0..height {
             let py = y + dy;
@@ -109,11 +110,17 @@ impl Framebuffer {
                 break;
             }
 
+            if x >= screen_width {
+                continue;
+            }
+
+            let clamped_width = (screen_width - x).min(width);
             let row_start = py * pitch;
             let start = row_start + x;
-            let end = (start + width).min(row_start + screen_width);
+            let end = start + clamped_width;
 
-            if start < end && end <= self.fb.len() && end <= self.backbuffer.len() {
+            if end <= self.fb.len() && end <= self.backbuffer.len() {
+                self.fb[start..end].fill(white);
                 self.fb[start..end].copy_from_slice(&self.backbuffer[start..end]);
             }
         }

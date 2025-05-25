@@ -1,6 +1,8 @@
 use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::bootloader::get_hhdm_offset;
 use crate::clock::{Clock, HPET, RTC};
+use crate::compositor::compositor::{Compositor, Layer};
+use crate::compositor::surface::Surface;
 use crate::framebuffer::Framebuffer;
 use crate::gdt::init_gdt;
 use crate::graph::{Graph, bootstrap_graph};
@@ -14,17 +16,21 @@ use crate::mouse::{self, Mouse};
 use crate::screen::Screen;
 use crate::stack::init_kernel_stack;
 use crate::tasks::SCHEDULER;
-use crate::{bootstrap_step, ps2, serial_println};
+use crate::{bootstrap_step, compositor, ps2, serial_println};
+use alloc::format;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU8, Ordering};
 use embedded_graphics::framebuffer;
+use embedded_graphics::pixelcolor::Rgb565;
+use embedded_graphics::prelude::{OriginDimensions, Point, RgbColor, Size};
+use embedded_graphics::primitives::Rectangle;
 use log::info;
 use spin::Mutex as SpinMutex;
 use x86_64::instructions::{hlt, interrupts};
 
 use spin::Mutex;
 
-static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
+pub(crate) static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 
 pub struct System {
     mouse: Arc<SpinMutex<Mouse>>,
@@ -35,6 +41,7 @@ pub struct System {
     graph: Arc<SpinMutex<Graph>>,
     keyboard_index: usize,
     mouse_index: usize,
+    compositor: Arc<SpinMutex<Compositor>>,
 }
 
 impl System {
@@ -70,10 +77,46 @@ impl System {
 
         let graph = bootstrap_step!("graph", { Arc::new(SpinMutex::new(bootstrap_graph())) });
 
-        let framebuffer = Arc::new(SpinMutex::new(
-            Framebuffer::new().expect("Framebuffer not available"),
-        ));
+        let framebuffer = bootstrap_step!("framebuffer", {
+            Arc::new(SpinMutex::new(
+                Framebuffer::new().expect("Framebuffer not available"),
+            ))
+        });
 
+        let compositor = bootstrap_step!("compositor", {
+            Arc::new(SpinMutex::new(Compositor::new()))
+        });
+
+        bootstrap_step!("screens", {
+            use crate::compositor::surface::Surface;
+            use embedded_graphics::{
+                geometry::{Point, Size},
+                pixelcolor::Rgb565,
+            };
+
+            let screen_size = framebuffer.lock().size();
+            for i in 0..5 {
+                let mut surf =
+                    Surface::new(Point::zero(), screen_size, Some(format!("Screen {}", i)));
+                let color = match i {
+                    0 => Rgb565::RED,
+                    1 => Rgb565::GREEN,
+                    2 => Rgb565::BLUE,
+                    3 => Rgb565::YELLOW,
+                    4 => Rgb565::CYAN,
+                    5 => Rgb565::MAGENTA,
+                    6 => Rgb565::WHITE,
+                    7 => Rgb565::BLACK,
+                    8 => Rgb565::new(0x1F, 0x3F, 0),
+                    9 => Rgb565::new(0, 0x3F, 0x1F),
+                    10 => Rgb565::new(0x1F, 0, 0x3F),
+                    _ => Rgb565::new(8, 8, 8),
+                };
+                surf.buffer.fill(color);
+                surf.mark_dirty(Rectangle::new(Point::zero(), screen_size));
+                compositor.lock().add_layer(i as isize, surf);
+            }
+        });
         let mouse = bootstrap_step!("PS/2 devices", {
             ps2::enable_ps2_devices();
             Arc::new(SpinMutex::new(Mouse::new(&framebuffer.lock())))
@@ -100,23 +143,31 @@ impl System {
             graph,
             keyboard_index: 0,
             mouse_index: 0,
+            compositor,
         }
     }
 
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
         interrupts::enable();
-        info!("Drawing GUI...");
-        self.gui.lock().draw();
+        // info!("Drawing GUI...");
+        // self.gui.lock().draw();
+        // {
+        //     info!("Transferring GUI output...");
+        //     let mut framebuffer = self.framebuffer.lock();
+        //     info!("Framebuffer locked.");
+        //     self.gui.lock().output(&mut framebuffer);
+        //     info!("GUI output drawn.");
+        //     framebuffer.flush();
+        //     info!("Framebuffer flushed.");
+        //     info!("GUI output transferred.");
+        // }
+
         {
-            info!("Transferring GUI output...");
-            let mut framebuffer = self.framebuffer.lock();
-            info!("Framebuffer locked.");
-            self.gui.lock().output(&mut framebuffer);
-            info!("GUI output drawn.");
-            framebuffer.flush();
-            info!("Framebuffer flushed.");
-            info!("GUI output transferred.");
+            let mut comp = self.compositor.lock();
+            let mut fb = self.framebuffer.lock();
+            comp.draw_to(&mut *fb); // draw layers to the framebuffer
+            fb.flush();
         }
 
         loop {
@@ -124,18 +175,44 @@ impl System {
 
             if let Some((dx, dy)) = self.mouse_tick() {
                 let mut mouse = self.mouse.lock();
+                let mut framebuffer = self.framebuffer.lock();
+                // let mut compositor = self.compositor.lock();
 
-                // Draw at the current position before updating it
-                if mouse.needs_update() {
-                    let mut framebuffer = self.framebuffer.lock();
-                    mouse.draw(&mut framebuffer);
-                }
+                // erase where it *was*
+                let x0 = mouse.prev_x.min(framebuffer.width.saturating_sub(48));
+                let y0 = mouse.prev_y.min(framebuffer.height.saturating_sub(48));
+                framebuffer.erase_region(x0, y0, 48, 48);
 
+                // move and draw
                 mouse.move_by(dx, dy);
             }
 
             hlt();
         }
+    }
+
+    pub fn raise_screen(&mut self, index: usize) {
+        info!("Raising screen {}", index);
+        let mut compositor = self.compositor.lock();
+        if index >= compositor.layer_count() {
+            return;
+        }
+        info!("Raising screen {} to top", index);
+
+        // Remove the layer and push it back with higher z-index
+        let layer = compositor.layers.remove(index);
+        let max_z = compositor
+            .layers
+            .iter()
+            .map(|l| l.z_index)
+            .max()
+            .unwrap_or(0);
+        compositor.layers.push(Layer {
+            z_index: max_z + 1,
+            surface: layer.surface,
+        });
+
+        log::info!("Raised screen {}", index);
     }
 
     fn scankeys(&mut self) {

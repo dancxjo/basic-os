@@ -12,6 +12,7 @@ mod allocator;
 mod bootloader;
 mod canon;
 mod clock;
+mod compositor;
 mod framebuffer;
 mod gdt;
 mod graph;

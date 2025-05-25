@@ -1,18 +1,22 @@
 use crate::framebuffer::Framebuffer;
+use embedded_graphics::Drawable;
 use embedded_graphics::pixelcolor::Rgb565;
+use embedded_graphics::prelude::{Point, Primitive, RgbColor};
+use embedded_graphics::primitives::{Polyline, PrimitiveStyle};
+
 use log::{debug, error, warn};
 use serde::Serialize;
-use x86_64::{instructions::port::Port, structures::paging::frame};
+use x86_64::instructions::port::Port;
 
 #[derive(Clone, Serialize)]
 pub struct Mouse {
     pub x: usize,
     pub y: usize,
-    prev_x: usize,
-    prev_y: usize,
-    screen_width: usize,
-    screen_height: usize,
-    dirty: bool,
+    pub screen_width: usize,
+    pub screen_height: usize,
+    pub dirty: bool,
+    pub prev_x: usize,
+    pub prev_y: usize,
 }
 
 impl Mouse {
@@ -58,12 +62,8 @@ impl Mouse {
         self.prev_x = self.x;
         self.prev_y = self.y;
 
-        let new_x = (self.x as isize)
-            .saturating_add(dx)
-            .clamp(0, self.screen_width as isize - 1);
-        let new_y = (self.y as isize)
-            .saturating_add(dy)
-            .clamp(0, self.screen_height as isize - 1);
+        let new_x = (self.x as isize + dx).clamp(0, self.screen_width as isize - 1);
+        let new_y = (self.y as isize + dy).clamp(0, self.screen_height as isize - 1);
 
         self.x = new_x as usize;
         self.y = new_y as usize;
@@ -75,64 +75,25 @@ impl Mouse {
     }
 
     pub fn draw(&self, framebuffer: &mut Framebuffer) {
-        let cursor_color = Rgb565::new(0, 0, 255);
-        let encode_color = framebuffer.encode_color_rgb565(cursor_color);
+        let origin = Point::new(self.x as i32, self.y as i32);
 
-        let cursor_shape = [
-            (0, 0),
-            (1, 0),
-            (2, 0),
-            (3, 0),
-            (4, 0),
-            (0, 1),
-            (4, 1),
-            (0, 2),
-            (4, 2),
-            (0, 3),
-            (4, 3),
-            (1, 4),
-            (2, 4),
-            (3, 4),
-        ];
+        // Shrunk shape (scaled by ~0.4x from the original)
+        let points = [
+            Point::new(0, 0), // tip
+            Point::new(0, 40),
+            Point::new(12, 28),
+            Point::new(20, 48),
+            Point::new(24, 44),
+            Point::new(16, 24),
+            Point::new(28, 24),
+            Point::new(0, 0), // close
+        ]
+        .map(|p| p + origin);
 
-        // Clamp erase area to screen edge
-        let x0 = self.prev_x.min(framebuffer.width.saturating_sub(5));
-        let y0 = self.prev_y.min(framebuffer.height.saturating_sub(5));
-        framebuffer.erase_region(x0, y0, 5, 5);
+        let arrow =
+            Polyline::new(&points).into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 2));
 
-        let width = framebuffer.width;
-        let height = framebuffer.height;
-        let pitch_pixels = framebuffer.pitch_pixels;
-        let direct_fb = framebuffer.dangerous_direct_access_mut();
-
-        for (dx, dy) in cursor_shape.iter() {
-            if let (Some(px), Some(py)) = (self.x.checked_add(*dx), self.y.checked_add(*dy)) {
-                if px < width && py < height {
-                    let index = py * pitch_pixels + px;
-                    if index < direct_fb.len() {
-                        if index >= direct_fb.len() {
-                            error!(
-                                "Framebuffer index OOB: index={} (max={})",
-                                index,
-                                direct_fb.len()
-                            );
-                            return;
-                        }
-
-                        direct_fb[index] = encode_color;
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn needs_update(&mut self) -> bool {
-        if self.dirty {
-            self.dirty = false;
-            true
-        } else {
-            false
-        }
+        let _ = arrow.draw(framebuffer);
     }
 }
 

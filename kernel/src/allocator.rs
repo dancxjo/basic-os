@@ -16,7 +16,7 @@ use crate::bootloader::collect_memory_regions;
 
 // Constants for heap placement
 pub const HEAP_START: u64 = 0x4444_4444_0000;
-pub const HEAP_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
+pub const HEAP_SIZE: usize = 32 * 1024 * 1024;
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
