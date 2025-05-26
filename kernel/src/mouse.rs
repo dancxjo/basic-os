@@ -93,7 +93,7 @@ impl Mouse {
         let arrow =
             Polyline::new(&points).into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 2));
 
-        let _ = arrow.draw(framebuffer);
+        // let _ = arrow.draw(framebuffer);
     }
 }
 
