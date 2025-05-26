@@ -28,7 +28,7 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    const FUEL_QUANTUM: u64 = 50;
+    const FUEL_QUANTUM: u64 = 1024;
 
     pub fn new() -> Self {
         Scheduler {
