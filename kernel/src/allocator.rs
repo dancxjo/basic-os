@@ -1,5 +1,4 @@
-// Cleaned-up Boot Frame Allocator + Heap Initialization
-
+use alloc::collections::btree_set::BTreeSet;
 use core::mem::MaybeUninit;
 use core::ops::Range;
 use linked_list_allocator::LockedHeap;
@@ -21,15 +20,15 @@ pub const HEAP_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-// Paging structures
 static mut MAPPER: MaybeUninit<OffsetPageTable> = MaybeUninit::uninit();
+static mut FRAME_ALLOCATOR: MaybeUninit<BootFrameAllocator> = MaybeUninit::uninit();
 
 /// Initialize paging and return the active OffsetPageTable.
 pub unsafe fn init_paging(
     physical_memory_offset: VirtAddr,
 ) -> &'static mut OffsetPageTable<'static> {
+    let l4_table = unsafe { active_level_4_table(physical_memory_offset) };
     unsafe {
-        let l4_table = active_level_4_table(physical_memory_offset);
         #[allow(static_mut_refs)]
         MAPPER.write(OffsetPageTable::new(l4_table, physical_memory_offset));
         #[allow(static_mut_refs)]
@@ -41,7 +40,7 @@ unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
     let (frame, _) = Cr3::read();
     let phys = frame.start_address();
     let virt = offset + phys.as_u64();
-    unsafe { &mut *(virt.as_mut_ptr()) }
+    &mut *(virt.as_mut_ptr())
 }
 
 /// Boot frame allocator
@@ -52,13 +51,11 @@ pub struct BootFrameAllocator {
     next: usize,
 }
 
-static mut FRAME_ALLOCATOR: MaybeUninit<BootFrameAllocator> = MaybeUninit::uninit();
-
 impl BootFrameAllocator {
     pub fn init() -> &'static mut Self {
         unsafe {
             #[allow(static_mut_refs)]
-            FRAME_ALLOCATOR.write(BootFrameAllocator::new());
+            FRAME_ALLOCATOR.write(Self::new());
             #[allow(static_mut_refs)]
             FRAME_ALLOCATOR.assume_init_mut()
         }
@@ -88,9 +85,12 @@ impl BootFrameAllocator {
 
         let first_range_start = usable_ranges[0].as_ref().unwrap().start;
 
-        log::info!("BootFrameAllocator initialized with {} ranges", range_count);
+        log::info!(
+            "BootFrameAllocator initialized with {} usable ranges",
+            range_count
+        );
 
-        BootFrameAllocator {
+        Self {
             usable_ranges,
             range_count,
             current_range: 0,
@@ -109,6 +109,12 @@ impl BootFrameAllocator {
 
             if aligned + 0x1000 <= current_range.end {
                 self.next = aligned + 0x1000;
+
+                // if self.used_frames.contains(&aligned) {
+                //     continue;
+                // }
+
+                // self.used_frames.insert(aligned);
                 return Some(aligned);
             } else {
                 self.current_range += 1;
@@ -121,6 +127,13 @@ impl BootFrameAllocator {
             }
         }
     }
+    /// Manually expose frame allocator for other systems
+    pub fn global() -> &'static mut Self {
+        #[allow(static_mut_refs)]
+        unsafe {
+            FRAME_ALLOCATOR.assume_init_mut()
+        }
+    }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
@@ -130,7 +143,12 @@ unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
     }
 }
 
-/// Initialize and map the heap.
+/// Check if a virtual address is already mapped
+pub fn is_mapped(mapper: &OffsetPageTable, addr: VirtAddr) -> bool {
+    mapper.translate_addr(addr).is_some()
+}
+
+/// Initialize and map the heap
 pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAllocator) {
     let heap_start = VirtAddr::new(HEAP_START);
     let heap_end = heap_start + HEAP_SIZE as u64;
@@ -139,29 +157,44 @@ pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAl
     let end_page = Page::containing_address(heap_end - 1u64);
 
     for page in Page::range_inclusive(start_page, end_page) {
-        if !mapper.translate_addr(page.start_address()).is_none() {
-            log::info!("Heap page {:#X} already mapped", page.start_address());
+        if is_mapped(mapper, page.start_address()) {
+            log::warn!(
+                "Heap page already mapped: {:#x}",
+                page.start_address().as_u64()
+            );
             continue;
         }
+
         let frame = frame_allocator
             .allocate_frame()
             .expect("Out of physical frames for heap");
 
-        let mapping = unsafe {
-            mapper.map_to(
-                page,
-                frame,
-                PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                frame_allocator,
-            )
-        };
+        unsafe {
+            mapper
+                .map_to(
+                    page,
+                    frame,
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+                    frame_allocator,
+                )
+                .expect("Heap map_to failed")
+                .flush();
+        }
 
-        mapping.expect("Heap page mapping failed").flush();
+        log::trace!(
+            "Mapped heap page: {:#x} → frame: {:#x}",
+            page.start_address().as_u64(),
+            frame.start_address().as_u64()
+        );
     }
-
-    log::info!("Heap mapped from {:#X} to {:#X}.", heap_start, heap_end);
 
     unsafe {
         ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE);
     }
+
+    log::info!(
+        "Heap initialized from {:#x} to {:#x}",
+        HEAP_START,
+        HEAP_START + HEAP_SIZE as u64
+    );
 }
