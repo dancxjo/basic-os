@@ -53,6 +53,10 @@ impl System {
             init_heap(&mut mapper, &mut frame_allocator);
         });
 
+        bootstrap_step!("syscalls", {
+            crate::syscall::init_syscall();
+        });
+
         bootstrap_step!("IDT", {
             init_idt();
         });

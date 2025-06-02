@@ -27,6 +27,7 @@ mod ps2;
 mod scheduler;
 mod serial;
 mod stack;
+mod syscall;
 mod system;
 
 #[unsafe(no_mangle)]

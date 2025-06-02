@@ -293,6 +293,20 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
     end_of_interrupt(1);
 }
 
+pub fn pop_input() -> Option<u8> {
+    let head = KEYBOARD_HEAD.load(Ordering::Acquire);
+    if head == 0 {
+        return None; // No input available
+    }
+
+    let mut buf = KEYBOARD_BUFFER.lock();
+    let byte = buf[0];
+    buf.copy_within(1..head, 0); // Shift buffer left
+    KEYBOARD_HEAD.store(head - 1, Ordering::Release);
+
+    Some(byte)
+}
+
 pub static MOUSE_PACKET_BUFFER: Mutex<[u8; 256]> = Mutex::new([0; 256]);
 pub static MOUSE_HEAD: AtomicUsize = AtomicUsize::new(0);
 pub static MOUSE_TAIL: AtomicUsize = AtomicUsize::new(0);
