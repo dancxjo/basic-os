@@ -1,15 +1,13 @@
 use core::cell::RefCell;
 use core::sync::atomic::Ordering;
 use log::info;
+use spin::mutex::Mutex;
 use x86_64::instructions::{hlt, interrupts};
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
 use crate::allocator::{self, BootFrameAllocator, init_heap, init_paging};
-use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
-use crate::bootloader::{self, get_hhdm_offset};
 use crate::bootloader::{get_hhdm_offset, get_module};
 use crate::clock::{CLOCK, Clock, HPET, RTC};
-use crate::clock::{Clock, HPET, RTC};
 use crate::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::framebuffer::Framebuffer;
 use crate::gdt::init_gdt;
@@ -20,18 +18,18 @@ use crate::mouse::Mouse;
 use crate::stack::init_kernel_stack;
 use crate::{bootstrap_step, ps2};
 use alloc::sync::Arc;
-use log::info;
 use spin::Mutex as SpinMutex;
-use spin::Mutex;
 use x86_64::PhysAddr;
-use x86_64::instructions::{hlt, interrupts};
 use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::PhysFrame;
+use x86_64::{
+    VirtAddr,
+    structures::paging::{Page, PageTableFlags as Flags},
+};
 
 pub(crate) static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 
 pub struct System {
-    mouse: Arc<SpinMutex<Mouse>>,
     framebuffer: Arc<SpinMutex<Framebuffer>>,
     clock: Arc<SpinMutex<Clock>>,
     graph: Arc<SpinMutex<Graph>>,
@@ -87,12 +85,7 @@ impl System {
             ps2::enable_ps2_devices();
         });
 
-        bootstrap_step!("tasks", {
-            let mut scheduler = SCHEDULER.lock();
-            scheduler.spawn(keyboard_thread, 0, &mut mapper, &mut frame_allocator);
-        });
-
-        let framebuffer = Rc::new(RefCell::new(
+        let framebuffer = Arc::new(Mutex::new(
             Framebuffer::new().expect("Framebuffer not available"),
         ));
 
@@ -102,8 +95,7 @@ impl System {
         info!("ThingOS initialized.");
 
         bootstrap_step!("executable", {
-            let module = bootloader::get_module("boot/hello_from")
-                .expect("Module 'boot/hello_from' not found");
+            let module = get_module("boot/hello_from").expect("Module 'boot/hello_from' not found");
             let (new_l4, mut new_mapper) =
                 create_user_page_table(frame_allocator, get_hhdm_offset());
             let loaded = load_elf(module, new_l4, &mut new_mapper, frame_allocator)
@@ -120,7 +112,6 @@ impl System {
         });
 
         Self {
-            mouse,
             framebuffer,
             clock,
             graph,
@@ -151,18 +142,6 @@ pub fn init_and_run_system() -> ! {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn hello_thread() {
-    loop {
-        serial_print!("1");
-        // x86_64::instructions::hlt();
-        // Simulate some work
-        // for _ in 0..1_000_000u64 {
-        //     //     // Busy wait
-        // }
-    }
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn task_entry_trampoline() {
     unsafe {
         core::arch::asm!(
@@ -174,164 +153,7 @@ pub extern "C" fn task_entry_trampoline() {
     }
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn hello2_thread() {
-    loop {
-        serial_print!("2");
-        // x86_64::instructions::hlt();
-        // Simulate some work
-        for _ in 0..1_000_000u64 {
-            //     // Busy wait
-        }
-    }
-}
-
 pub const USER_BINARY_LOAD_BASE: u64 = 0x0000_4000_0000_0000; // 256 GiB
-
-use x86_64::{
-    VirtAddr,
-    structures::paging::{Page, PageTableFlags as Flags},
-};
-
-pub fn load_elf_executable(
-    elf: &[u8],
-    mapper: &mut OffsetPageTable,
-    frame_allocator: &mut BootFrameAllocator,
-) -> *const u8 {
-    // --- Validate ELF header ---
-    assert_eq!(&elf[0..4], b"\x7FELF", "Not a valid ELF file");
-    let virt_base = USER_BINARY_LOAD_BASE;
-
-    let e_entry = u64::from_le_bytes(elf[0x18..0x20].try_into().unwrap());
-    let phoff = u64::from_le_bytes(elf[0x20..0x28].try_into().unwrap()) as usize;
-    let phentsize = u16::from_le_bytes(elf[0x36..0x38].try_into().unwrap()) as usize;
-    let phnum = u16::from_le_bytes(elf[0x38..0x3a].try_into().unwrap()) as usize;
-
-    for i in 0..phnum {
-        let ph = &elf[phoff + i * phentsize..phoff + (i + 1) * phentsize];
-
-        let p_type = u32::from_le_bytes(ph[0x00..0x04].try_into().unwrap());
-        const PT_LOAD: u32 = 1;
-        if p_type != PT_LOAD {
-            continue;
-        }
-
-        let p_offset = u64::from_le_bytes(ph[0x08..0x10].try_into().unwrap());
-        let p_vaddr = virt_base + u64::from_le_bytes(ph[0x10..0x18].try_into().unwrap());
-        let p_filesz = u64::from_le_bytes(ph[0x20..0x28].try_into().unwrap());
-        let p_memsz = u64::from_le_bytes(ph[0x28..0x30].try_into().unwrap());
-
-        assert!(
-            (p_offset + p_filesz) <= elf.len() as u64,
-            "Segment out of ELF file bounds"
-        );
-
-        let start = VirtAddr::new(p_vaddr);
-        let end = VirtAddr::new(p_vaddr + p_memsz);
-        use x86_64::structures::paging::Size4KiB;
-        let page_range = Page::<Size4KiB>::range_inclusive(
-            Page::<Size4KiB>::containing_address(start.align_down(0x1000u64)),
-            Page::<Size4KiB>::containing_address(end.align_up(0x1000u64) - 1u64),
-        );
-
-        for page in page_range {
-            let frame = frame_allocator.allocate_frame().expect("Out of frames");
-            unsafe {
-                mapper
-                    .map_to(
-                        page,
-                        frame,
-                        Flags::PRESENT | Flags::WRITABLE | Flags::USER_ACCESSIBLE,
-                        frame_allocator,
-                    )
-                    .expect("map_to failed")
-                    .flush();
-            }
-        }
-
-        // --- Copy file contents ---
-        if p_filesz > 0 {
-            let src = elf
-                .get(p_offset as usize..(p_offset + p_filesz) as usize)
-                .expect("ELF slice out of bounds");
-            if p_vaddr == 0 {
-                log::warn!(
-                    "Skipping PT_LOAD with null p_vaddr (offset = {:#x})",
-                    p_offset
-                );
-                continue;
-            }
-            let dst = p_vaddr as *mut u8;
-            assert!(dst as usize % 8 == 0, "destination not aligned");
-            log::info!(
-                "Loading segment: offset={:#x}, vaddr={:#x}, filesz={}, memsz={}",
-                p_offset,
-                p_vaddr,
-                p_filesz,
-                p_memsz
-            );
-
-            unsafe {
-                core::ptr::copy_nonoverlapping(src.as_ptr(), dst, src.len());
-            }
-        }
-
-        // --- Zero BSS (if any) ---
-        if p_memsz > p_filesz {
-            let bss_start = (p_vaddr + p_filesz) as *mut u8;
-            let bss_len = (p_memsz - p_filesz) as usize;
-
-            unsafe {
-                core::ptr::write_bytes(bss_start, 0, bss_len);
-            }
-        }
-    }
-    let adjusted_entry = USER_BINARY_LOAD_BASE + (e_entry & 0x0000_ffff_ffff_ffff);
-    return adjusted_entry as *const u8;
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn hello_thread() {
-    loop {
-        serial_print!("1");
-        // x86_64::instructions::hlt();
-        // Simulate some work
-        // for _ in 0..1_000_000u64 {
-        //     //     // Busy wait
-        // }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn task_entry_trampoline() {
-    unsafe {
-        core::arch::asm!(
-            "xor rdi, rdi", // clear
-            "xor rsi, rsi",
-            "call hello_thread",
-            options(noreturn)
-        );
-    }
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn hello2_thread() {
-    loop {
-        serial_print!("2");
-        // x86_64::instructions::hlt();
-        // Simulate some work
-        for _ in 0..1_000_000u64 {
-            //     // Busy wait
-        }
-    }
-}
-
-pub const USER_BINARY_LOAD_BASE: u64 = 0x0000_4000_0000_0000; // 256 GiB
-
-use x86_64::{
-    VirtAddr,
-    structures::paging::{Page, PageTableFlags as Flags},
-};
 
 pub fn load_elf_executable(
     elf: &[u8],

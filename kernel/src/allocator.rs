@@ -21,7 +21,7 @@ pub const HEAP_SIZE: usize = 32 * 1024 * 1024;
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-static mut MAPPER: MaybeUninit<OffsetPageTable> = MaybeUninit::uninit();
+pub(crate) static mut MAPPER: MaybeUninit<OffsetPageTable> = MaybeUninit::uninit();
 static mut FRAME_ALLOCATOR: MaybeUninit<BootFrameAllocator> = MaybeUninit::uninit();
 
 /// Initialize paging and return the active OffsetPageTable.

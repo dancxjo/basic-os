@@ -1,3 +1,10 @@
+use core::range::Range;
+
+use x86_64::{
+    VirtAddr,
+    structures::paging::{FrameAllocator, Mapper, PageTableFlags, Size4KiB},
+};
+
 pub fn mirror_kernel_region(
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
