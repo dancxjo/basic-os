@@ -21,6 +21,8 @@ SECTIONS
     /* Any address in this region will do, but often 0xffffffff80000000 is chosen as */
     /* that is the beginning of the region. */
     . = 0xffffffff80000000;
+    /* Mark start of the kernel's virtual address range */
+    KERNEL_BASE = .;
 
     .text : {
         *(.text .text.*)
@@ -54,6 +56,9 @@ SECTIONS
         *(.bss .bss.*)
         *(COMMON)
     } :data
+
+    /* Mark end of the kernel's virtual address range */
+    KERNEL_END = .;
 
     /* Discard .note.* and .eh_frame* since they may cause issues on some hosts. */
     /DISCARD/ : {

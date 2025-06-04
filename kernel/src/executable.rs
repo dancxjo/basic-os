@@ -1,3 +1,5 @@
+use crate::memory::{kernel_base, kernel_end};
+use crate::mirror_region::mirror_kernel_region;
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
@@ -33,9 +35,16 @@ pub fn create_user_page_table(
         &mut *ptr
     };
     let l4_table_ptr: *mut PageTable = l4_table;
-    let offset_page_table = unsafe {
+    let mut offset_page_table = unsafe {
         x86_64::structures::paging::OffsetPageTable::new(&mut *l4_table_ptr, hhdm_offset)
     };
+    // Copy kernel mappings into the new user page table so kernel code and data
+    // remain accessible when the address space is switched.
+    mirror_kernel_region(
+        &mut offset_page_table,
+        frame_allocator,
+        (kernel_base()..kernel_end()).into(),
+    );
     (l4_table, offset_page_table)
 }
 
