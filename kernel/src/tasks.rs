@@ -83,13 +83,24 @@ impl Task {
 
     pub fn prepare_if_needed(&mut self) {
         if !self.initialized {
+            /*
             self.context.frame = IretFrame {
                 rip: self.entry_point as u64,
                 cs: 0x08,
                 rflags: 0x202,
                 rsp: self.stack_top,
                 ss: 0x10,
+            };*/
+            use crate::gdt::{USER_CODE_SEG, USER_DATA_SEG};
+
+            self.context.frame = IretFrame {
+                rip: self.entry_point as u64,
+                cs: USER_CODE_SEG as u64 | 0x3, // Ring 3
+                rflags: 0x202,
+                rsp: self.stack_top,
+                ss: USER_DATA_SEG as u64 | 0x3, // Ring 3
             };
+
             self.initialized = true;
         }
         info!("Task initialized");

@@ -39,6 +39,7 @@ x86_64  = { version = "0.14.11", default-features = false, features = [
 [features]
 default=["apic"]
 apic = []
+threading = []
 
 [profile.release]
 panic = "abort"

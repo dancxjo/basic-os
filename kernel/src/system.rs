@@ -60,9 +60,9 @@ impl System {
         });
 
         bootstrap_step!("tasks", {
-            let mut scheduler = SCHEDULER.lock();
+            // let mut scheduler = SCHEDULER.lock();
             // scheduler.spawn(keyboard_thread, &mut mapper, &mut frame_allocator);
-            scheduler.spawn(task_entry_trampoline, &mut mapper, &mut frame_allocator);
+            // scheduler.spawn(task_entry_trampoline, &mut mapper, &mut frame_allocator);
             // scheduler.spawn(hello2_thread, &mut mapper, &mut frame_allocator);
             // scheduler.spawn(hello_thread, &mut mapper, &mut frame_allocator);
             // scheduler.spawn(hello2_thread, &mut mapper, &mut frame_allocator);
@@ -76,14 +76,18 @@ impl System {
             for (i, b) in module.iter().take(16).enumerate() {
                 log::info!("module[{}] = {:#x}", i, b);
             }
-            // let load_addr = USER_BINARY_LOAD_BASE + (1 as u64 * 0x200000); // 2 MiB per task
-            // let ptr = load_elf_executable(module, &mut mapper, &mut frame_allocator);
-            // log::info!("Loaded binary to ptr {:#x}", ptr as u64);
-            // log::info!("First byte at {:#x}: {:#x}", load_addr, unsafe {
-            // *(load_addr as *const u8)
-            // });
+            let load_addr = USER_BINARY_LOAD_BASE + (1 as u64 * 0x200000); // 2 MiB per task
+            let ptr = load_elf_executable(module, &mut mapper, &mut frame_allocator);
+            log::info!("Loaded binary to ptr {:#x}", ptr as u64);
+            log::info!("First byte at {:#x}: {:#x}", load_addr, unsafe {
+                *(load_addr as *const u8)
+            });
+            unsafe extern "C" {
+                fn restore_context(saved: *const u8) -> !;
+            }
+            unsafe { restore_context(ptr) };
 
-            // scheduler.spawn_raw(ptr, 0, &mut mapper, &mut frame_allocator);
+            // scheduler.spawn_raw(ptr, &mut mapper, &mut frame_allocator);
         });
 
         let framebuffer = Rc::new(RefCell::new(
@@ -105,13 +109,11 @@ impl System {
         info!("ThingOS running...");
         interrupts::enable();
         info!("Interrupts enabled.");
-        let scheduler = SCHEDULER.lock();
+        // let scheduler = SCHEDULER.lock();
 
-        scheduler.start_first();
+        // scheduler.start_first();
         loop {
-            info!("En attendant de nouvelles tâches...");
             hlt();
-            //
         }
     }
 }
@@ -181,47 +183,7 @@ extern "C" fn hello2_thread() {
     }
 }
 
-pub const USER_BINARY_LOAD_BASE: u64 = 0xffff_8800_020_0000;
-
-pub fn load_raw_binary(
-    binary: &[u8],
-    load_addr: u64,
-    mapper: &mut OffsetPageTable,
-    frame_allocator: &mut BootFrameAllocator,
-) -> *const u8 {
-    use x86_64::VirtAddr;
-    use x86_64::structures::paging::{Page, PageTableFlags as Flags};
-
-    let aligned_load_addr = load_addr & !0xFFF;
-    let offset = load_addr - aligned_load_addr;
-    let total_len = offset + binary.len() as u64;
-    let load_pages = (total_len + 0xFFF) / 0x1000;
-    let base_page = Page::containing_address(VirtAddr::new(aligned_load_addr));
-
-    for i in 0..load_pages {
-        let frame = frame_allocator
-            .allocate_frame()
-            .expect("Out of physical memory for binary");
-
-        unsafe {
-            mapper
-                .map_to(
-                    base_page + i,
-                    frame,
-                    Flags::PRESENT | Flags::WRITABLE | Flags::USER_ACCESSIBLE,
-                    frame_allocator,
-                )
-                .expect("map_to failed")
-                .flush();
-        }
-    }
-
-    unsafe {
-        core::ptr::copy_nonoverlapping(binary.as_ptr(), load_addr as *mut u8, binary.len());
-    }
-
-    load_addr as *const u8
-}
+pub const USER_BINARY_LOAD_BASE: u64 = 0x0000_4000_0000_0000; // 256 GiB
 
 use x86_64::{
     VirtAddr,
@@ -235,6 +197,7 @@ pub fn load_elf_executable(
 ) -> *const u8 {
     // --- Validate ELF header ---
     assert_eq!(&elf[0..4], b"\x7FELF", "Not a valid ELF file");
+    let virt_base = USER_BINARY_LOAD_BASE;
 
     let e_entry = u64::from_le_bytes(elf[0x18..0x20].try_into().unwrap());
     let phoff = u64::from_le_bytes(elf[0x20..0x28].try_into().unwrap()) as usize;
@@ -251,7 +214,7 @@ pub fn load_elf_executable(
         }
 
         let p_offset = u64::from_le_bytes(ph[0x08..0x10].try_into().unwrap());
-        let p_vaddr = u64::from_le_bytes(ph[0x10..0x18].try_into().unwrap());
+        let p_vaddr = virt_base + u64::from_le_bytes(ph[0x10..0x18].try_into().unwrap());
         let p_filesz = u64::from_le_bytes(ph[0x20..0x28].try_into().unwrap());
         let p_memsz = u64::from_le_bytes(ph[0x28..0x30].try_into().unwrap());
 
@@ -268,20 +231,20 @@ pub fn load_elf_executable(
             Page::<Size4KiB>::containing_address(end.align_up(0x1000u64) - 1u64),
         );
 
-        // for page in page_range {
-        //     let frame = frame_allocator.allocate_frame().expect("Out of frames");
-        //     unsafe {
-        //         mapper
-        //             .map_to(
-        //                 page,
-        //                 frame,
-        //                 Flags::PRESENT | Flags::WRITABLE | Flags::USER_ACCESSIBLE,
-        //                 frame_allocator,
-        //             )
-        //             .expect("map_to failed")
-        //             .flush();
-        //     }
-        // }
+        for page in page_range {
+            let frame = frame_allocator.allocate_frame().expect("Out of frames");
+            unsafe {
+                mapper
+                    .map_to(
+                        page,
+                        frame,
+                        Flags::PRESENT | Flags::WRITABLE | Flags::USER_ACCESSIBLE,
+                        frame_allocator,
+                    )
+                    .expect("map_to failed")
+                    .flush();
+            }
+        }
 
         // --- Copy file contents ---
         if p_filesz > 0 {
@@ -320,6 +283,6 @@ pub fn load_elf_executable(
             }
         }
     }
-
-    e_entry as *const u8
+    let adjusted_entry = USER_BINARY_LOAD_BASE + (e_entry & 0x0000_ffff_ffff_ffff);
+    return adjusted_entry as *const u8;
 }
