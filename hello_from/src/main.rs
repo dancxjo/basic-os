@@ -17,7 +17,6 @@ pub extern "C" fn _start() -> ! {
 
 #[panic_handler]
 pub fn panic(_info: &core::panic::PanicInfo) -> ! {
-    println!("\nPanic!");
->>>>>>> lilia
+    println!("\nPanic on the streets of Birmingham!");
     loop {}
 }
