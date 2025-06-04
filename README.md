@@ -1,110 +1,40 @@
-# 🌱 ThingOS
+# ThingOS
 
-> People, Places, Things, and Ideas
+An experimental Rust operating system. It is currently a small kernel that boots with the Limine bootloader, sets up basic x86\_64 hardware, and runs a toy user program. The long term idea is to represent running state as a graph of `Thing`s and `Fact`s, but persistence and advanced services are still to come.
 
-> A memory-first, graph-shaped operating system — born persistent,
-> structurally typed, and ready to grow.
+## Building and running
 
----
+The top level `GNUmakefile` builds an ISO image and runs it under QEMU.
 
-## ✨ What is ThingOS?
+```bash
+# Build kernel and example program
+make
 
-ThingOS is a graph-native operating system kernel.
-It models memory, identity, and process state as a living network of **Things**.
-
-Each Thing:
-- Has a stable `UUID`
-- Carries structured memory (`Bytes`, `Heap`, `Typed`)
-- Belongs to a `Kind`
-- Participates in relationships (`Facts`) with other Things
-
----
-
-## 🧠 Core Concepts
-
-### 🧱 Thing
-A self-describing unit of memory. Think of it like a file, a process, a struct, or a page — all rolled into one.
-
-```rust
-Thing {
-  uuid: Uuid,
-  kind: "message",
-  data: ThingData::Typed(*mut (), size),
-}
+# Boot the image in QEMU
+make run
 ```
 
-### 🌿 Graph
-All Things live in a `Graph`. It maintains:
-- Things (nodes)
-- Facts (edges)
-- Kinds and Predicates (metadata)
+`KARCH` can be set to `x86_64` (default) or other architectures supported by the Makefile such as `aarch64` and `riscv64`.
 
-UUIDs index the entire system — no names, just identity.
+## Code overview
 
-### 💾 Dirty Tracking
-If a Thing is mutably borrowed, its UUID is automatically marked as dirty.
-This forms the basis for **crash-proof persistence**: every change is journaled.
+- **kernel/** – the Rust kernel crate. `system.rs` performs initialization:
+  - sets up the GDT, paging, kernel stack and heap
+  - enables the syscall mechanism and interrupt handling
+  - bootstraps a small `Graph` with built in kinds and facts
+  - initializes the framebuffer and PS/2 devices
+  - creates an HPET/RTC based `Clock`
+  - loads the `hello_from` ELF binary as a user task
 
----
+  After these steps the kernel enables interrupts and halts waiting for events. A basic scheduler exists but is not yet used.
 
-## ✅ Current Features
+- **hello\_from/** – minimal userland program that prints text using a syscall.
+- **thing\_macros/** – proc macros used by the kernel.
 
-- [x] UUID-backed memory identity
-- [x] Memory-safe struct insertion and access
-- [x] Type-safe access via `as_typed()` / `as_typed_mut()`
-- [x] Dirty tracking on mutable access
-- [x] Live UUID → Thing lookup
-- [x] Boot-time graph mutation and introspection
-- [x] Serial logging of system state
+## Status
 
----
+This repository is in a very early stage. Persistence, multitasking and higher level services are not implemented yet. Development is focused on getting the core kernel up and experimenting with the graph data model.
 
-## 🔜 Coming Next
+## License
 
-- [ ] Journaled `Delta` logging for every memory mutation
-- [ ] Bedrock: background persistence engine
-- [ ] Rehydration of graph state from disk at boot
-- [ ] Active relationships (e.g., allocator, scheduler)
-- [ ] Graph-based GUI: The Garden
-
----
-
-## 🔧 Example
-
-```rust
-let mut graph = Graph::new();
-graph.insert("message", Message {
-  text: "ThingOS\nPeople, places, things and ideas\n© 2025".to_owned(),
-});
-
-let msg = graph.find_mut(|t| t.kind == "message").unwrap();
-let typed = msg.data.as_typed_mut::<Message>(msg.uuid).unwrap();
-typed.text = "Mutation".to_owned();
-```
-
-Outputs:
-```
-Marked dirty: 18c97eac-b326-553a-b6d7-4c4621bf48bb
-```
-
----
-
-## 🌳 Philosophy
-
-ThingOS is not just an OS — it's a living, breathing system where:
-- Memory has structure
-- Every allocation is an object
-- Every object has meaning
-- And every mutation has a story
-
----
-
-## 🏗 Status
-
-Early kernel stage — booting, allocating, tracking, and preparing to persist.
-
----
-
-## 📜 License
-
-MIT. All code copyright © 2025 the contributors.
+MIT
