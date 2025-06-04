@@ -13,8 +13,10 @@ static mut TSS: Option<TaskStateSegment> = None;
 
 pub struct Selectors {
     pub code: SegmentSelector,
-    pub data: SegmentSelector, // <-- ADD THIS
+    pub data: SegmentSelector,
     pub tss: SegmentSelector,
+    pub user_data: SegmentSelector,
+    pub user_code: SegmentSelector,
 }
 
 pub static mut SELECTORS: Option<Selectors> = None;
@@ -38,14 +40,18 @@ pub fn init_gdt() {
         // --- Create GDT ---
         let mut gdt = GlobalDescriptorTable::new();
         let code_sel = gdt.add_entry(Descriptor::kernel_code_segment());
-        let data_sel = gdt.add_entry(Descriptor::kernel_data_segment()); // <-- ADD THIS
+        let data_sel = gdt.add_entry(Descriptor::kernel_data_segment());
         let tss_sel = gdt.add_entry(Descriptor::tss_segment(tss));
+        let user_data_sel = gdt.add_entry(Descriptor::UserSegment(0x00af_9200_0000_0000));
+        let user_code_sel = gdt.add_entry(Descriptor::UserSegment(0x00af_9a00_0000_0000));
 
         GDT = Some(gdt);
         SELECTORS = Some(Selectors {
             code: code_sel,
             data: data_sel, // <-- Save it
             tss: tss_sel,
+            user_data: user_data_sel,
+            user_code: user_code_sel,
         });
 
         // --- Load GDT ---

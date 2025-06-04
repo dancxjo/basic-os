@@ -1,10 +1,11 @@
 #![no_std]
+#![no_main]
 #[macro_use]
 mod prelude;
 use crate::prelude::*;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn main() {
+pub extern "C" fn _start() -> ! {
     loop {
         println!("Hello from Task #{}", "xxxxxxx");
         for _ in 0..1_000_000_000 {

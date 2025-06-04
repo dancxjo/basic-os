@@ -14,17 +14,36 @@ pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
+use x86_64::registers::control::Cr2;
+
 extern "x86-interrupt" fn page_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: PageFaultErrorCode,
 ) {
-    error!(
-        "Page fault! Error Code: {:?} Frame: {:?}",
-        error_code, stack_frame
-    );
-    loop {
-        info!("Page fault handler called");
+    let faulting_address = Cr2::read();
+
+    error!("\nEXCEPTION: PAGE FAULT");
+    error!("Accessed Address: {:#018x}", faulting_address.as_u64());
+    error!("Error Code: {:?}", error_code);
+    error!("Stack Frame: {:#?}", stack_frame);
+
+    if error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE) {
+        error!("Cause: attempted WRITE");
+    } else {
+        error!("Cause: attempted READ");
     }
+
+    if error_code.contains(PageFaultErrorCode::USER_MODE) {
+        error!("From: USER MODE");
+    } else {
+        error!("From: KERNEL MODE");
+    }
+
+    if error_code.contains(PageFaultErrorCode::INSTRUCTION_FETCH) {
+        error!("During: INSTRUCTION FETCH");
+    }
+
+    panic!("Unhandled page fault");
 }
 
 extern "x86-interrupt" fn double_fault_handler(

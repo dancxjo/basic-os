@@ -1,9 +1,9 @@
+.intel_syntax noprefix
 .global syscall_entry_asm
+.text
 .type syscall_entry_asm, @function
 
 syscall_entry_asm:
-    //  TODO: Save volatile registers if needed (if not using interrupt return)
-
     push rbx
     push rbp
     push r12
@@ -11,10 +11,15 @@ syscall_entry_asm:
     push r14
     push r15
 
-    // We assume rax, rdi, rsi, rdx are syscall args
-
-    // Call into Rust
     call syscall_entry
 
-    // Return to userspace
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+
     sysretq
+
+.size syscall_entry_asm, . - syscall_entry_asm

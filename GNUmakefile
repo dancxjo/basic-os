@@ -169,23 +169,18 @@ limine/limine:
 
 .PHONY: hello_from
 hello_from:
-	cargo build --release --target wasm32-unknown-unknown --manifest-path hello_from/Cargo.toml
-
-.PHONY: compositor
-compositor:
-	cargo build --release --target wasm32-unknown-unknown --manifest-path compositor/Cargo.toml
+	cargo build --release --target x86_64-unknown-none --manifest-path hello_from/Cargo.toml
 
 .PHONY: kernel
 kernel:
 	$(MAKE) -C kernel
 
-$(IMAGE_NAME).iso: limine/limine kernel hello_from compositor
+$(IMAGE_NAME).iso: limine/limine kernel hello_from
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
-	cp -v hello_from/target/wasm32-unknown-unknown/release/hello_from.wasm iso_root/boot/hello_from.wasm
-	cp -v compositor/target/wasm32-unknown-unknown/release/compositor.wasm iso_root/boot/compositor.wasm
+	cp -v hello_from/target/x86_64-unknown-none/release/hello_from iso_root/boot/hello_from
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT

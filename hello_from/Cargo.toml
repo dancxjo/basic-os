@@ -1,12 +1,29 @@
 [package]
 name = "hello_from"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
-[lib]
-crate-type = ["cdylib"]
+[dependencies]
 
 [profile.release]
 lto = true
 
-[dependencies]
+[target.x86_64-unknown-none]
+rustflags = [
+  "-C", "link-arg=-Tlink.ld",
+  "-C", "relocation-model=static"
+]
+[[bin]]
+name = "hello_from"
+path = "src/main.rs"
+
+[build-dependencies]
+
+[package.metadata]
+# Optional: custom metadata
+
+[features]
+default = []
+
+[workspace]
+
