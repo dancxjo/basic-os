@@ -97,8 +97,10 @@ pub fn load_elf<'a>(
         let start_page = Page::containing_address(vaddr);
         let end_page = Page::containing_address(end_vaddr - 1u64);
 
-        let mut flags =
-            PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE;
+        let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+        if ph.is_write() {
+            flags |= PageTableFlags::WRITABLE;
+        }
         if !ph.is_executable() {
             flags |= PageTableFlags::NO_EXECUTE;
         }
@@ -136,9 +138,17 @@ pub fn load_elf<'a>(
         if let Some(frame) = mapper.translate_page(Page::containing_address(vaddr)).ok() {
             let phys = frame.start_address();
             let dst_ptr = (phys.as_u64() + 0xffff_8000_0000_0000) as *mut u8;
+            let offset = (vaddr.as_u64() & 0xfff) as usize;
+            info!(
+                "Copying segment: dst={:#x}, offset_in_page={:#x}, file_size={}, mem_size={}",
+                dst_ptr as u64,
+                offset,
+                file_size,
+                mem_size
+            );
             unsafe {
-                core::ptr::copy_nonoverlapping(src.as_ptr(), dst_ptr, file_size);
-                core::ptr::write_bytes(dst_ptr.add(file_size), 0, mem_size - file_size);
+                core::ptr::copy_nonoverlapping(src.as_ptr(), dst_ptr.add(offset), file_size);
+                core::ptr::write_bytes(dst_ptr.add(offset + file_size), 0, mem_size - file_size);
             }
         } else {
             return Err("Failed to translate page for copy");
