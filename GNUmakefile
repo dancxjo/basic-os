@@ -167,15 +167,21 @@ limine/limine:
 	git clone https://github.com/limine-bootloader/limine.git --branch=v9.x-binary --depth=1
 	$(MAKE) -C limine
 
+.PHONY: hello_from
+hello_from:
+	cargo build --release --target x86_64-unknown-none --manifest-path hello_from/Cargo.toml
+	cp -v hello_from/target/x86_64-unknown-none/release/hello_from hello_from.bin
+
 .PHONY: kernel
 kernel:
 	$(MAKE) -C kernel
 
-$(IMAGE_NAME).iso: limine/limine kernel
+$(IMAGE_NAME).iso: limine/limine kernel hello_from
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
+	cp -v hello_from.bin iso_root/boot/
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT
@@ -246,8 +252,7 @@ endif
 clean:
 	$(MAKE) -C kernel clean
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
-	rm -rf hello-user/hello-user
-	rm -rf hello-user/hello-user/target
+	rm -rf limine hello_from/target hello_from/bin-$(KARCH) ovmf
 
 .PHONY: distclean
 distclean: clean

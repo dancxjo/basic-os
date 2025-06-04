@@ -1,8 +1,11 @@
-use crate::interrupts::end_of_interrupt;
+use crate::{
+    allocator::BootFrameAllocator, interrupts::end_of_interrupt, serial_print, serial_println,
+};
+use alloc::vec::Vec;
 use core::ptr;
-use log::info;
+use log::{error, info, trace};
 use spin::Mutex;
-use x86_64::structures::paging::{FrameAllocator, Mapper};
+use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -35,12 +38,18 @@ pub struct GeneralRegisters {
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FullContext {
+    pub regs: GeneralRegisters,
+    pub frame: IretFrame,
+}
+
+#[repr(C)]
 #[derive(Debug)]
 pub struct Task {
     pub entry_point: extern "C" fn(),
     pub stack_top: u64,
-    pub saved_regs: GeneralRegisters,
-    pub saved_frame: IretFrame,
+    pub context: FullContext,
     pub initialized: bool,
 }
 
@@ -48,35 +57,21 @@ impl Task {
     pub fn new(
         entry: extern "C" fn(),
         index: usize,
-        mapper: &mut x86_64::structures::paging::OffsetPageTable,
-        frame_allocator: &mut crate::allocator::BootFrameAllocator,
+        mapper: &mut OffsetPageTable,
+        frame_allocator: &mut BootFrameAllocator,
     ) -> Self {
         let mut task = Self {
             entry_point: entry,
             stack_top: 0,
-            saved_regs: GeneralRegisters {
-                r15: 0,
-                r14: 0,
-                r13: 0,
-                r12: 0,
-                r11: 0,
-                r10: 0,
-                r9: 0,
-                r8: 0,
-                rsi: 0,
-                rdi: 0,
-                rbp: 0,
-                rdx: 0,
-                rcx: 0,
-                rbx: 0,
-                rax: 0,
-            },
-            saved_frame: IretFrame {
-                rip: 0,
-                cs: 0,
-                rflags: 0,
-                rsp: 0,
-                ss: 0,
+            context: FullContext {
+                regs: unsafe { core::mem::zeroed() },
+                frame: IretFrame {
+                    rip: 0,
+                    cs: 0,
+                    rflags: 0,
+                    rsp: 0,
+                    ss: 0,
+                },
             },
             initialized: false,
         };
@@ -88,13 +83,24 @@ impl Task {
 
     pub fn prepare_if_needed(&mut self) {
         if !self.initialized {
-            self.saved_frame = IretFrame {
+            /*
+            self.context.frame = IretFrame {
                 rip: self.entry_point as u64,
                 cs: 0x08,
                 rflags: 0x202,
                 rsp: self.stack_top,
                 ss: 0x10,
+            };*/
+            use crate::gdt::{USER_CODE_SEG, USER_DATA_SEG};
+
+            self.context.frame = IretFrame {
+                rip: self.entry_point as u64,
+                cs: USER_CODE_SEG as u64 | 0x3, // Ring 3
+                rflags: 0x202,
+                rsp: self.stack_top,
+                ss: USER_DATA_SEG as u64 | 0x3, // Ring 3
             };
+
             self.initialized = true;
         }
         info!("Task initialized");
@@ -108,8 +114,8 @@ impl Task {
 
     pub fn allocate_stack_if_needed(
         &mut self,
-        mapper: &mut x86_64::structures::paging::OffsetPageTable,
-        frame_allocator: &mut crate::allocator::BootFrameAllocator,
+        mapper: &mut OffsetPageTable,
+        frame_allocator: &mut BootFrameAllocator,
         index: usize,
     ) {
         if self.stack_top == 0 {
@@ -146,16 +152,16 @@ impl Task {
     }
 
     pub fn context_ptr(&self) -> *const u8 {
-        &self.saved_regs as *const _ as *const u8
+        &self.context as *const _ as *const u8
     }
 
     pub fn context_mut_ptr(&mut self) -> *mut u8 {
-        &mut self.saved_regs as *mut _ as *mut u8
+        &mut self.context as *mut _ as *mut u8
     }
 }
 
 pub struct Scheduler {
-    pub tasks: [Option<Task>; 10],
+    pub tasks: Vec<Option<Task>>,
     pub current: usize,
     pub last_switched_at: u64,
     pub now_fn: fn() -> u64,
@@ -164,7 +170,7 @@ pub struct Scheduler {
 impl Scheduler {
     pub const fn new(now_fn: fn() -> u64) -> Self {
         Scheduler {
-            tasks: [None, None, None, None, None, None, None, None, None, None],
+            tasks: Vec::new(),
             current: 0,
             last_switched_at: 0,
             now_fn,
@@ -174,34 +180,24 @@ impl Scheduler {
     pub fn spawn(
         &mut self,
         entry: extern "C" fn(),
-        index: usize,
-        mapper: &mut x86_64::structures::paging::OffsetPageTable,
-        frame_allocator: &mut crate::allocator::BootFrameAllocator,
+        mapper: &mut OffsetPageTable,
+        frame_allocator: &mut BootFrameAllocator,
     ) {
-        let task = Task::new(entry, index, mapper, frame_allocator);
-        info!("Task {} spawned", index);
-        self.tasks[index] = Some(task);
+        let task = Task::new(entry, self.tasks.len(), mapper, frame_allocator);
+        info!("Task {} spawned", self.tasks.len());
+        self.tasks.push(Some(task));
     }
 
-    pub fn next_ready_task(&mut self, now: u64) -> Option<&mut Task> {
-        let delta = now - self.last_switched_at;
-        if delta < 2500 {
-            info!("Skipping switch ({} ticks too soon)", 2500 - delta);
+    pub fn next_ready_task(&mut self, _now: u64) -> Option<&mut Task> {
+        let index = (self.current + 1) % self.tasks.len();
+        serial_print!("\n\r@{}:", index);
+        if self.tasks.is_empty() {
             return None;
         }
-
-        let mut index = self.current + 1;
-        if index >= 6 {
-            index = 0;
-        }
-
         if let Some(ref mut task) = self.tasks[index] {
             self.current = index;
-            self.last_switched_at = now; // ✅ Move it here!
-            info!("Switching to task {}", index);
             return Some(task);
         }
-
         None
     }
 
@@ -209,12 +205,12 @@ impl Scheduler {
         unsafe extern "C" {
             fn restore_context(saved: *const u8) -> !;
         }
+
         info!("Starting first task");
         if let Some(task) = self.tasks[0].as_ref() {
-            let ctx = task.context_ptr();
-            unsafe {
-                restore_context(ctx);
-            }
+            unsafe { CURRENT_TASK = self.tasks[0].as_ref().unwrap() as *const Task as *mut Task };
+            serial_print!("]");
+            unsafe { restore_context(task.context_ptr()) };
         } else {
             panic!("No task in slot 0 to start");
         }
@@ -231,16 +227,15 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
-    use core::ptr;
+    serial_print!("'");
+    trace!("Scheduling and switching tasks...");
 
     unsafe {
         if !CURRENT_TASK.is_null() {
             let task = &mut *CURRENT_TASK;
-            ptr::copy_nonoverlapping(
-                current_rsp,
-                task.context_mut_ptr(),
-                core::mem::size_of::<GeneralRegisters>(),
-            );
+            let context_size = core::mem::size_of::<FullContext>();
+
+            ptr::copy_nonoverlapping(current_rsp, task.context_mut_ptr(), context_size);
         }
 
         let mut scheduler = SCHEDULER.lock();
@@ -252,36 +247,29 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
         match next {
             Some(task_ptr) => {
                 CURRENT_TASK = task_ptr;
+                log::trace!(
+                    "Switching to task at {:p}, ctx = {:p}",
+                    task_ptr,
+                    (*task_ptr).context_ptr()
+                );
+
                 end_of_interrupt(0);
-                restore_context((*task_ptr).context_ptr());
+                serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
+                unsafe { restore_context((*task_ptr).context_ptr()) }
             }
             None => {
+                serial_print!("!");
+
                 end_of_interrupt(0);
-                // info!("No switch occurred, returning to current task.");
-                restore_context((*current).context_ptr());
+                let ctx = if !current.is_null() {
+                    (*current).context_ptr()
+                } else {
+                    error!("No current task; esperante.");
+                    rust_schedule_and_switch(current_rsp);
+                };
+                CURRENT_TASK = current;
+                unsafe { restore_context(ctx) }
             }
         }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rust_prepare_task_if_needed(task: &mut Task) {
-    task.prepare_if_needed();
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rust_get_context_ptr(task: &Task) -> *const u8 {
-    task.context_ptr()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn save_current_context(ctx_ptr: *const u8) {
-    unsafe {
-        let regs_ptr = ctx_ptr as *const GeneralRegisters;
-        let frame_ptr = ctx_ptr.add(core::mem::size_of::<GeneralRegisters>()) as *const IretFrame;
-
-        let task = &mut *CURRENT_TASK;
-        ptr::copy_nonoverlapping(regs_ptr, &mut task.saved_regs, 1);
-        ptr::copy_nonoverlapping(frame_ptr, &mut task.saved_frame, 1);
     }
 }
