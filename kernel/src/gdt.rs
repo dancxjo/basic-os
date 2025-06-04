@@ -42,13 +42,9 @@ pub fn init_gdt() {
         // Kernel segments
         let code_sel = gdt.add_entry(Descriptor::kernel_code_segment());
         let data_sel = gdt.add_entry(Descriptor::kernel_data_segment());
-
-        // User segments (DPL=3)
-        let user_code_sel = gdt.add_entry(Descriptor::UserSegment(0x00af9a000000ffff));
-        let user_data_sel = gdt.add_entry(Descriptor::UserSegment(0x00af92000000ffff));
-
-        // TSS segment
         let tss_sel = gdt.add_entry(Descriptor::tss_segment(tss));
+        let user_data_sel = gdt.add_entry(Descriptor::UserSegment(0x00af_9200_0000_0000));
+        let user_code_sel = gdt.add_entry(Descriptor::UserSegment(0x00af_9a00_0000_0000));
 
         // Store it globally
         GDT = Some(gdt);

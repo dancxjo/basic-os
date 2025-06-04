@@ -1,3 +1,7 @@
+use std::{env, path::PathBuf, process::Command};
+
+use cc::Build;
+
 fn main() {
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 
@@ -7,17 +11,10 @@ fn main() {
     // Re-run if the linker script changes
     println!("cargo:rerun-if-changed=linker-{arch}.ld");
 
-    // Compile and link the context switch assembly file
-    cc::Build::new()
-        .file("src/tick_handler.S")
-        .compile("tick_handler");
-    // Re-run if the assembly file changes
-    println!("cargo:rerun-if-changed=src/tick_handler.S");
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Compile and link the context switch assembly file
-    cc::Build::new()
-        .file("src/restore_context.S")
-        .compile("restore_context");
-    // Re-run if the assembly file changes
-    println!("cargo:rerun-if-changed=src/restore_context.S");
+    // Compile syscall_entry.S using cc
+    Build::new()
+        .file("src/syscall_entry.S")
+        .compile("syscall_entry");
 }

@@ -3,3 +3,9 @@
 *.iso
 *.hdd
 */target/*
+thing_macros/target/.rustc_info.json
+target/*
+kernel/target/CACHEDIR.TAG 
+kernel/target/*
+kernel/target/x86_64-unknown-none 
+thing_macros/target/*

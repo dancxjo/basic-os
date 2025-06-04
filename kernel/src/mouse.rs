@@ -1,5 +1,10 @@
 use crate::framebuffer::Framebuffer;
-use log::debug;
+use embedded_graphics::Drawable;
+use embedded_graphics::pixelcolor::Rgb565;
+use embedded_graphics::prelude::{Point, Primitive, RgbColor};
+use embedded_graphics::primitives::{Polyline, PrimitiveStyle};
+
+use log::{debug, error, warn};
 use serde::Serialize;
 use x86_64::instructions::port::Port;
 
@@ -7,22 +12,39 @@ use x86_64::instructions::port::Port;
 pub struct Mouse {
     pub x: usize,
     pub y: usize,
-    screen_width: usize,
-    screen_height: usize,
+    pub screen_width: usize,
+    pub screen_height: usize,
+    pub dirty: bool,
+    pub prev_x: usize,
+    pub prev_y: usize,
 }
 
 impl Mouse {
     pub fn new(fb: &Framebuffer) -> Self {
         unsafe {
-            Port::<u8>::new(0x64).write(0xA8); // Enable auxiliary device
+            wait_input_ready();
+            Port::<u8>::new(0x64).write(0xA8); // Enable aux device
+
+            wait_input_ready();
             Port::<u8>::new(0x64).write(0x20); // Read command byte
-            while (Port::<u8>::new(0x64).read() & 1) == 0 {}
+
+            wait_output_ready();
             let status = Port::<u8>::new(0x60).read();
+
+            wait_input_ready();
             Port::<u8>::new(0x64).write(0x60); // Write command byte
-            Port::<u8>::new(0x60).write(status | 2);
-            Port::<u8>::new(0x64).write(0xD4);
+
+            wait_input_ready();
+            Port::<u8>::new(0x60).write(status | 2); // Enable IRQ12
+
+            wait_input_ready();
+            Port::<u8>::new(0x64).write(0xD4); // Write to mouse
+
+            wait_input_ready();
             Port::<u8>::new(0x60).write(0xF4); // Enable data reporting
-            Port::<u8>::new(0x60).read(); // ACK
+
+            wait_output_ready();
+            let _ack = Port::<u8>::new(0x60).read(); // Should be 0xFA
         }
 
         Mouse {
@@ -30,44 +52,55 @@ impl Mouse {
             y: fb.height / 2,
             screen_width: fb.width,
             screen_height: fb.height,
+            dirty: false,
+            prev_x: fb.width / 2,
+            prev_y: fb.height / 2,
         }
     }
 
     pub fn move_by(&mut self, dx: isize, dy: isize) {
-        self.x = ((self.x as isize + dx).clamp(0, self.screen_width as isize - 1)) as usize;
-        self.y = ((self.y as isize + dy).clamp(0, self.screen_height as isize - 1)) as usize;
+        self.prev_x = self.x;
+        self.prev_y = self.y;
+
+        let new_x = (self.x as isize + dx).clamp(0, self.screen_width as isize - 1);
+        let new_y = (self.y as isize + dy).clamp(0, self.screen_height as isize - 1);
+
+        self.x = new_x as usize;
+        self.y = new_y as usize;
+        self.dirty = true;
     }
 
     pub fn position(&self) -> (usize, usize) {
         (self.x, self.y)
     }
 
-    pub fn draw(&self, _fb: &mut Framebuffer) {
-        let (_x, _y) = self.position();
-        // fb.draw_circle(x, y, 5, 0xFF0000);
+    pub fn draw(&self, framebuffer: &mut Framebuffer) {
+        let origin = Point::new(self.x as i32, self.y as i32);
+
+        // Shrunk shape (scaled by ~0.4x from the original)
+        let points = [
+            Point::new(0, 0), // tip
+            Point::new(0, 40),
+            Point::new(12, 28),
+            Point::new(20, 48),
+            Point::new(24, 44),
+            Point::new(16, 24),
+            Point::new(28, 24),
+            Point::new(0, 0), // close
+        ]
+        .map(|p| p + origin);
+
+        let arrow =
+            Polyline::new(&points).into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 2));
+
+        // let _ = arrow.draw(framebuffer);
     }
+}
 
-    pub fn poll(&mut self) {
-        static mut BYTE_IDX: u8 = 0;
-        static mut PACKET: [u8; 3] = [0; 3];
+fn wait_input_ready() {
+    while unsafe { Port::<u8>::new(0x64).read() } & 0x02 != 0 {}
+}
 
-        unsafe {
-            let status = Port::<u8>::new(0x64).read();
-            if status & 1 == 0 {
-                return;
-            }
-
-            let data = Port::<u8>::new(0x60).read();
-            PACKET[BYTE_IDX as usize] = data;
-            BYTE_IDX += 1;
-
-            if BYTE_IDX >= 3 {
-                BYTE_IDX = 0;
-                let dx = PACKET[1] as i8 as isize;
-                let dy = -(PACKET[2] as i8 as isize);
-                self.move_by(dx, dy);
-                debug!("[poll] Mouse moved to ({}, {})", self.x, self.y);
-            }
-        }
-    }
+fn wait_output_ready() {
+    while unsafe { Port::<u8>::new(0x64).read() } & 0x01 == 0 {}
 }

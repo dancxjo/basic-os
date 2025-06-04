@@ -4,38 +4,37 @@
 #![feature(new_range_api)]
 
 use kernel_logger::init_logger;
-use system::System;
+use system::{System, init_and_run_system};
 
 extern crate alloc;
 
+mod allocator;
 mod bootloader;
+mod canon;
 mod clock;
+mod executable;
 mod framebuffer;
 mod gdt;
-mod gui;
-mod gui_output;
+mod graph;
 mod idt;
+mod input;
 mod interrupts;
 mod kernel_logger;
 mod log_entry;
+mod mirror_region;
 mod mouse;
 mod panic;
-mod screen;
-mod tasks;
-#[macro_use]
-mod serial;
-mod allocator;
-mod input;
 mod pic;
 mod ps2;
+mod serial;
 mod stack;
+mod syscall;
 mod system;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     init_logger();
-    let mut os = System::new();
-    os.run();
+    init_and_run_system();
 }
 
 #[unsafe(no_mangle)]
@@ -48,4 +47,14 @@ macro_rules! println {
     ($($arg:tt)*) => {
         serial_println!($($arg)*);
     };
+}
+
+#[macro_export]
+macro_rules! bootstrap_step {
+    ($desc:expr, $block:expr) => {{
+        info!("Initializing {}...", $desc);
+        let result = $block;
+        info!("Init {} complete.\n", $desc);
+        result
+    }};
 }

@@ -71,6 +71,10 @@ impl Clock {
     pub fn booted_at(&self) -> Moment {
         self.boot_time
     }
+
+    pub fn sleep(&self, ms: u64) {
+        self.hpet.sleep(ms);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +102,11 @@ impl HPET {
 
     pub fn read(&self) -> u64 {
         unsafe { core::ptr::read_volatile((self.base + 0xF0) as *const u64) }
+    }
+
+    pub fn sleep(&self, ms: u64) {
+        let end = self.read() + ms * 1_000_000;
+        while self.read() < end {}
     }
 }
 

@@ -143,7 +143,7 @@ run-hdd-bios: $(IMAGE_NAME).hdd
 		-M q35 \
 		-hda $(IMAGE_NAME).hdd \
 		$(QEMUFLAGS)
-
+	
 ovmf/ovmf-code-$(KARCH).fd:
 	mkdir -p ovmf
 	curl -Lo $@ https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/ovmf-code-$(KARCH).fd
@@ -182,6 +182,7 @@ $(IMAGE_NAME).iso: limine/limine kernel hello_from
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
 	cp -v hello_from.bin iso_root/boot/
+	cp -v hello_from/target/x86_64-unknown-none/release/hello_from iso_root/boot/hello_from
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT
