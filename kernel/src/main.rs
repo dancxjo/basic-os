@@ -21,6 +21,7 @@ mod input;
 mod interrupts;
 mod kernel_logger;
 mod log_entry;
+mod memory;
 mod mirror_region;
 mod mouse;
 mod panic;
