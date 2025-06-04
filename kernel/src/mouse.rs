@@ -1,10 +1,8 @@
 use crate::framebuffer::Framebuffer;
-use embedded_graphics::Drawable;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::{Point, Primitive, RgbColor};
 use embedded_graphics::primitives::{Polyline, PrimitiveStyle};
 
-use log::{debug, error, warn};
 use serde::Serialize;
 use x86_64::instructions::port::Port;
 

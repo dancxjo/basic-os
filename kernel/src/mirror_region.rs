@@ -17,6 +17,7 @@ pub fn mirror_kernel_region(
         let page = Page::containing_address(va);
 
         // Translate from current active mapper
+        #[allow(static_mut_refs)]
         if let Ok(frame) =
             unsafe { crate::allocator::MAPPER.assume_init_mut() }.translate_page(page)
         {
