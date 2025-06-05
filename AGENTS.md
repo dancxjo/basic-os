@@ -7,6 +7,8 @@
 ## Programmatic checks
 - Build the OS image by running `make` from the repository root. This fetches
   the Limine bootloader and compiles the Rust kernel and user program.
+- Make sure the `x86_64-unknown-none` target is installed:
+  `rustup target add x86_64-unknown-none`.
 
 ## Pull request guidelines
 - Summarize user visible changes.

@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf, process::Command};
+use std::{env, path::PathBuf};
 
 use cc::Build;
 
@@ -11,7 +11,7 @@ fn main() {
     // Re-run if the linker script changes
     println!("cargo:rerun-if-changed=linker-{arch}.ld");
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let _out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // Compile syscall_entry.S using cc
     Build::new()
