@@ -16,6 +16,21 @@ make run
 
 `KARCH` can be set to `x86_64` (default) or other architectures supported by the Makefile such as `aarch64` and `riscv64`.
 
+## Debugging with GDB
+
+Run `make run-debug` to launch QEMU paused with a GDB stub on TCP port 1234. In
+VS Code you can create a `launch.json` entry that attaches to this stub. Use a
+`gdb-multiarch` or `gdb` executable and specify the kernel debug binary, e.g.
+`kernel/target/x86_64-unknown-none/debug/thingos`, as the program. The debugger
+should connect to `localhost:1234`.
+
+Example terminal invocation:
+
+```bash
+make run-debug &
+gdb-multiarch kernel/target/x86_64-unknown-none/debug/thingos -ex "target remote :1234"
+```
+
 ## Code overview
 
 - **kernel/** – the Rust kernel crate. `system.rs` performs initialization:
