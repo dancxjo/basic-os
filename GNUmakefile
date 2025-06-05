@@ -9,7 +9,7 @@ override USER_VARIABLE = $(if $(filter $(origin $(1)),default undefined),$(eval 
 $(call USER_VARIABLE,KARCH,x86_64)
 
 # Default user QEMU flags. These are appended to the QEMU command calls.
-$(call USER_VARIABLE,QEMUFLAGS,-m 4G -serial mon:stdio)
+$(call USER_VARIABLE,QEMUFLAGS,-m 4G -serial mon\:stdio)
 # $(call USER_VARIABLE,QEMUFLAGS,-m 4G)
 
 override IMAGE_NAME := template-$(KARCH)
@@ -23,17 +23,30 @@ all-hdd: $(IMAGE_NAME).hdd
 .PHONY: run
 run: run-$(KARCH)
 
+.PHONY: run-debug
+run-debug: run-debug-$(KARCH)
+
 .PHONY: run-hdd
 run-hdd: run-hdd-$(KARCH)
 
 .PHONY: run-x86_64
 run-x86_64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
 	qemu-system-$(KARCH) \
-		-M q35 \
-		-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
-		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
-		-cdrom $(IMAGE_NAME).iso \
-		$(QEMUFLAGS)
+	        -M q35 \
+	        -drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
+	        -drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
+	        -cdrom $(IMAGE_NAME).iso \
+	        $(QEMUFLAGS)
+
+.PHONY: run-debug-x86_64
+run-debug-x86_64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
+	qemu-system-$(KARCH) \
+	        -M q35 \
+	        -drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
+	        -drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
+	        -cdrom $(IMAGE_NAME).iso \
+	        -S -s \
+	        $(QEMUFLAGS)
 
 .PHONY: run-hdd-x86_64
 run-hdd-x86_64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).hdd
@@ -47,7 +60,7 @@ run-hdd-x86_64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NA
 .PHONY: run-aarch64
 run-aarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
 	qemu-system-$(KARCH) \
-		-M virt \
+	        -M virt \
 		-cpu cortex-a72 \
 		-device ramfb \
 		-device qemu-xhci \
@@ -55,8 +68,23 @@ run-aarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME)
 		-device usb-mouse \
 		-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
 		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
-		-cdrom $(IMAGE_NAME).iso \
-		$(QEMUFLAGS)
+	        -cdrom $(IMAGE_NAME).iso \
+	        $(QEMUFLAGS)
+
+.PHONY: run-debug-aarch64
+run-debug-aarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
+	qemu-system-$(KARCH) \
+	        -M virt \
+	        -cpu cortex-a72 \
+	        -device ramfb \
+	        -device qemu-xhci \
+	        -device usb-kbd \
+	        -device usb-mouse \
+	        -drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
+	        -drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
+	        -cdrom $(IMAGE_NAME).iso \
+	        -S -s \
+	        $(QEMUFLAGS)
 
 .PHONY: run-hdd-aarch64
 run-hdd-aarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).hdd
@@ -75,16 +103,31 @@ run-hdd-aarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_N
 .PHONY: run-riscv64
 run-riscv64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
 	qemu-system-$(KARCH) \
-		-M virt \
-		-cpu rv64 \
+	        -M virt \
+	        -cpu rv64 \
 		-device ramfb \
 		-device qemu-xhci \
 		-device usb-kbd \
 		-device usb-mouse \
 		-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
 		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
-		-cdrom $(IMAGE_NAME).iso \
-		$(QEMUFLAGS)
+	        -cdrom $(IMAGE_NAME).iso \
+	        $(QEMUFLAGS)
+
+.PHONY: run-debug-riscv64
+run-debug-riscv64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
+	qemu-system-$(KARCH) \
+	        -M virt \
+	        -cpu rv64 \
+	        -device ramfb \
+	        -device qemu-xhci \
+	        -device usb-kbd \
+	        -device usb-mouse \
+	        -drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
+	        -drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
+	        -cdrom $(IMAGE_NAME).iso \
+	        -S -s \
+	        $(QEMUFLAGS)
 
 .PHONY: run-hdd-riscv64
 run-hdd-riscv64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).hdd
@@ -103,16 +146,31 @@ run-hdd-riscv64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_N
 .PHONY: run-loongarch64
 run-loongarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
 	qemu-system-$(KARCH) \
-		-M virt \
-		-cpu la464 \
+	        -M virt \
+	        -cpu la464 \
 		-device ramfb \
 		-device qemu-xhci \
 		-device usb-kbd \
 		-device usb-mouse \
 		-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
 		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
-		-cdrom $(IMAGE_NAME).iso \
-		$(QEMUFLAGS)
+	        -cdrom $(IMAGE_NAME).iso \
+	        $(QEMUFLAGS)
+
+.PHONY: run-debug-loongarch64
+run-debug-loongarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
+	qemu-system-$(KARCH) \
+	        -M virt \
+	        -cpu la464 \
+	        -device ramfb \
+	        -device qemu-xhci \
+	        -device usb-kbd \
+	        -device usb-mouse \
+	        -drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \
+	        -drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
+	        -cdrom $(IMAGE_NAME).iso \
+	        -S -s \
+	        $(QEMUFLAGS)
 
 .PHONY: run-hdd-loongarch64
 run-hdd-loongarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).hdd
@@ -132,10 +190,19 @@ run-hdd-loongarch64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMA
 .PHONY: run-bios
 run-bios: $(IMAGE_NAME).iso
 	qemu-system-$(KARCH) \
-		-M q35 \
-		-cdrom $(IMAGE_NAME).iso \
-		-boot d \
-		$(QEMUFLAGS)
+	        -M q35 \
+	        -cdrom $(IMAGE_NAME).iso \
+	        -boot d \
+	        $(QEMUFLAGS)
+
+.PHONY: run-debug-bios
+run-debug-bios: $(IMAGE_NAME).iso
+	qemu-system-$(KARCH) \
+	        -M q35 \
+	        -cdrom $(IMAGE_NAME).iso \
+	        -boot d \
+	        -S -s \
+	        $(QEMUFLAGS)
 
 .PHONY: run-hdd-bios
 run-hdd-bios: $(IMAGE_NAME).hdd
