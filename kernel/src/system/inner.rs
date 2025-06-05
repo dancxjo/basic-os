@@ -16,6 +16,7 @@ use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::context::TaskMode;
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::scheduler::SCHEDULER;
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use spin::Mutex as SpinMutex;
 use x86_64::PhysAddr;
@@ -29,7 +30,7 @@ pub(crate) static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 
 pub struct System {
     framebuffer: Arc<SpinMutex<Framebuffer>>,
-    clock: Arc<SpinMutex<Clock>>,
+    clock: &'static SpinMutex<Clock>,
     keyboard_index: usize,
     mouse_index: usize,
     // scheduler: Arc<SpinMutex<crate::scheduler::Scheduler>>,
@@ -86,7 +87,8 @@ impl System {
 
         let hpet = HPET::new(0xFED00000);
         let rtc = RTC::new();
-        let _clock = Arc::new(SpinMutex::new(Clock::new(hpet, rtc)));
+        let _clock = Box::leak(Box::new(SpinMutex::new(Clock::new(hpet, rtc))));
+        crate::clock::set_global_clock(_clock);
         info!("ThingOS initialized.");
 
         bootstrap_step!("executable", {
