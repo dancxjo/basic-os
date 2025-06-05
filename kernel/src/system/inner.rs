@@ -124,9 +124,6 @@ impl System {
         info!("ThingOS running...");
         info!("System initialized. Entering main loop...");
         SCHEDULER.lock().start_first();
-        loop {
-            hlt();
-        }
     }
 }
 
