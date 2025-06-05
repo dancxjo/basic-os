@@ -169,30 +169,12 @@ pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: Phys
         entry.as_u64(),
         stack_top.as_u64()
     );
-    use x86_64::PrivilegeLevel;
-    use x86_64::registers::segmentation::SegmentSelector;
-    use x86_64::registers::segmentation::{CS, SS};
 
     // Switch to the new address space
     unsafe { Cr3::write(new_table, Cr3::read().1) };
     info!(
         "Switched to new address space: {:#x}",
         new_table.start_address().as_u64()
-    );
-    info!(
-        "Jumping to user mode with entry: {:#x}, stack_top: {:#x}",
-        entry.as_u64(),
-        stack_top.as_u64()
-    );
-    unsafe { Cr3::write(new_table, Cr3::read().1) };
-    info!(
-        "Switched to new address space: {:#x}",
-        new_table.start_address().as_u64()
-    );
-    info!(
-        "Jumping to user mode with entry: {:#x}, stack_top: {:#x}",
-        entry.as_u64(),
-        stack_top.as_u64()
     );
     use crate::gdt::SELECTORS;
     #[allow(static_mut_refs)]
