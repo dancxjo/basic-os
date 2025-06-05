@@ -1,0 +1,27 @@
+{
+    "name": "Attach to QEMU Kernel",
+    "type": "cppdbg",
+    "request": "launch",
+    "program": "${workspaceFolder}/kernel/target/x86_64-unknown-none/debug/thingos",
+    "miDebuggerPath": "/usr/bin/gdb-multiarch",
+    "cwd": "${workspaceFolder}",
+    "miDebuggerServerAddress": "localhost:1234",
+    "stopAtEntry": true,
+    "externalConsole": false,
+    "MIMode": "gdb",
+    "configurations": [
+        {
+            "name": "Attach after make run-debug",
+            "preLaunchTask": "make run-debug",
+            "request": "launch",
+            "type": "cppdbg",
+            "program": "${workspaceFolder}/kernel/target/x86_64-unknown-none/debug/thingos",
+            "miDebuggerPath": "/usr/bin/gdb-multiarch",
+            "cwd": "${workspaceFolder}",
+            "miDebuggerServerAddress": "localhost:1234",
+            "stopAtEntry": true,
+            "externalConsole": false,
+            "MIMode": "gdb"
+        }
+    ]
+}
