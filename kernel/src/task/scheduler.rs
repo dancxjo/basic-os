@@ -189,14 +189,16 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
             info!("Saving context for current task at {:p}", task);
 
             let context_size = core::mem::size_of::<FullContext>();
+            let dst = task.context_mut_ptr();
 
-            info!(
-                "Saving context at {:p} (size: {})",
-                task.context_mut_ptr(),
-                context_size
-            );
-            ptr::copy_nonoverlapping(current_rsp, task.context_mut_ptr(), context_size);
-            info!("Context saved for task, mode: {:?}", task.mode);
+            info!("Saving context at {:p} (size: {})", dst, context_size);
+
+            if current_rsp != dst {
+                ptr::copy_nonoverlapping(current_rsp, dst, context_size);
+                info!("Context saved for task, mode: {:?}", task.mode);
+            } else {
+                info!("Current task already running; context not copied");
+            }
         }
 
         info!("Gathering scheduler lock...");
