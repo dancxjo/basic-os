@@ -23,3 +23,4 @@
 ## Pull request guidelines
 - Summarize user visible changes in the PR description.
 - Mention whether `make` succeeded or failed in the testing section.
+- Organize your commits meaningfully, with excellent but succinct commit messages.
