@@ -306,8 +306,10 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
     let scancode: u8 = unsafe { data_port.read() };
 
     let head = KEYBOARD_HEAD.fetch_add(1, Ordering::Relaxed) % 256;
-    let mut buf = KEYBOARD_BUFFER.lock();
-    buf[head] = scancode;
+    {
+        let mut buf = KEYBOARD_BUFFER.lock();
+        buf[head] = scancode;
+    }
 
     // Process the scancode immediately since there is no dedicated
     // input thread yet. This keeps task switching via keyboard working.
