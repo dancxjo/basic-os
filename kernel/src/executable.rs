@@ -209,6 +209,11 @@ pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: Phys
     info!("  user_code_sel = {:#x}", user_code_sel.0);
     info!("  user_data_sel = {:#x}", user_data_sel.0);
 
+    // Dump the first few bytes at the entry point for debugging
+    let code_ptr = entry.as_u64() as *const u8;
+    let code_slice = core::slice::from_raw_parts(code_ptr, 16);
+    info!("Entry code bytes: {:02x?}", code_slice);
+
     // Set up stack frame for iretq
     unsafe {
         core::arch::asm!(
