@@ -68,3 +68,31 @@ tick_handler:
 
     hlt
     jmp .
+
+.global yield_now
+.type yield_now, @function
+
+yield_now:
+    # Save registers like in tick_handler
+    pushq %rax
+    pushq %rbx
+    pushq %rcx
+    pushq %rdx
+    pushq %rbp
+    pushq %rdi
+    pushq %rsi
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+
+    andq $~0xF, %rsp
+    movq %rsp, %rdi
+    call rust_schedule_and_switch
+
+    hlt
+    jmp .
