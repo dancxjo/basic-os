@@ -106,6 +106,18 @@ impl System {
                 &mut frame_allocator,
             );
             sched.spawn(
+                third_thread,
+                TaskMode::Kernel,
+                &mut mapper,
+                &mut frame_allocator,
+            );
+            sched.spawn(
+                fourth_thread,
+                TaskMode::Kernel,
+                &mut mapper,
+                &mut frame_allocator,
+            );
+            sched.spawn(
                 start_user_task,
                 TaskMode::Kernel,
                 &mut mapper,
@@ -161,6 +173,26 @@ pub extern "C" fn hello_thread() {
 pub extern "C" fn second_thread() {
     loop {
         crate::println!("Greetings from task two");
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn third_thread() {
+    loop {
+        crate::println!("Tercero");
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn fourth_thread() {
+    loop {
+        crate::println!("Quarto");
         for _ in 0..1_000_000 {
             core::hint::spin_loop();
         }
