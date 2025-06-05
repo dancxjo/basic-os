@@ -98,6 +98,12 @@ impl System {
                 &mut frame_allocator,
             );
             sched.spawn(
+                second_thread,
+                TaskMode::Kernel,
+                &mut mapper,
+                &mut frame_allocator,
+            );
+            sched.spawn(
                 start_user_task,
                 TaskMode::Kernel,
                 &mut mapper,
@@ -146,6 +152,16 @@ pub extern "C" fn task_entry_trampoline() {
 pub extern "C" fn hello_thread() {
     loop {
         crate::println!("Hello from kernel task");
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn second_thread() {
+    loop {
+        crate::println!("Greetings from task two");
         for _ in 0..1_000_000 {
             core::hint::spin_loop();
         }
