@@ -1,7 +1,10 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::serial_print;
-use crate::system::SYSTEM;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+
+unsafe extern "C" {
+    fn yield_now();
+}
 
 pub static SELECTED_SCREEN: AtomicUsize = AtomicUsize::new(1); // default to Screen 1
 
@@ -214,6 +217,15 @@ fn scancode_to_screen(scancode: u8) -> Option<usize> {
     }
 }
 
+fn scancode_to_task(scancode: u8) -> Option<usize> {
+    match scancode {
+        0x3B..=0x44 => Some((scancode - 0x3B) as usize),
+        0x57 => Some(10),
+        0x58 => Some(11),
+        _ => None,
+    }
+}
+
 pub fn process_scancode(scancode: u8) {
     if PREFIX.load(Ordering::Relaxed) == 0xE0 {
         PREFIX.store(0, Ordering::Relaxed);
@@ -250,11 +262,15 @@ pub fn process_scancode(scancode: u8) {
         0x1C => log::info!("Enter key pressed"),
         0x39 => log::info!("Space key pressed"),
         0x3A => log::info!("Caps Lock key pressed"),
+        0x46 => unsafe { yield_now() },
         0x3B..=0x44 | 0x57 | 0x58 => {
-            if let Some(screen) = scancode_to_screen(scancode) {
-                SELECTED_SCREEN.store(screen, Ordering::Relaxed);
-                log::info!("Switched to screen {}", screen);
-                if SYSTEM.lock().as_mut().is_some() {}
+            if let Some(task) = scancode_to_task(scancode) {
+                let mut sched = crate::task::scheduler::SCHEDULER.lock();
+                if task < sched.tasks.len() {
+                    sched.current = (task + sched.tasks.len() - 1) % sched.tasks.len();
+                    drop(sched);
+                    unsafe { yield_now() };
+                }
             }
         }
         code if code < 0x80 => {
