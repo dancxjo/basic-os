@@ -170,27 +170,43 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
-    serial_print!("'");
-    trace!("Scheduling and switching tasks...");
+    serial_print!("S");
+    info!("Scheduling and switching tasks...");
 
     unsafe {
         if !CURRENT_TASK.is_null() {
             let task = &mut *CURRENT_TASK;
+            info!("Saving context for current task at {:p}", task);
+
             let context_size = core::mem::size_of::<FullContext>();
 
+            info!(
+                "Saving context at {:p} (size: {})",
+                task.context_mut_ptr(),
+                context_size
+            );
             ptr::copy_nonoverlapping(current_rsp, task.context_mut_ptr(), context_size);
+            info!("Context saved for task, mode: {:?}", task.mode);
         }
 
+        info!("Gathering scheduler lock...");
         let mut scheduler = SCHEDULER.lock();
+        info!("Gathered scheduler lock");
         let now = (scheduler.now_fn)();
+        info!("Current time: {}", now);
         let next = scheduler.next_ready_task(now).map(|t| t as *mut Task);
+        info!("Next task: {:?}", next);
         let current = CURRENT_TASK;
         drop(scheduler);
-
+        info!(
+            "Current task: {:p}, next task: {:?}",
+            current,
+            next.map(|t| t as *const Task)
+        );
         match next {
             Some(task_ptr) => {
                 CURRENT_TASK = task_ptr;
-                log::trace!(
+                log::info!(
                     "Switching to task at {:p}, ctx = {:p}",
                     task_ptr,
                     (*task_ptr).context_ptr()
