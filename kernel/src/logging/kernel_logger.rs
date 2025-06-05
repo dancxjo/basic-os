@@ -2,7 +2,7 @@ use heapless::{String, spsc::Queue};
 use log::{Metadata, Record};
 use spin::Mutex;
 
-use crate::{log_entry::LogEntry, serial_println};
+use crate::{logging::log_entry::LogEntry, serial_println};
 
 pub struct KernelLogger {
     buffer: Mutex<Queue<LogEntry, 64>>,

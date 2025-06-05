@@ -1,4 +1,4 @@
-use crate::framebuffer::Framebuffer;
+use crate::drivers::framebuffer::Framebuffer;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::{Point, Primitive, RgbColor};
 use embedded_graphics::primitives::{Polyline, PrimitiveStyle};

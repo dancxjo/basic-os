@@ -1,8 +1,5 @@
 use crate::{
-    allocator::BootFrameAllocator,
-    interrupts::end_of_interrupt,
-    serial_print,
-    serial_println,
+    arch::x86_64::interrupts::end_of_interrupt, mm::allocator::BootFrameAllocator, serial_print,
 };
 use alloc::vec::Vec;
 use core::ptr;
@@ -10,7 +7,7 @@ use log::{error, info, trace};
 use spin::Mutex;
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
-use crate::task_context::{prepare_context, FullContext, TaskMode};
+use crate::task::context::{FullContext, TaskMode, prepare_context};
 
 #[repr(C)]
 #[derive(Debug)]

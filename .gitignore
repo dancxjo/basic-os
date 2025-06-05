@@ -11,5 +11,4 @@
 
 # Tool-generated files
 kernel/target/CACHEDIR.TAG
-thing_macros/target/.rustc_info.json
 

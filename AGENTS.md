@@ -22,7 +22,7 @@
 - The kernel crate is a binary. Its entry point is `kernel/src/main.rs` which
   exposes the `kmain` function. There is no `lib.rs` in this crate.
 - Run `cargo` commands inside the individual crate directories such as
-  `kernel/`, `hello_from/` or `thing_macros/`. The top-level `make` command
+  `kernel/` or `hello_from/`. The top-level `make` command
   orchestrates building all crates and creating the bootable image.
 
 ## Pull request guidelines

@@ -1,4 +1,4 @@
-use crate::interrupts::end_of_interrupt;
+use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::serial_print;
 use crate::system::SYSTEM;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
