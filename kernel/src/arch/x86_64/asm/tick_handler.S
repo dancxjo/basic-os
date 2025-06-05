@@ -54,11 +54,11 @@ tick_handler:
     movw $0x3F8, %dx
     outb %al, %dx
 
-    // Align RSP to 16 bytes
-    andq $~0xF, %rsp
-
-    // Pass rsp to Rust scheduler
+    // Pass pointer to saved registers
     movq %rsp, %rdi
+
+    // Align RSP to 16 bytes for the call
+    andq $~0xF, %rsp
     call rust_schedule_and_switch
 
     // Should never return
@@ -90,8 +90,8 @@ yield_now:
     pushq %r14
     pushq %r15
 
-    andq $~0xF, %rsp
     movq %rsp, %rdi
+    andq $~0xF, %rsp
     call rust_schedule_and_switch
 
     hlt
