@@ -2,11 +2,12 @@ use core::fmt::{self, Display, Formatter};
 
 use log::info;
 use serde::Serialize;
+use spin::Mutex as SpinMutex;
 use x86_64::instructions::port::Port;
 
-pub static mut CLOCK: Option<&'static Clock> = None;
+pub static mut CLOCK: Option<&'static SpinMutex<Clock>> = None;
 
-pub fn set_global_clock(clock: &'static Clock) {
+pub fn set_global_clock(clock: &'static SpinMutex<Clock>) {
     unsafe {
         CLOCK = Some(clock);
     }
@@ -14,7 +15,12 @@ pub fn set_global_clock(clock: &'static Clock) {
 
 pub fn ticks_since_boot() -> u64 {
     // return 10; // Placeholder for testing purposes
-    unsafe { CLOCK.expect("Global clock not set").ticks_since_boot() }
+    unsafe {
+        CLOCK
+            .expect("Global clock not set")
+            .lock()
+            .ticks_since_boot()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
