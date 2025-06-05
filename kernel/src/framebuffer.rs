@@ -1,8 +1,3 @@
-use core::convert::Infallible;
-use embedded_graphics::{
-    pixelcolor::{Rgb565, RgbColor},
-    prelude::*,
-};
 use limine::request::FramebufferRequest;
 
 const MAX_WIDTH: usize = 3840;

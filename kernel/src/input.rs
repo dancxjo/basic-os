@@ -1,6 +1,6 @@
+use crate::interrupts::end_of_interrupt;
+use crate::serial_print;
 use crate::system::SYSTEM;
-use crate::{interrupts::end_of_interrupt, serial};
-use crate::{serial_print, serial_println};
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 pub static SELECTED_SCREEN: AtomicUsize = AtomicUsize::new(1); // default to Screen 1
@@ -254,7 +254,7 @@ pub fn process_scancode(scancode: u8) {
             if let Some(screen) = scancode_to_screen(scancode) {
                 SELECTED_SCREEN.store(screen, Ordering::Relaxed);
                 log::info!("Switched to screen {}", screen);
-                if let Some(system) = SYSTEM.lock().as_mut() {}
+                if SYSTEM.lock().as_mut().is_some() {}
             }
         }
         code if code < 0x80 => {

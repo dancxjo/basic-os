@@ -1,4 +1,3 @@
-use alloc::collections::btree_set::BTreeSet;
 use core::mem::MaybeUninit;
 use core::ops::Range;
 use linked_list_allocator::LockedHeap;
@@ -41,7 +40,7 @@ unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
     let (frame, _) = Cr3::read();
     let phys = frame.start_address();
     let virt = offset + phys.as_u64();
-    &mut *(virt.as_mut_ptr())
+    unsafe { &mut *(virt.as_mut_ptr()) }
 }
 
 /// Boot frame allocator
