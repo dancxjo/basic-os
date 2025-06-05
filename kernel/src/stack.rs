@@ -11,8 +11,8 @@ pub struct KernelStack([u8; 4096 * 5]);
 
 pub static mut KERNEL_STACK: KernelStack = KernelStack([0; 4096 * 5]);
 
-const KERNEL_STACK_VIRT_BASE: u64 = 0xffff_8800_0000_0000;
-const KERNEL_STACK_PAGES: usize = 5;
+pub const KERNEL_STACK_VIRT_BASE: u64 = 0xffff_8800_0000_0000;
+pub const KERNEL_STACK_PAGES: usize = 5;
 
 pub static mut KERNEL_STACK_TOP: VirtAddr = VirtAddr::zero();
 /// Allocate and map a kernel stack at a fresh virtual address

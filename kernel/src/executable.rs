@@ -1,5 +1,6 @@
 use crate::memory::{kernel_base, kernel_end};
 use crate::mirror_region::mirror_kernel_region;
+use crate::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
@@ -44,6 +45,13 @@ pub fn create_user_page_table(
         &mut offset_page_table,
         frame_allocator,
         (kernel_base()..kernel_end()).into(),
+    );
+    mirror_kernel_region(
+        &mut offset_page_table,
+        frame_allocator,
+        (VirtAddr::new(KERNEL_STACK_VIRT_BASE)
+            ..VirtAddr::new(KERNEL_STACK_VIRT_BASE + (KERNEL_STACK_PAGES as u64 * 4096)))
+            .into(),
     );
     (l4_table, offset_page_table)
 }
