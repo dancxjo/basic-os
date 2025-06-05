@@ -16,5 +16,6 @@ fn main() {
     // Compile syscall_entry.S using cc
     Build::new()
         .file("src/syscall_entry.S")
-        .compile("syscall_entry");
+        .file("src/restore_context.S")
+        .compile("asm_routines");
 }

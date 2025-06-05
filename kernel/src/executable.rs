@@ -1,6 +1,7 @@
 use crate::memory::{kernel_base, kernel_end};
 use crate::mirror_region::mirror_kernel_region;
 use crate::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
+use crate::task_context::{FullContext, TaskMode, prepare_context};
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
@@ -171,55 +172,22 @@ pub fn load_elf<'a>(
     })
 }
 
-pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: PhysFrame) -> ! {
+pub unsafe fn jump_to_context(ctx: &FullContext, new_table: PhysFrame) -> ! {
     info!(
-        "Jumping to user mode with entry: {:#x}, stack_top: {:#x}",
-        entry.as_u64(),
-        stack_top.as_u64()
-    );
-
-    // Switch to the new address space
-    unsafe { Cr3::write(new_table, Cr3::read().1) };
-    info!(
-        "Switched to new address space: {:#x}",
+        "Jumping to task with new page table {:#x}",
         new_table.start_address().as_u64()
     );
-    use crate::gdt::SELECTORS;
-    #[allow(static_mut_refs)]
-    let selectors = unsafe { SELECTORS.as_ref().unwrap() };
-    let user_data_sel = selectors.user_data;
-    let user_code_sel = selectors.user_code;
-
-    info!("About to enter user mode:");
-    info!("  entry     = {:#x}", entry.as_u64());
-    info!("  stack_top = {:#x}", stack_top.as_u64());
-    info!("  user_code_sel = {:#x}", user_code_sel.0);
-    info!("  user_data_sel = {:#x}", user_data_sel.0);
-
-    // Dump the first few bytes at the entry point for debugging
-    let code_ptr = entry.as_u64() as *const u8;
-    let code_slice = core::slice::from_raw_parts(code_ptr, 16);
-    info!("Entry code bytes: {:02x?}", code_slice);
-
-    // Set up stack frame for iretq
     unsafe {
-        core::arch::asm!(
-            "cli", // Disable interrupts
-
-            // Push fake stack frame expected by iretq
-            "push {user_data}",   // SS
-            "push {stack}",       // RSP
-            "pushf",              // RFLAGS
-            "push {user_code}",   // CS
-            "push {entry}",       // RIP
-            "iretq",
-
-            user_data = in(reg) u64::from(user_data_sel.0),
-            stack     = in(reg) stack_top.as_u64(),
-            user_code = in(reg) u64::from(user_code_sel.0),
-            entry     = in(reg) entry.as_u64(),
-
-            options(noreturn)
-        );
+        Cr3::write(new_table, Cr3::read().1);
     }
+    unsafe extern "C" {
+        fn restore_context(saved: *const u8) -> !;
+    }
+    unsafe { restore_context(ctx as *const _ as *const u8) };
+}
+
+pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: PhysFrame) -> ! {
+    let entry_fn: extern "C" fn() = unsafe { core::mem::transmute(entry.as_u64()) };
+    let ctx = prepare_context(entry_fn, stack_top.as_u64(), TaskMode::User);
+    unsafe { jump_to_context(&ctx, new_table) };
 }

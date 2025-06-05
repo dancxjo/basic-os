@@ -31,6 +31,7 @@ mod serial;
 mod stack;
 mod syscall;
 mod system;
+mod task_context;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
