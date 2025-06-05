@@ -144,20 +144,30 @@ impl Scheduler {
         None
     }
 
-    pub fn start_first(&self) -> ! {
-        unsafe extern "C" {
-            fn restore_context(saved: *const u8) -> !;
-        }
-
-        info!("Starting first task");
+    pub fn first_task_context(&self) -> *const u8 {
         if let Some(task) = self.tasks[0].as_ref() {
-            unsafe { CURRENT_TASK = self.tasks[0].as_ref().unwrap() as *const Task as *mut Task };
+            unsafe {
+                CURRENT_TASK = self.tasks[0].as_ref().unwrap() as *const Task as *mut Task;
+            }
             serial_print!("]");
-            unsafe { restore_context(task.context_ptr()) };
+            task.context_ptr()
         } else {
             panic!("No task in slot 0 to start");
         }
     }
+}
+
+pub fn start_first() -> ! {
+    unsafe extern "C" {
+        fn restore_context(saved: *const u8) -> !;
+    }
+
+    info!("Starting first task");
+    let ctx = {
+        let scheduler = SCHEDULER.lock();
+        scheduler.first_task_context()
+    };
+    unsafe { restore_context(ctx) }
 }
 
 pub static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new(crate::clock::ticks_since_boot));
