@@ -123,7 +123,7 @@ impl System {
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
         info!("System initialized. Entering main loop...");
-        SCHEDULER.lock().start_first();
+        crate::task::scheduler::start_first();
     }
 }
 
