@@ -72,7 +72,7 @@ impl Mouse {
         (self.x, self.y)
     }
 
-    pub fn draw(&self, framebuffer: &mut Framebuffer) {
+    pub fn draw(&self, _framebuffer: &mut Framebuffer) {
         let origin = Point::new(self.x as i32, self.y as i32);
 
         // Shrunk shape (scaled by ~0.4x from the original)
@@ -88,7 +88,7 @@ impl Mouse {
         ]
         .map(|p| p + origin);
 
-        let arrow =
+        let _arrow =
             Polyline::new(&points).into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 2));
 
         // let _ = arrow.draw(framebuffer);

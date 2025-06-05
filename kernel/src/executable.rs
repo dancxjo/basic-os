@@ -8,8 +8,7 @@ use x86_64::{
     VirtAddr,
     registers::control::Cr3,
     structures::paging::{
-        FrameAllocator, MappedPageTable, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB,
+        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
     },
 };
 

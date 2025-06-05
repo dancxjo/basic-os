@@ -59,7 +59,7 @@ pub fn init_syscall() {
         // kernel_ss is typically kernel_cs + 8, user_ss is typically user_cs + 8
         let kernel_ss = kernel_cs + 8;
         let user_ss = user_cs + 8;
-        Star::write(
+        let _ = Star::write(
             x86_64::structures::gdt::SegmentSelector(kernel_cs),
             x86_64::structures::gdt::SegmentSelector(kernel_ss),
             x86_64::structures::gdt::SegmentSelector(user_cs),

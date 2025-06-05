@@ -1,20 +1,17 @@
-use core::cell::RefCell;
-use core::sync::atomic::Ordering;
 use log::info;
 use spin::mutex::Mutex;
 use x86_64::instructions::{hlt, interrupts};
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
-use crate::allocator::{self, BootFrameAllocator, init_heap, init_paging};
+use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::bootloader::{get_hhdm_offset, get_module};
-use crate::clock::{CLOCK, Clock, HPET, RTC};
+use crate::clock::{Clock, HPET, RTC};
 use crate::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::framebuffer::Framebuffer;
 use crate::gdt::init_gdt;
 use crate::graph::{Graph, bootstrap_graph};
 use crate::idt::init_idt;
 use crate::interrupts::init_interrupts;
-use crate::mouse::Mouse;
 use crate::stack::init_kernel_stack;
 use crate::{bootstrap_step, ps2};
 use alloc::sync::Arc;
@@ -73,25 +70,25 @@ impl System {
             init_interrupts();
         });
 
-        let graph = bootstrap_step!("graph", { Arc::new(SpinMutex::new(bootstrap_graph())) });
+        let _graph = bootstrap_step!("graph", { Arc::new(SpinMutex::new(bootstrap_graph())) });
 
-        let framebuffer = bootstrap_step!("framebuffer", {
+        let _framebuffer_init = bootstrap_step!("framebuffer", {
             Arc::new(SpinMutex::new(
                 Framebuffer::new().expect("Framebuffer not available"),
             ))
         });
 
-        let mouse = bootstrap_step!("PS/2 devices", {
+        let _mouse = bootstrap_step!("PS/2 devices", {
             ps2::enable_ps2_devices();
         });
 
-        let framebuffer = Arc::new(Mutex::new(
+        let _framebuffer = Arc::new(Mutex::new(
             Framebuffer::new().expect("Framebuffer not available"),
         ));
 
         let hpet = HPET::new(0xFED00000);
         let rtc = RTC::new();
-        let clock = Arc::new(SpinMutex::new(Clock::new(hpet, rtc)));
+        let _clock = Arc::new(SpinMutex::new(Clock::new(hpet, rtc)));
         info!("ThingOS initialized.");
 
         bootstrap_step!("executable", {
@@ -101,7 +98,7 @@ impl System {
             let loaded = load_elf(module, new_l4, &mut new_mapper, frame_allocator)
                 .expect("Failed to load ELF");
 
-            let (frame, _) = Cr3::read(); // get current context
+            let _ = Cr3::read(); // get current context
             let new_table_frame = PhysFrame::containing_address(PhysAddr::new(
                 new_l4 as *const _ as u64 - get_hhdm_offset().as_u64(),
             ));
@@ -112,9 +109,9 @@ impl System {
         });
 
         Self {
-            framebuffer,
-            clock,
-            graph,
+            framebuffer: _framebuffer,
+            clock: _clock,
+            graph: _graph,
             keyboard_index: 0,
             mouse_index: 0,
             // scheduler,

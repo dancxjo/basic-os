@@ -5,7 +5,7 @@ use crate::{
     interrupts::{end_of_interrupt, init_io_apic_irq},
 };
 use core::sync::atomic::{AtomicU64, Ordering};
-use log::{error, info};
+use log::error;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
@@ -68,7 +68,7 @@ extern "x86-interrupt" fn general_protection_fault_handler(
 static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    let ticks = TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+    TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 
     // if ticks % (100_000 / 60) == 0 {
     //     // log::info!("Tick count: {}", ticks);

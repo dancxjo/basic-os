@@ -16,10 +16,10 @@ unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
 }
 
 const SYSCALL_WRITE_PORT: u64 = 0x01;
-const SYSCALL_READ_PORT: u64 = 0x02;
+const _SYSCALL_READ_PORT: u64 = 0x02;
 
 const PORT_CONSOLE_OUT: u64 = 1;
-const PORT_CONSOLE_IN: u64 = 2;
+const _PORT_CONSOLE_IN: u64 = 2;
 
 pub fn putchar(c: u8) {
     unsafe {
@@ -27,8 +27,8 @@ pub fn putchar(c: u8) {
     }
 }
 
-pub fn getchar() -> u8 {
-    unsafe { syscall(SYSCALL_READ_PORT, PORT_CONSOLE_IN, 0, 0) as u8 }
+pub fn _getchar() -> u8 {
+    unsafe { syscall(_SYSCALL_READ_PORT, _PORT_CONSOLE_IN, 0, 0) as u8 }
 }
 
 pub struct Console;

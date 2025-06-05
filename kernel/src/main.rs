@@ -4,7 +4,7 @@
 #![feature(new_range_api)]
 
 use kernel_logger::init_logger;
-use system::{System, init_and_run_system};
+use system::init_and_run_system;
 
 extern crate alloc;
 
