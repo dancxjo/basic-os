@@ -25,7 +25,7 @@ fn write_port(port: u64, data: u64, _flags: u64) -> u64 {
 fn read_port(port: u64) -> u64 {
     match port {
         2 => {
-            if let Some(byte) = crate::input::pop_input() {
+            if let Some(byte) = crate::drivers::keyboard::pop_input() {
                 byte as u64
             } else {
                 !0 // No data available

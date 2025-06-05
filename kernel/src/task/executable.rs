@@ -1,7 +1,7 @@
-use crate::memory::{kernel_base, kernel_end};
-use crate::mirror_region::mirror_kernel_region;
-use crate::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
-use crate::task_context::{FullContext, TaskMode, prepare_context};
+use crate::arch::x86_64::memory::{kernel_base, kernel_end};
+use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
+use crate::mm::mirror_region::mirror_kernel_region;
+use crate::task::context::{FullContext, TaskMode, prepare_context};
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{

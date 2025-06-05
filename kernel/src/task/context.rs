@@ -1,3 +1,4 @@
+#[derive(Debug, Clone, Copy)]
 pub enum TaskMode {
     Kernel,
     User,
@@ -41,7 +42,9 @@ pub struct FullContext {
 }
 
 pub fn prepare_context(entry: extern "C" fn(), stack_top: u64, mode: TaskMode) -> FullContext {
-    use crate::gdt::{KERNEL_CODE_SEG, KERNEL_DATA_SEG, USER_CODE_SEG, USER_DATA_SEG};
+    use crate::arch::x86_64::gdt::{
+        KERNEL_CODE_SEG, KERNEL_DATA_SEG, USER_CODE_SEG, USER_DATA_SEG,
+    };
     let (cs, ss) = match mode {
         TaskMode::Kernel => (KERNEL_CODE_SEG as u64, KERNEL_DATA_SEG as u64),
         TaskMode::User => ((USER_CODE_SEG | 0x3) as u64, (USER_DATA_SEG | 0x3) as u64),

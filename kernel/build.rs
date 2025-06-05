@@ -15,7 +15,8 @@ fn main() {
 
     // Compile syscall_entry.S using cc
     Build::new()
-        .file("src/syscall_entry.S")
-        .file("src/restore_context.S")
+        .file("src/arch/x86_64/asm/syscall_entry.S")
+        .file("src/arch/x86_64/asm/restore_context.S")
+        .file("src/arch/x86_64/asm/tick_handler.S")
         .compile("asm_routines");
 }

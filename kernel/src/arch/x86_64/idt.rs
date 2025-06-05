@@ -1,8 +1,8 @@
 #![allow(static_mut_refs)]
 
 use crate::{
-    input::{keyboard_interrupt_handler, mouse_interrupt_handler},
-    interrupts::{end_of_interrupt, init_io_apic_irq},
+    arch::x86_64::interrupts::{end_of_interrupt, init_io_apic_irq},
+    drivers::keyboard::{keyboard_interrupt_handler, mouse_interrupt_handler},
 };
 use core::sync::atomic::{AtomicU64, Ordering};
 use log::error;

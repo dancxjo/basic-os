@@ -3,7 +3,7 @@ use x86_64::{
     structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags},
 };
 
-use crate::allocator::BootFrameAllocator;
+use crate::mm::allocator::BootFrameAllocator;
 
 /// A 20 KB stack (5 pages)
 #[repr(C, align(16))]

@@ -3,35 +3,19 @@
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
 
-use kernel_logger::init_logger;
+use logging::kernel_logger::init_logger;
 use system::init_and_run_system;
 
 extern crate alloc;
 
-mod allocator;
+mod arch;
 mod bootloader;
-mod canon;
 mod clock;
-mod executable;
-mod framebuffer;
-mod gdt;
-mod graph;
-mod idt;
-mod input;
-mod interrupts;
-mod kernel_logger;
-mod log_entry;
-mod memory;
-mod mirror_region;
-mod mouse;
-mod panic;
-mod pic;
-mod ps2;
-mod serial;
-mod stack;
-mod syscall;
+mod drivers;
+mod logging;
+mod mm;
 mod system;
-mod task_context;
+mod task;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {

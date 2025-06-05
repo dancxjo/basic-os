@@ -3,17 +3,17 @@ use spin::mutex::Mutex;
 use x86_64::instructions::{hlt, interrupts};
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
-use crate::allocator::{BootFrameAllocator, init_heap, init_paging};
+use crate::arch::x86_64::gdt::init_gdt;
+use crate::arch::x86_64::idt::init_idt;
+use crate::arch::x86_64::interrupts::init_interrupts;
+use crate::arch::x86_64::ps2;
+use crate::arch::x86_64::stack::init_kernel_stack;
 use crate::bootloader::{get_hhdm_offset, get_module};
+use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
-use crate::executable::{create_user_page_table, jump_to_user, load_elf};
-use crate::framebuffer::Framebuffer;
-use crate::gdt::init_gdt;
-use crate::graph::{Graph, bootstrap_graph};
-use crate::idt::init_idt;
-use crate::interrupts::init_interrupts;
-use crate::stack::init_kernel_stack;
-use crate::{bootstrap_step, ps2};
+use crate::drivers::framebuffer::Framebuffer;
+use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
+use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use alloc::sync::Arc;
 use spin::Mutex as SpinMutex;
 use x86_64::PhysAddr;
@@ -29,7 +29,6 @@ pub(crate) static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 pub struct System {
     framebuffer: Arc<SpinMutex<Framebuffer>>,
     clock: Arc<SpinMutex<Clock>>,
-    graph: Arc<SpinMutex<Graph>>,
     keyboard_index: usize,
     mouse_index: usize,
     // scheduler: Arc<SpinMutex<crate::scheduler::Scheduler>>,
@@ -59,7 +58,7 @@ impl System {
         });
 
         bootstrap_step!("syscalls", {
-            crate::syscall::init_syscall();
+            crate::arch::x86_64::syscall::init_syscall();
         });
 
         bootstrap_step!("IDT", {
@@ -69,8 +68,6 @@ impl System {
         bootstrap_step!("interrupts", {
             init_interrupts();
         });
-
-        let _graph = bootstrap_step!("graph", { Arc::new(SpinMutex::new(bootstrap_graph())) });
 
         let _framebuffer_init = bootstrap_step!("framebuffer", {
             Arc::new(SpinMutex::new(
@@ -111,7 +108,6 @@ impl System {
         Self {
             framebuffer: _framebuffer,
             clock: _clock,
-            graph: _graph,
             keyboard_index: 0,
             mouse_index: 0,
             // scheduler,

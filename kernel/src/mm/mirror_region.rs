@@ -19,7 +19,7 @@ pub fn mirror_kernel_region(
         // Translate from current active mapper
         #[allow(static_mut_refs)]
         if let Ok(frame) =
-            unsafe { crate::allocator::MAPPER.assume_init_mut() }.translate_page(page)
+            unsafe { crate::mm::allocator::MAPPER.assume_init_mut() }.translate_page(page)
         {
             unsafe {
                 mapper
