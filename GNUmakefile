@@ -253,7 +253,7 @@ endif
 clean:
 	$(MAKE) -C kernel clean
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
-	rm -rf limine hello_from/target hello_from/bin-$(KARCH) ovmf
+	rm -rf limine hello_from/target hello_from.bin ovmf
 
 .PHONY: distclean
 distclean: clean
