@@ -47,31 +47,7 @@ restore_context:
     movb $'$', %al
     call print_al
 
-    # Load saved RSP from context_ptr (first 8 bytes)
-    movq (%rdi), %rsi     # rsi = *(context_ptr) = intended rsp
-
-    # Log it
-    movb $'R', %al
-    call print_al
-    movb $':', %al
-    call print_al
-    call print_qword
-    movb $'\n', %al
-    call print_al
-
-    # Optionally validate RSP canonicality
-    movq %rsi, %rax
-    shr $48, %rax
-    cmp $0xFFFF, %rax
-    je .ok_rsp
-    cmp $0x0000, %rax
-    je .ok_rsp
-    movb $'!', %al        # bad RSP
-    call print_al
-    jmp .halt
-
-.ok_rsp:
-    # Load stack pointer
+    # Set stack pointer to saved context
     movq %rdi, %rsp       # rdi points to context buffer
 
     # Restore general-purpose registers from context
