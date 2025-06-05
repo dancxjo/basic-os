@@ -141,10 +141,7 @@ pub fn load_elf<'a>(
             let offset = (vaddr.as_u64() & 0xfff) as usize;
             info!(
                 "Copying segment: dst={:#x}, offset_in_page={:#x}, file_size={}, mem_size={}",
-                dst_ptr as u64,
-                offset,
-                file_size,
-                mem_size
+                dst_ptr as u64, offset, file_size, mem_size
             );
             unsafe {
                 core::ptr::copy_nonoverlapping(src.as_ptr(), dst_ptr.add(offset), file_size);
