@@ -1,5 +1,8 @@
 use crate::{
-    allocator::BootFrameAllocator, interrupts::end_of_interrupt, serial_print, serial_println,
+    allocator::BootFrameAllocator,
+    interrupts::end_of_interrupt,
+    serial_print,
+    serial_println,
 };
 use alloc::vec::Vec;
 use core::ptr;
@@ -7,42 +10,7 @@ use log::{error, info, trace};
 use spin::Mutex;
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct IretFrame {
-    pub rip: u64,
-    pub cs: u64,
-    pub rflags: u64,
-    pub rsp: u64,
-    pub ss: u64,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct GeneralRegisters {
-    pub r15: u64,
-    pub r14: u64,
-    pub r13: u64,
-    pub r12: u64,
-    pub r11: u64,
-    pub r10: u64,
-    pub r9: u64,
-    pub r8: u64,
-    pub rsi: u64,
-    pub rdi: u64,
-    pub rbp: u64,
-    pub rdx: u64,
-    pub rcx: u64,
-    pub rbx: u64,
-    pub rax: u64,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct FullContext {
-    pub regs: GeneralRegisters,
-    pub frame: IretFrame,
-}
+use crate::task_context::{prepare_context, FullContext, TaskMode};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -51,29 +19,23 @@ pub struct Task {
     pub stack_top: u64,
     pub context: FullContext,
     pub initialized: bool,
+    pub mode: TaskMode,
 }
 
 impl Task {
     pub fn new(
         entry: extern "C" fn(),
         index: usize,
+        mode: TaskMode,
         mapper: &mut OffsetPageTable,
         frame_allocator: &mut BootFrameAllocator,
     ) -> Self {
         let mut task = Self {
             entry_point: entry,
             stack_top: 0,
-            context: FullContext {
-                regs: unsafe { core::mem::zeroed() },
-                frame: IretFrame {
-                    rip: 0,
-                    cs: 0,
-                    rflags: 0,
-                    rsp: 0,
-                    ss: 0,
-                },
-            },
+            context: unsafe { core::mem::zeroed() },
             initialized: false,
+            mode,
         };
 
         task.allocate_stack_if_needed(mapper, frame_allocator, index);
@@ -83,24 +45,7 @@ impl Task {
 
     pub fn prepare_if_needed(&mut self) {
         if !self.initialized {
-            /*
-            self.context.frame = IretFrame {
-                rip: self.entry_point as u64,
-                cs: 0x08,
-                rflags: 0x202,
-                rsp: self.stack_top,
-                ss: 0x10,
-            };*/
-            use crate::gdt::{USER_CODE_SEG, USER_DATA_SEG};
-
-            self.context.frame = IretFrame {
-                rip: self.entry_point as u64,
-                cs: USER_CODE_SEG as u64 | 0x3, // Ring 3
-                rflags: 0x202,
-                rsp: self.stack_top,
-                ss: USER_DATA_SEG as u64 | 0x3, // Ring 3
-            };
-
+            self.context = prepare_context(self.entry_point, self.stack_top, self.mode);
             self.initialized = true;
         }
         info!("Task initialized");
@@ -180,10 +125,11 @@ impl Scheduler {
     pub fn spawn(
         &mut self,
         entry: extern "C" fn(),
+        mode: TaskMode,
         mapper: &mut OffsetPageTable,
         frame_allocator: &mut BootFrameAllocator,
     ) {
-        let task = Task::new(entry, self.tasks.len(), mapper, frame_allocator);
+        let task = Task::new(entry, self.tasks.len(), mode, mapper, frame_allocator);
         info!("Task {} spawned", self.tasks.len());
         self.tasks.push(Some(task));
     }

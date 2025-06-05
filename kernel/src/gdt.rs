@@ -22,6 +22,11 @@ pub struct Selectors {
 
 pub static mut SELECTORS: Option<Selectors> = None;
 
+pub const KERNEL_CODE_SEG: u16 = 0x08;
+pub const KERNEL_DATA_SEG: u16 = 0x10;
+pub const USER_DATA_SEG: u16 = 0x20;
+pub const USER_CODE_SEG: u16 = 0x28;
+
 pub fn init_gdt() {
     unsafe {
         // --- Create TSS ---
