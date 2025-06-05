@@ -1,6 +1,6 @@
 use log::info;
 use spin::mutex::Mutex;
-use x86_64::instructions::{hlt, interrupts};
+use x86_64::instructions::hlt;
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
 use crate::arch::x86_64::gdt::init_gdt;
@@ -13,11 +13,12 @@ use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::Framebuffer;
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
+use crate::task::context::TaskMode;
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
+use crate::task::scheduler::SCHEDULER;
 use alloc::sync::Arc;
 use spin::Mutex as SpinMutex;
 use x86_64::PhysAddr;
-use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::PhysFrame;
 use x86_64::{
     VirtAddr,
@@ -89,20 +90,19 @@ impl System {
         info!("ThingOS initialized.");
 
         bootstrap_step!("executable", {
-            let module = get_module("boot/hello_from").expect("Module 'boot/hello_from' not found");
-            let (new_l4, mut new_mapper) =
-                create_user_page_table(frame_allocator, get_hhdm_offset());
-            let loaded = load_elf(module, new_l4, &mut new_mapper, frame_allocator)
-                .expect("Failed to load ELF");
-
-            let _ = Cr3::read(); // get current context
-            let new_table_frame = PhysFrame::containing_address(PhysAddr::new(
-                new_l4 as *const _ as u64 - get_hhdm_offset().as_u64(),
-            ));
-
-            unsafe {
-                jump_to_user(loaded.entry, loaded.stack_top, new_table_frame);
-            }
+            let mut sched = SCHEDULER.lock();
+            sched.spawn(
+                hello_thread,
+                TaskMode::Kernel,
+                &mut mapper,
+                &mut frame_allocator,
+            );
+            sched.spawn(
+                start_user_task,
+                TaskMode::Kernel,
+                &mut mapper,
+                &mut frame_allocator,
+            );
         });
 
         Self {
@@ -117,11 +117,7 @@ impl System {
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
         info!("System initialized. Entering main loop...");
-        interrupts::enable();
-        info!("Interrupts enabled.");
-        // let scheduler = SCHEDULER.lock();
-
-        // scheduler.start_first();
+        SCHEDULER.lock().start_first();
         loop {
             hlt();
         }
@@ -143,6 +139,31 @@ pub extern "C" fn task_entry_trampoline() {
             "call hello_thread",
             options(noreturn)
         );
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hello_thread() {
+    loop {
+        crate::println!("Hello from kernel task");
+        for _ in 0..1_000_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn start_user_task() {
+    let module = get_module("boot/hello_from").expect("Module 'boot/hello_from' not found");
+    let frame_allocator = BootFrameAllocator::global();
+    let (new_l4, mut new_mapper) = create_user_page_table(frame_allocator, get_hhdm_offset());
+    let loaded =
+        load_elf(module, new_l4, &mut new_mapper, frame_allocator).expect("Failed to load ELF");
+    let new_table_frame = PhysFrame::containing_address(PhysAddr::new(
+        new_l4 as *const _ as u64 - get_hhdm_offset().as_u64(),
+    ));
+    unsafe {
+        jump_to_user(loaded.entry, loaded.stack_top, new_table_frame);
     }
 }
 

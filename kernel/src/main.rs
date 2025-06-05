@@ -31,7 +31,7 @@ pub extern "C" fn _start() -> ! {
 #[macro_export]
 macro_rules! println {
     ($($arg:tt)*) => {
-        serial_println!($($arg)*);
+        $crate::serial_println!($($arg)*);
     };
 }
 
