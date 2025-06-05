@@ -25,13 +25,20 @@ make run
   - creates an HPET/RTC based `Clock`
   - loads the `hello_from` ELF binary as a user task
 
-  After these steps the kernel enables interrupts and halts waiting for events. A basic scheduler exists but is not yet used.
+  After these steps the kernel enables interrupts and starts a small
+  cooperative scheduler. Three example tasks are spawned at boot: two
+  kernel threads and the `hello_from` user program. Press `Scroll Lock`
+  or rely on timer ticks to yield execution. Function keys `F1`–`F12`
+  select which task runs next.
 
 - **hello\_from/** – minimal userland program that prints text using a syscall.
 
 ## Status
 
-This repository is in a very early stage. Persistence, multitasking and higher level services are not implemented yet. Development is focused on bringing up the core kernel.
+This repository is in a very early stage. Persistence and higher level
+services are not implemented yet. A simple cooperative multitasking
+system exists but remains experimental. Development is focused on
+bringing up the core kernel.
 ## License
 
 MIT
