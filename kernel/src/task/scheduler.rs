@@ -24,7 +24,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::ptr;
-use log::{error, info, trace};
+use log::{error, info};
 use spin::Mutex;
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
@@ -248,7 +248,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
 
                 end_of_interrupt(0);
                 serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
-                unsafe { restore_context((*task_ptr).context_ptr()) }
+                restore_context((*task_ptr).context_ptr())
             }
             None => {
                 serial_print!("!");
@@ -261,7 +261,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
                     rust_schedule_and_switch(current_rsp);
                 };
                 CURRENT_TASK = current;
-                unsafe { restore_context(ctx) }
+                restore_context(ctx)
             }
         }
     }

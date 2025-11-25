@@ -8,6 +8,15 @@ use x86_64::{
     },
 };
 
+const STACK_SIZE: usize = 4096 * 4;
+
+#[repr(C, align(16))]
+struct Stack([u8; STACK_SIZE]);
+
+static mut DOUBLE_FAULT_STACK: Stack = Stack([0; STACK_SIZE]);
+static mut TIMER_STACK: Stack = Stack([0; STACK_SIZE]);
+static mut PRIVILEGE_STACK: Stack = Stack([0; STACK_SIZE]);
+
 // Place for the TSS and GDT
 static mut GDT: Option<GlobalDescriptorTable> = None;
 static mut TSS: Option<TaskStateSegment> = None;
@@ -34,12 +43,19 @@ pub fn init_gdt() {
         #[allow(static_mut_refs)]
         let tss = TSS.as_mut().unwrap();
 
-        // Set up stack pointers for exceptions and privilege level transitions
-        let ist_base = 0x4444_7000_0000u64;
-        tss.interrupt_stack_table[0] = VirtAddr::new(ist_base + 8 * 4096); // IST[0] = double fault
-        tss.interrupt_stack_table[1] = VirtAddr::new(ist_base + 6 * 4096); // IST[1] = timer
+        // Set up stack pointers for exceptions and privilege level transitions.
+        // Use statically allocated stacks so they are always mapped alongside the kernel image.
+        let df_stack_top =
+            VirtAddr::new(core::ptr::addr_of!(DOUBLE_FAULT_STACK.0) as u64 + STACK_SIZE as u64);
+        let timer_stack_top =
+            VirtAddr::new(core::ptr::addr_of!(TIMER_STACK.0) as u64 + STACK_SIZE as u64);
+        let priv_stack_top =
+            VirtAddr::new(core::ptr::addr_of!(PRIVILEGE_STACK.0) as u64 + STACK_SIZE as u64);
 
-        tss.privilege_stack_table[0] = VirtAddr::new(ist_base + 4 * 4096); // Ring 0 stack (SS0)
+        tss.interrupt_stack_table[0] = df_stack_top;
+        tss.interrupt_stack_table[1] = timer_stack_top;
+
+        tss.privilege_stack_table[0] = priv_stack_top; // Ring 0 stack (SS0)
 
         // --- Create GDT ---
         let mut gdt = GlobalDescriptorTable::new();

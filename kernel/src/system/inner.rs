@@ -1,6 +1,5 @@
 use log::info;
 use spin::mutex::Mutex;
-use x86_64::instructions::hlt;
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
 use crate::arch::x86_64::gdt::init_gdt;

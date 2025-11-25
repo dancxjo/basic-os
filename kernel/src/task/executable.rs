@@ -1,7 +1,9 @@
 use crate::arch::x86_64::memory::{kernel_base, kernel_end};
 use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
+use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, TaskMode, prepare_context};
+use crate::task::scheduler::{SCHEDULER, Task};
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
@@ -49,10 +51,26 @@ pub fn create_user_page_table(
     mirror_kernel_region(
         &mut offset_page_table,
         frame_allocator,
+        (VirtAddr::new(HEAP_START)..VirtAddr::new(HEAP_START + HEAP_SIZE as u64)).into(),
+    );
+    mirror_kernel_region(
+        &mut offset_page_table,
+        frame_allocator,
         (VirtAddr::new(KERNEL_STACK_VIRT_BASE)
             ..VirtAddr::new(KERNEL_STACK_VIRT_BASE + (KERNEL_STACK_PAGES as u64 * 4096)))
             .into(),
     );
+
+    // Mirror each kernel task stack so kernel tasks remain runnable while the user page table is active.
+    let task_count = SCHEDULER.lock().tasks.len();
+    for idx in 0..task_count {
+        let base = Task::stack_base_for_task(idx);
+        mirror_kernel_region(
+            &mut offset_page_table,
+            frame_allocator,
+            (VirtAddr::new(base)..VirtAddr::new(base + (4096 * 5) as u64)).into(),
+        );
+    }
     (l4_table, offset_page_table)
 }
 
