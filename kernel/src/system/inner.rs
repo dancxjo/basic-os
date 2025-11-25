@@ -10,7 +10,7 @@ use crate::arch::x86_64::stack::init_kernel_stack;
 use crate::bootloader::{get_hhdm_offset, get_module};
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
-use crate::drivers::framebuffer::Framebuffer;
+use crate::drivers::framebuffer::{Framebuffer, init_console};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::context::TaskMode;
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
@@ -70,19 +70,17 @@ impl System {
             init_interrupts();
         });
 
-        let _framebuffer_init = bootstrap_step!("framebuffer", {
-            Arc::new(SpinMutex::new(
+        let framebuffer = bootstrap_step!("framebuffer", {
+            let fb = Arc::new(SpinMutex::new(
                 Framebuffer::new().expect("Framebuffer not available"),
-            ))
+            ));
+            init_console(fb.clone());
+            fb
         });
 
         let _mouse = bootstrap_step!("PS/2 devices", {
             ps2::enable_ps2_devices();
         });
-
-        let _framebuffer = Arc::new(Mutex::new(
-            Framebuffer::new().expect("Framebuffer not available"),
-        ));
 
         let hpet = HPET::new(0xFED00000);
         let rtc = RTC::new();
@@ -125,7 +123,7 @@ impl System {
         });
 
         Self {
-            framebuffer: _framebuffer,
+            framebuffer,
             clock: _clock,
             keyboard_index: 0,
             mouse_index: 0,

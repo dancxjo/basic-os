@@ -14,6 +14,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
 fn write_port(port: u64, data: u64, _flags: u64) -> u64 {
     match port {
         1 => {
+            crate::drivers::framebuffer::console_write_byte(data as u8);
             serial_print!("{}", data as u8 as char);
             0
         }
