@@ -1,20 +1,23 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::serial_print;
+use crate::task::runtime;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use log::{info, warn};
+use spin::Mutex;
+use x86_64::instructions::port::Port;
+use x86_64::structures::idt::InterruptStackFrame;
 
-unsafe extern "C" {
-    fn yield_now();
-}
+pub static SELECTED_SCREEN: AtomicUsize = AtomicUsize::new(1);
 
-pub static SELECTED_SCREEN: AtomicUsize = AtomicUsize::new(1); // default to Screen 1
+const KEYBOARD_BUFFER_LEN: usize = 256;
 
-/// Modifier state
 static SHIFT: AtomicBool = AtomicBool::new(false);
 static ALTGR: AtomicBool = AtomicBool::new(false);
-static DEADKEY: AtomicUsize = AtomicUsize::new(0);
+static CAPS_LOCK: AtomicBool = AtomicBool::new(false);
+static DEADKEY: AtomicU8 = AtomicU8::new(DeadKey::None.to_u8());
 static PREFIX: AtomicU8 = AtomicU8::new(0);
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum DeadKey {
     None,
     Acute,
@@ -25,7 +28,7 @@ enum DeadKey {
 }
 
 impl DeadKey {
-    fn from_usize(value: usize) -> Self {
+    fn from_u8(value: u8) -> Self {
         match value {
             1 => DeadKey::Acute,
             2 => DeadKey::Grave,
@@ -36,7 +39,7 @@ impl DeadKey {
         }
     }
 
-    fn to_usize(&self) -> usize {
+    const fn to_u8(self) -> u8 {
         match self {
             DeadKey::Acute => 1,
             DeadKey::Grave => 2,
@@ -48,202 +51,361 @@ impl DeadKey {
     }
 }
 
-pub fn scancode_to_char(scancode: u8) -> Option<char> {
-    let shift = SHIFT.load(Ordering::Relaxed);
-    let deadkey = DeadKey::from_usize(DEADKEY.load(Ordering::Relaxed));
+#[derive(Clone, Copy)]
+struct ModifierSnapshot {
+    shift: bool,
+    caps_lock: bool,
+    altgr: bool,
+    deadkey: DeadKey,
+}
 
-    if deadkey == DeadKey::None {
-        match scancode {
-            0x28 => {
-                DEADKEY.store(1, Ordering::Relaxed);
-                return None;
-            }
-            0x29 => {
-                DEADKEY.store(if shift { 5 } else { 2 }, Ordering::Relaxed);
-                return None;
-            }
-            0x2B => {
-                DEADKEY.store(3, Ordering::Relaxed);
-                return None;
-            }
-            0x1A => {
-                DEADKEY.store(4, Ordering::Relaxed);
-                return None;
-            }
-            _ => {}
+impl ModifierSnapshot {
+    fn load() -> Self {
+        Self {
+            shift: SHIFT.load(Ordering::Relaxed),
+            caps_lock: CAPS_LOCK.load(Ordering::Relaxed),
+            altgr: ALTGR.load(Ordering::Relaxed),
+            deadkey: DeadKey::from_u8(DEADKEY.load(Ordering::Relaxed)),
         }
     }
-
-    let result = match (deadkey, scancode) {
-        (DeadKey::Acute, 0x10) => Some('á'),
-        (DeadKey::Acute, 0x12) => Some('é'),
-        (DeadKey::Acute, 0x17) => Some('í'),
-        (DeadKey::Acute, 0x18) => Some('ó'),
-        (DeadKey::Acute, 0x16) => Some('ú'),
-        (DeadKey::Acute, 0x1E) => Some('á'),
-        (DeadKey::Acute, 0x20) => Some('é'),
-        (DeadKey::Acute, 0x22) => Some('í'),
-        (DeadKey::Acute, 0x2C) => Some('ó'),
-        (DeadKey::Acute, 0x2E) => Some('ć'),
-        (DeadKey::Acute, 0x31) => Some('ń'),
-
-        (DeadKey::Grave, 0x10) => Some('à'),
-        (DeadKey::Grave, 0x12) => Some('è'),
-        (DeadKey::Grave, 0x17) => Some('ì'),
-        (DeadKey::Grave, 0x18) => Some('ò'),
-        (DeadKey::Grave, 0x16) => Some('ù'),
-        (DeadKey::Grave, 0x1E) => Some('à'),
-
-        (DeadKey::Circumflex, 0x10) => Some('â'),
-        (DeadKey::Circumflex, 0x12) => Some('ê'),
-        (DeadKey::Circumflex, 0x17) => Some('î'),
-        (DeadKey::Circumflex, 0x18) => Some('ô'),
-        (DeadKey::Circumflex, 0x16) => Some('û'),
-        (DeadKey::Circumflex, 0x1E) => Some('â'),
-        (DeadKey::Circumflex, 0x2E) => Some('ĉ'),
-
-        (DeadKey::Diaeresis, 0x10) => Some('ä'),
-        (DeadKey::Diaeresis, 0x12) => Some('ë'),
-        (DeadKey::Diaeresis, 0x17) => Some('ï'),
-        (DeadKey::Diaeresis, 0x18) => Some('ö'),
-        (DeadKey::Diaeresis, 0x16) => Some('ü'),
-        (DeadKey::Diaeresis, 0x1E) => Some('ä'),
-        (DeadKey::Diaeresis, 0x31) => Some('ÿ'),
-
-        (DeadKey::Tilde, 0x10) => Some('ã'),
-        (DeadKey::Tilde, 0x18) => Some('õ'),
-        (DeadKey::Tilde, 0x1E) => Some('ã'),
-        (DeadKey::Tilde, 0x31) => Some('ñ'),
-
-        _ => match (shift, scancode) {
-            (false, 0x02..=0x0B) => Some("1234567890".chars().nth((scancode - 0x02) as usize)?),
-            (true, 0x02..=0x0B) => Some("!@#$%^&*()".chars().nth((scancode - 0x02) as usize)?),
-
-            (false, 0x10) => Some('q'),
-            (true, 0x10) => Some('Q'),
-            (false, 0x11) => Some('w'),
-            (true, 0x11) => Some('W'),
-            (false, 0x12) => Some('e'),
-            (true, 0x12) => Some('E'),
-            (false, 0x13) => Some('r'),
-            (true, 0x13) => Some('R'),
-            (false, 0x14) => Some('t'),
-            (true, 0x14) => Some('T'),
-            (false, 0x15) => Some('y'),
-            (true, 0x15) => Some('Y'),
-            (false, 0x16) => Some('u'),
-            (true, 0x16) => Some('U'),
-            (false, 0x17) => Some('i'),
-            (true, 0x17) => Some('I'),
-            (false, 0x18) => Some('o'),
-            (true, 0x18) => Some('O'),
-            (false, 0x19) => Some('p'),
-            (true, 0x19) => Some('P'),
-
-            (false, 0x1E) => Some('a'),
-            (true, 0x1E) => Some('A'),
-            (false, 0x1F) => Some('s'),
-            (true, 0x1F) => Some('S'),
-            (false, 0x20) => Some('d'),
-            (true, 0x20) => Some('D'),
-            (false, 0x21) => Some('f'),
-            (true, 0x21) => Some('F'),
-            (false, 0x22) => Some('g'),
-            (true, 0x22) => Some('G'),
-            (false, 0x23) => Some('h'),
-            (true, 0x23) => Some('H'),
-            (false, 0x24) => Some('j'),
-            (true, 0x24) => Some('J'),
-            (false, 0x25) => Some('k'),
-            (true, 0x25) => Some('K'),
-            (false, 0x26) => Some('l'),
-            (true, 0x26) => Some('L'),
-
-            (false, 0x2C) => Some('z'),
-            (true, 0x2C) => Some('Z'),
-            (false, 0x2D) => Some('x'),
-            (true, 0x2D) => Some('X'),
-            (false, 0x2E) => Some('c'),
-            (true, 0x2E) => Some('C'),
-            (false, 0x2F) => Some('v'),
-            (true, 0x2F) => Some('V'),
-            (false, 0x30) => Some('b'),
-            (true, 0x30) => Some('B'),
-            (false, 0x31) => Some('n'),
-            (true, 0x31) => Some('N'),
-            (false, 0x32) => Some('m'),
-            (true, 0x32) => Some('M'),
-
-            (_, 0x39) => Some(' '),
-
-            (false, 0x0C) => Some('-'),
-            (true, 0x0C) => Some('_'),
-            (false, 0x0D) => Some('='),
-            (true, 0x0D) => Some('+'),
-            (false, 0x1A) => Some('['),
-            (true, 0x1A) => Some('{'),
-            (false, 0x1B) => Some(']'),
-            (true, 0x1B) => Some('}'),
-            (false, 0x27) => Some(';'),
-            (true, 0x27) => Some(':'),
-            (false, 0x28) => Some('\\'),
-            (true, 0x28) => Some('|'),
-            (false, 0x33) => Some(','),
-            (true, 0x33) => Some('<'),
-            (false, 0x34) => Some('.'),
-            (true, 0x34) => Some('>'),
-            (false, 0x35) => Some('/'),
-            (true, 0x35) => Some('?'),
-            (false, 0x0F) => Some('\t'),
-            (true, 0x0F) => Some('\t'),
-            (false, 0x2B) => Some('\\'),
-            (true, 0x2B) => Some('|'),
-            (false, 0x29) => Some('`'),
-            (true, 0x29) => Some('~'),
-            _ => None,
-        },
-    };
-
-    DEADKEY.store(0, Ordering::Relaxed);
-    result
 }
 
-fn scancode_to_screen(scancode: u8) -> Option<usize> {
-    match scancode {
-        0x3B..=0x44 => Some((scancode - 0x3B + 1) as usize),
-        0x57 => Some(11),
-        0x58 => Some(12),
-        _ => None,
+#[derive(Clone, Copy)]
+enum KeyCode {
+    Printable(char),
+    Backspace,
+    Tab,
+    Enter,
+    Escape,
+    Space,
+    Function(u8),
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Insert,
+    Delete,
+    YieldNow,
+    Unknown(u8),
+}
+
+#[derive(Clone, Copy)]
+struct KeyEvent {
+    code: KeyCode,
+    pressed: bool,
+}
+
+fn set_dead_key(dead: DeadKey) {
+    DEADKEY.store(dead.to_u8(), Ordering::Relaxed);
+}
+
+fn clear_dead_key() {
+    set_dead_key(DeadKey::None);
+}
+
+fn update_modifier(scancode: u8) -> bool {
+    let released = scancode & 0x80 != 0;
+    let code = scancode & 0x7F;
+
+    match code {
+        0x2A | 0x36 => {
+            SHIFT.store(!released, Ordering::Relaxed);
+            true
+        }
+        0x38 => {
+            ALTGR.store(!released, Ordering::Relaxed);
+            true
+        }
+        0x3A if !released => {
+            CAPS_LOCK.fetch_xor(true, Ordering::Relaxed);
+            true
+        }
+        _ => false,
     }
 }
 
-fn scancode_to_task(scancode: u8) -> Option<usize> {
+fn update_modifier_extended(scancode: u8) -> bool {
+    let released = scancode & 0x80 != 0;
+
     match scancode {
-        0x3B..=0x44 => Some((scancode - 0x3B) as usize),
-        0x57 => Some(10),
-        0x58 => Some(11),
+        0x38 | 0xB8 => {
+            ALTGR.store(!released, Ordering::Relaxed);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn start_dead_key(scancode: u8, mods: &ModifierSnapshot) -> bool {
+    match scancode {
+        0x28 => {
+            set_dead_key(DeadKey::Acute);
+            true
+        }
+        0x29 => {
+            set_dead_key(if mods.shift {
+                DeadKey::Tilde
+            } else {
+                DeadKey::Grave
+            });
+            true
+        }
+        0x2B => {
+            set_dead_key(DeadKey::Circumflex);
+            true
+        }
+        0x1A => {
+            set_dead_key(DeadKey::Diaeresis);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn apply_dead_key(dead: DeadKey, ch: char) -> Option<char> {
+    let lower = ch.to_ascii_lowercase();
+
+    let composed = match (dead, lower) {
+        (DeadKey::Acute, 'a') => Some('á'),
+        (DeadKey::Acute, 'e') => Some('é'),
+        (DeadKey::Acute, 'i') => Some('í'),
+        (DeadKey::Acute, 'o') => Some('ó'),
+        (DeadKey::Acute, 'u') => Some('ú'),
+        (DeadKey::Acute, 'c') => Some('ć'),
+        (DeadKey::Acute, 'n') => Some('ń'),
+
+        (DeadKey::Grave, 'a') => Some('à'),
+        (DeadKey::Grave, 'e') => Some('è'),
+        (DeadKey::Grave, 'i') => Some('ì'),
+        (DeadKey::Grave, 'o') => Some('ò'),
+        (DeadKey::Grave, 'u') => Some('ù'),
+
+        (DeadKey::Circumflex, 'a') => Some('â'),
+        (DeadKey::Circumflex, 'e') => Some('ê'),
+        (DeadKey::Circumflex, 'i') => Some('î'),
+        (DeadKey::Circumflex, 'o') => Some('ô'),
+        (DeadKey::Circumflex, 'u') => Some('û'),
+        (DeadKey::Circumflex, 'c') => Some('ĉ'),
+
+        (DeadKey::Diaeresis, 'a') => Some('ä'),
+        (DeadKey::Diaeresis, 'e') => Some('ë'),
+        (DeadKey::Diaeresis, 'i') => Some('ï'),
+        (DeadKey::Diaeresis, 'o') => Some('ö'),
+        (DeadKey::Diaeresis, 'u') => Some('ü'),
+        (DeadKey::Diaeresis, 'y') => Some('ÿ'),
+
+        (DeadKey::Tilde, 'a') => Some('ã'),
+        (DeadKey::Tilde, 'o') => Some('õ'),
+        (DeadKey::Tilde, 'n') => Some('ñ'),
+
         _ => None,
+    }?;
+
+    if ch.is_uppercase() {
+        composed.to_uppercase().next()
+    } else {
+        Some(composed)
+    }
+}
+
+fn letter_from_scancode(scancode: u8, uppercase: bool) -> Option<char> {
+    let letter = match scancode {
+        0x10 => 'q',
+        0x11 => 'w',
+        0x12 => 'e',
+        0x13 => 'r',
+        0x14 => 't',
+        0x15 => 'y',
+        0x16 => 'u',
+        0x17 => 'i',
+        0x18 => 'o',
+        0x19 => 'p',
+        0x1E => 'a',
+        0x1F => 's',
+        0x20 => 'd',
+        0x21 => 'f',
+        0x22 => 'g',
+        0x23 => 'h',
+        0x24 => 'j',
+        0x25 => 'k',
+        0x26 => 'l',
+        0x2C => 'z',
+        0x2D => 'x',
+        0x2E => 'c',
+        0x2F => 'v',
+        0x30 => 'b',
+        0x31 => 'n',
+        0x32 => 'm',
+        _ => return None,
+    };
+
+    Some(if uppercase {
+        letter.to_ascii_uppercase()
+    } else {
+        letter
+    })
+}
+
+fn punctuation_from_scancode(scancode: u8, shift: bool) -> Option<char> {
+    const PUNCT: &[(u8, char, char)] = &[
+        (0x0C, '-', '_'),
+        (0x0D, '=', '+'),
+        (0x1A, '[', '{'),
+        (0x1B, ']', '}'),
+        (0x27, ';', ':'),
+        (0x28, '\\', '|'),
+        (0x2B, '\\', '|'),
+        (0x33, ',', '<'),
+        (0x34, '.', '>'),
+        (0x35, '/', '?'),
+        (0x29, '`', '~'),
+    ];
+
+    PUNCT
+        .iter()
+        .find(|(code, _, _)| *code == scancode)
+        .map(|(_, normal, shifted)| if shift { *shifted } else { *normal })
+}
+
+fn scancode_to_char(scancode: u8, mods: &ModifierSnapshot) -> Option<char> {
+    if mods.deadkey == DeadKey::None && start_dead_key(scancode, mods) {
+        return None;
+    }
+
+    let letter_shift = mods.shift ^ mods.caps_lock;
+
+    let raw = match scancode {
+        0x02..=0x0B => {
+            let idx = (scancode - 0x02) as usize;
+            let digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+            let shifted = ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')'];
+            if mods.shift {
+                shifted.get(idx).copied()
+            } else {
+                digits.get(idx).copied()
+            }
+        }
+        0x10..=0x19 | 0x1E..=0x26 | 0x2C..=0x32 => letter_from_scancode(scancode, letter_shift),
+        0x0F => Some('\t'),
+        0x39 => Some(' '),
+        _ => punctuation_from_scancode(scancode, mods.shift),
+    }?;
+
+    if mods.deadkey == DeadKey::None {
+        return Some(raw);
+    }
+
+    let composed = apply_dead_key(mods.deadkey, raw);
+    clear_dead_key();
+    composed.or(Some(raw))
+}
+
+fn decode_basic(scancode: u8, mods: &ModifierSnapshot) -> Option<KeyEvent> {
+    let pressed = scancode & 0x80 == 0;
+    let code = scancode & 0x7F;
+
+    let key = match code {
+        0x01 => KeyCode::Escape,
+        0x0E => KeyCode::Backspace,
+        0x0F => KeyCode::Tab,
+        0x1C => KeyCode::Enter,
+        0x39 => KeyCode::Space,
+        0x3B..=0x44 => KeyCode::Function(code - 0x3A),
+        0x57 => KeyCode::Function(11),
+        0x58 => KeyCode::Function(12),
+        0x46 => KeyCode::YieldNow,
+        _ => {
+            if !pressed {
+                return None;
+            }
+
+            return scancode_to_char(code, mods).map(|c| KeyEvent {
+                code: KeyCode::Printable(c),
+                pressed,
+            });
+        }
+    };
+
+    Some(KeyEvent { code: key, pressed })
+}
+
+fn decode_extended(scancode: u8, _mods: &ModifierSnapshot) -> Option<KeyEvent> {
+    let pressed = scancode & 0x80 == 0;
+    let code = scancode & 0x7F;
+
+    let key = match code {
+        0x1C => KeyCode::Enter, // Keypad Enter
+        0x48 => KeyCode::ArrowUp,
+        0x50 => KeyCode::ArrowDown,
+        0x4B => KeyCode::ArrowLeft,
+        0x4D => KeyCode::ArrowRight,
+        0x47 => KeyCode::Home,
+        0x49 => KeyCode::PageUp,
+        0x4F => KeyCode::End,
+        0x51 => KeyCode::PageDown,
+        0x52 => KeyCode::Insert,
+        0x53 => KeyCode::Delete,
+        _ => return None,
+    };
+
+    Some(KeyEvent { code: key, pressed })
+}
+
+fn handle_function_key(idx: u8) {
+    SELECTED_SCREEN.store(idx as usize, Ordering::Relaxed);
+    let task_idx = idx.saturating_sub(1) as usize;
+    if runtime::select_task(task_idx) {
+        runtime::yield_now();
+    }
+}
+
+fn handle_key_event(event: KeyEvent) {
+    if !event.pressed {
+        return;
+    }
+
+    match event.code {
+        KeyCode::Printable(c) => serial_print!("{}", c),
+        KeyCode::Tab => serial_print!("\t"),
+        KeyCode::Space => serial_print!(" "),
+        KeyCode::Backspace => info!("Backspace key pressed"),
+        KeyCode::Enter => runtime::yield_now(),
+        KeyCode::Escape => info!("Escape key pressed"),
+        KeyCode::Function(idx) => handle_function_key(idx),
+        KeyCode::YieldNow => runtime::yield_now(),
+        KeyCode::ArrowUp => info!("Arrow Up pressed"),
+        KeyCode::ArrowDown => info!("Arrow Down pressed"),
+        KeyCode::ArrowLeft => info!("Arrow Left pressed"),
+        KeyCode::ArrowRight => info!("Arrow Right pressed"),
+        KeyCode::Home => info!("Home pressed"),
+        KeyCode::End => info!("End pressed"),
+        KeyCode::PageUp => info!("Page Up pressed"),
+        KeyCode::PageDown => info!("Page Down pressed"),
+        KeyCode::Insert => info!("Insert pressed"),
+        KeyCode::Delete => info!("Delete pressed"),
+        KeyCode::Unknown(code) => info!("Unhandled scancode: 0x{:02X}", code),
     }
 }
 
 pub fn process_scancode(scancode: u8) {
     if PREFIX.load(Ordering::Relaxed) == 0xE0 {
         PREFIX.store(0, Ordering::Relaxed);
-        match scancode {
-            0x1C => log::info!("Keypad Enter pressed"),
-            0x38 => log::info!("Right Alt pressed"),
-            0x48 => log::info!("Arrow Up pressed"),
-            0x50 => log::info!("Arrow Down pressed"),
-            0x4B => log::info!("Arrow Left pressed"),
-            0x4D => log::info!("Arrow Right pressed"),
-            0x47 => log::info!("Home pressed"),
-            0x49 => log::info!("Page Up pressed"),
-            0x4F => log::info!("End pressed"),
-            0x51 => log::info!("Page Down pressed"),
-            0x52 => log::info!("Insert pressed"),
-            0x53 => log::info!("Delete pressed"),
-            code => log::info!("Unknown E0-extended key: 0x{:02X}", code),
+
+        if update_modifier_extended(scancode) {
+            return;
         }
+
+        let mods = ModifierSnapshot::load();
+        if let Some(event) = decode_extended(scancode, &mods) {
+            handle_key_event(event);
+        } else {
+            info!("Unknown E0-extended key: 0x{:02X}", scancode);
+        }
+
         return;
     }
 
@@ -252,60 +414,37 @@ pub fn process_scancode(scancode: u8) {
         return;
     }
 
-    match scancode {
-        0x2A | 0x36 => SHIFT.store(true, Ordering::Relaxed),
-        0xAA | 0xB6 => SHIFT.store(false, Ordering::Relaxed),
-        0x38 => ALTGR.store(true, Ordering::Relaxed),
-        0xB8 => ALTGR.store(false, Ordering::Relaxed),
-        0x01 => log::info!("Escape key pressed"),
-        0x0E => log::info!("Backspace key pressed"),
-        0x1C => unsafe { yield_now() },
-        0x39 => log::info!("Space key pressed"),
-        0x3A => log::info!("Caps Lock key pressed"),
-        0x46 => unsafe { yield_now() },
-        0x3B..=0x44 | 0x57 | 0x58 => {
-            if let Some(task) = scancode_to_task(scancode) {
-                let mut sched = crate::task::scheduler::SCHEDULER.lock();
-                if task < sched.tasks.len() {
-                    sched.current = (task + sched.tasks.len() - 1) % sched.tasks.len();
-                    drop(sched);
-                    unsafe { yield_now() };
-                }
-            }
-        }
-        code if code < 0x80 => {
-            if let Some(c) = scancode_to_char(code) {
-                serial_print!("{}", c);
-            }
-        }
-        0x8F => {
-            serial_print!("Tab key pressed");
-        }
-        0x80..=0xFF => {
-            // Ignore key release codes or handle them as needed
-        }
-        _ => log::info!("Unhandled scancode: 0x{:02X}", scancode),
+    if update_modifier(scancode) {
+        return;
+    }
+
+    let mods = ModifierSnapshot::load();
+    if let Some(event) = decode_basic(scancode, &mods) {
+        handle_key_event(event);
     }
 }
 
-use log::warn;
-use spin::Mutex;
-use x86_64::instructions::port::Port;
-use x86_64::structures::idt::InterruptStackFrame;
-
-pub static KEYBOARD_BUFFER: Mutex<[u8; 256]> = Mutex::new([0; 256]);
+pub static KEYBOARD_BUFFER: Mutex<[u8; KEYBOARD_BUFFER_LEN]> = Mutex::new([0; KEYBOARD_BUFFER_LEN]);
 pub static KEYBOARD_HEAD: AtomicUsize = AtomicUsize::new(0);
+pub static KEYBOARD_TAIL: AtomicUsize = AtomicUsize::new(0);
 
 pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    use x86_64::instructions::port::Port;
-
     let mut data_port = Port::<u8>::new(0x60);
     let scancode: u8 = unsafe { data_port.read() };
 
-    let head = KEYBOARD_HEAD.fetch_add(1, Ordering::Relaxed) % 256;
-    {
+    let head = KEYBOARD_HEAD.load(Ordering::Relaxed);
+    let tail = KEYBOARD_TAIL.load(Ordering::Acquire);
+    let next = (head + 1) % KEYBOARD_BUFFER_LEN;
+
+    if next == tail {
+        warn!(
+            "Keyboard buffer overflow, dropping scancode 0x{:02X}",
+            scancode
+        );
+    } else {
         let mut buf = KEYBOARD_BUFFER.lock();
         buf[head] = scancode;
+        KEYBOARD_HEAD.store(next, Ordering::Release);
     }
 
     // Process the scancode immediately since there is no dedicated
@@ -317,14 +456,15 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
 
 pub fn pop_input() -> Option<u8> {
     let head = KEYBOARD_HEAD.load(Ordering::Acquire);
-    if head == 0 {
-        return None; // No input available
+    let tail = KEYBOARD_TAIL.load(Ordering::Relaxed);
+
+    if head == tail {
+        return None;
     }
 
     let mut buf = KEYBOARD_BUFFER.lock();
-    let byte = buf[0];
-    buf.copy_within(1..head, 0); // Shift buffer left
-    KEYBOARD_HEAD.store(head - 1, Ordering::Release);
+    let byte = buf[tail];
+    KEYBOARD_TAIL.store((tail + 1) % KEYBOARD_BUFFER_LEN, Ordering::Release);
 
     Some(byte)
 }

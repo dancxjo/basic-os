@@ -12,9 +12,8 @@ use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::{Framebuffer, init_console};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
-use crate::task::context::TaskMode;
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
-use crate::task::scheduler::SCHEDULER;
+use crate::task::runtime;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use spin::Mutex as SpinMutex;
@@ -89,37 +88,11 @@ impl System {
         info!("ThingOS initialized.");
 
         bootstrap_step!("executable", {
-            let mut sched = SCHEDULER.lock();
-            sched.spawn(
-                hello_thread,
-                TaskMode::Kernel,
-                &mut mapper,
-                &mut frame_allocator,
-            );
-            sched.spawn(
-                second_thread,
-                TaskMode::Kernel,
-                &mut mapper,
-                &mut frame_allocator,
-            );
-            sched.spawn(
-                third_thread,
-                TaskMode::Kernel,
-                &mut mapper,
-                &mut frame_allocator,
-            );
-            sched.spawn(
-                fourth_thread,
-                TaskMode::Kernel,
-                &mut mapper,
-                &mut frame_allocator,
-            );
-            sched.spawn(
-                start_user_task,
-                TaskMode::Kernel,
-                &mut mapper,
-                &mut frame_allocator,
-            );
+            runtime::spawn_kernel(hello_thread);
+            runtime::spawn_kernel(second_thread);
+            runtime::spawn_kernel(third_thread);
+            runtime::spawn_kernel(fourth_thread);
+            runtime::spawn_kernel(start_user_task);
         });
 
         Self {
@@ -134,7 +107,7 @@ impl System {
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
         info!("System initialized. Entering main loop...");
-        crate::task::scheduler::start_first();
+        runtime::start();
     }
 }
 

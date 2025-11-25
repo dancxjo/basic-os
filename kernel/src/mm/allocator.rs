@@ -136,6 +136,14 @@ impl BootFrameAllocator {
     }
 }
 
+/// Obtain the global page-table mapper initialized during boot.
+pub fn global_mapper() -> &'static mut OffsetPageTable<'static> {
+    #[allow(static_mut_refs)]
+    unsafe {
+        MAPPER.assume_init_mut()
+    }
+}
+
 unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
         let addr = self.allocate_frame_internal()?;

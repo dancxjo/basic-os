@@ -3,7 +3,8 @@ use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, TaskMode, prepare_context};
-use crate::task::scheduler::{SCHEDULER, Task};
+use crate::task::runtime;
+use crate::task::scheduler::Task;
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
@@ -62,7 +63,7 @@ pub fn create_user_page_table(
     );
 
     // Mirror each kernel task stack so kernel tasks remain runnable while the user page table is active.
-    let task_count = SCHEDULER.lock().tasks.len();
+    let task_count = runtime::task_count();
     for idx in 0..task_count {
         let base = Task::stack_base_for_task(idx);
         mirror_kernel_region(
