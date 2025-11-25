@@ -56,6 +56,8 @@ tick_handler:
 
     // Pass pointer to saved registers
     movq %rsp, %rdi
+    // IRQ number for timer
+    movq $0, %rsi
 
     // Align RSP to 16 bytes for the call
     andq $~0xF, %rsp
@@ -91,6 +93,8 @@ yield_now:
     pushq %r15
 
     movq %rsp, %rdi
+    // IRQ number for keyboard (we only invoke yield_now from keyboard interrupt)
+    movq $1, %rsi
     andq $~0xF, %rsp
     call rust_schedule_and_switch
 

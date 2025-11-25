@@ -201,7 +201,7 @@ unsafe extern "C" {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
+pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> ! {
     serial_print!("S");
     info!("Scheduling and switching tasks...");
 
@@ -246,14 +246,14 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8) -> ! {
                     (*task_ptr).context_ptr()
                 );
 
-                end_of_interrupt(0);
+                end_of_interrupt(irq);
                 serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
                 restore_context((*task_ptr).context_ptr())
             }
             None => {
                 serial_print!("!");
 
-                end_of_interrupt(0);
+                end_of_interrupt(irq);
                 let ctx = if !current.is_null() {
                     (*current).context_ptr()
                 } else {
