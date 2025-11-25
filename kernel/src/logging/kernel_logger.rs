@@ -38,17 +38,20 @@ impl log::Log for KernelLogger {
         // Serial log (fast path; avoid heapless formatting failure panicking)
         serial_println!("[{}] {}", record.level(), record.args());
 
-        use core::fmt::Write;
-        let mut msg = String::<128>::new();
-        let _ = write!(msg, "{}", record.args());
+        // Avoid potential deadlocks when logging from IRQ context by only
+        // attempting a non-blocking lock on the buffer.
+        if let Some(mut buf) = self.buffer.try_lock() {
+            use core::fmt::Write;
+            let mut msg = String::<128>::new();
+            let _ = write!(msg, "{}", record.args());
 
-        let entry = LogEntry {
-            level: record.level(),
-            message: msg,
-        };
+            let entry = LogEntry {
+                level: record.level(),
+                message: msg,
+            };
 
-        let mut buf = self.buffer.lock();
-        let _ = buf.enqueue(entry); // silently drop oldest if full
+            let _ = buf.enqueue(entry); // silently drop oldest if full
+        }
     }
 
     fn flush(&self) {}

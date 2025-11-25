@@ -259,10 +259,7 @@ pub fn process_scancode(scancode: u8) {
         0xB8 => ALTGR.store(false, Ordering::Relaxed),
         0x01 => log::info!("Escape key pressed"),
         0x0E => log::info!("Backspace key pressed"),
-        0x1C => {
-            log::info!("Rotate!");
-            unsafe { yield_now() }
-        }
+        0x1C => unsafe { yield_now() },
         0x39 => log::info!("Space key pressed"),
         0x3A => log::info!("Caps Lock key pressed"),
         0x46 => unsafe { yield_now() },
