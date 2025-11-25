@@ -234,22 +234,22 @@ limine/limine:
 	git clone https://github.com/limine-bootloader/limine.git --branch=v9.x-binary --depth=1
 	$(MAKE) -C limine
 
-.PHONY: hello_from
-hello_from:
-	cargo build --release --target x86_64-unknown-none --manifest-path hello_from/Cargo.toml
-	cp -v hello_from/target/x86_64-unknown-none/release/hello_from hello_from.bin
+.PHONY: userland
+userland:
+	cargo build --release --target x86_64-unknown-none --manifest-path compositor/Cargo.toml --features demo-apps
+	cp -v compositor/target/x86_64-unknown-none/release/compositor userland.bin
 
 .PHONY: kernel
 kernel:
 	$(MAKE) -C kernel
 
-$(IMAGE_NAME).iso: limine/limine kernel hello_from
+$(IMAGE_NAME).iso: limine/limine kernel userland
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
-	cp -v hello_from.bin iso_root/boot/
-	cp -v hello_from/target/x86_64-unknown-none/release/hello_from iso_root/boot/hello_from
+	cp -v userland.bin iso_root/boot/
+	cp -v compositor/target/x86_64-unknown-none/release/compositor iso_root/boot/compositor
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT
@@ -320,7 +320,7 @@ endif
 clean:
 	$(MAKE) -C kernel clean
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
-	rm -rf limine hello_from/target hello_from.bin ovmf
+	rm -rf limine compositor/target userland.bin ovmf
 
 .PHONY: distclean
 distclean: clean

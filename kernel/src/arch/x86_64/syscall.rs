@@ -97,7 +97,7 @@ fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn reflect_write_event(event: &Event) {
-    if event.kind != canon::WRITE {
+    if event.kind != canon::WRITE && event.kind != canon::FRAME_READY {
         return;
     }
 

@@ -67,6 +67,14 @@ pub const WRITE: Symbol = canon(b'W', b'R', b'T');
 pub const TARGET: Symbol = canon(b'T', b'G', b'T');
 pub const TEXT: Symbol = canon(b'T', b'X', b'T');
 pub const STDOUT: Symbol = canon(b'S', b'T', b'D');
+pub const COMPOSITOR: Symbol = canon(b'C', b'M', b'P');
+pub const WINDOW: Symbol = canon(b'W', b'I', b'N');
+pub const PIXMAP: Symbol = canon(b'P', b'X', b'M');
+pub const STREAMS: Symbol = canon(b'S', b'T', b'M');
+pub const COMPOSED_BY: Symbol = canon(b'C', b'M', b'B');
+pub const WINDOW_CREATED: Symbol = canon(b'W', b'C', b'R');
+pub const WINDOW_BUFFER_UPDATED: Symbol = canon(b'W', b'B', b'U');
+pub const FRAME_READY: Symbol = canon(b'F', b'R', b'M');
 
 pub const DRIVER_INPUT: Symbol = canon(b'I', b'N', b'P');
 pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
@@ -107,6 +115,14 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (TARGET, "target"),
         (TEXT, "text"),
         (STDOUT, "stdout"),
+        (COMPOSITOR, "compositor"),
+        (WINDOW, "window"),
+        (PIXMAP, "pixmap"),
+        (STREAMS, "streams"),
+        (COMPOSED_BY, "composed_by"),
+        (WINDOW_CREATED, "window_created"),
+        (WINDOW_BUFFER_UPDATED, "window_buffer_updated"),
+        (FRAME_READY, "frame_ready"),
         (DRIVER_INPUT, "driver_input"),
         (DRIVER_DISPLAY, "driver_display"),
         (DRIVER_STORAGE, "driver_storage"),

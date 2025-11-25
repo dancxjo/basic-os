@@ -97,10 +97,6 @@ impl System {
         info!("ThingOS initialized.");
 
         bootstrap_step!("executable", {
-            runtime::spawn_kernel(hello_thread);
-            runtime::spawn_kernel(second_thread);
-            runtime::spawn_kernel(third_thread);
-            runtime::spawn_kernel(fourth_thread);
             runtime::spawn_kernel(start_user_task);
         });
 
@@ -132,55 +128,15 @@ pub extern "C" fn task_entry_trampoline() {
         core::arch::asm!(
             "xor rdi, rdi", // clear
             "xor rsi, rsi",
-            "call hello_thread",
+            "call start_user_task",
             options(noreturn)
         );
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn hello_thread() {
-    loop {
-        crate::println!("Hello from kernel task");
-        for _ in 0..1_000_000 {
-            core::hint::spin_loop();
-        }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn second_thread() {
-    loop {
-        crate::println!("Greetings from task two");
-        for _ in 0..1_000_000 {
-            core::hint::spin_loop();
-        }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn third_thread() {
-    loop {
-        crate::println!("Tercero");
-        for _ in 0..1_000_000 {
-            core::hint::spin_loop();
-        }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn fourth_thread() {
-    loop {
-        crate::println!("Quarto");
-        for _ in 0..1_000_000 {
-            core::hint::spin_loop();
-        }
-    }
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
-    let module = get_module("boot/hello_from").expect("Module 'boot/hello_from' not found");
+    let module = get_module("boot/compositor").expect("Module 'boot/compositor' not found");
     let frame_allocator = BootFrameAllocator::global();
     let (new_l4, mut new_mapper) = create_user_page_table(frame_allocator, get_hhdm_offset());
     let loaded =

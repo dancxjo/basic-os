@@ -38,16 +38,20 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/thingos -ex "target remote
   - enables the syscall mechanism and interrupt handling
   - initializes the framebuffer and PS/2 devices
   - creates an HPET/RTC based `Clock`
-  - loads the `hello_from` ELF binary as a user task
+  - loads the `compositor` ELF binary as a user task
 
   After these steps the kernel enables interrupts and starts a small
-  cooperative scheduler. Three example tasks are spawned at boot: two
-  kernel threads and the `hello_from` user program. Press `Scroll Lock`
-  or rely on timer ticks to yield execution. Function keys `F1`–`F12`
-  select which task runs next.
+  cooperative scheduler. At boot the scheduler jumps into the userland
+  compositor (`compositor`), which hosts the compositor library and demo apps. Press `Scroll Lock` or rely on timer ticks
+  to yield execution. Function keys `F1`–`F12` select which task runs next.
 
-- **hello\_from/** – minimal userland program that prints text by emitting a
-  journal event instead of writing directly to the framebuffer.
+- **compositor/** – userland compositor library. It ingests app
+  `window_buffer_updated` events and produces composed frames.
+- **apps/** – small demo apps (clouds, hello, clock) that publish window
+  buffers/events to be composed.
+- **userland/** – shared userland support library (syscalls/telemetry helpers).
+- **runner/** – userland binary that wires the compositor and demo apps
+  together for now (until multiple user tasks are supported).
 
 ## Syscall surface (early)
 
