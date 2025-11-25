@@ -28,7 +28,7 @@ x86_64  = { version = "0.14.11", default-features = false, features = [
 anyhow = { version = "1.0.98", default-features = false }
 goblin = { version = "0.10.0", default-features = false, features = ["alloc", "log", "elf64", "elf32", "endian_fd"] }
 [features]
-default=["apic"]
+default=["apic", "threading"]
 apic = []
 threading = []
 

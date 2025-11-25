@@ -64,7 +64,8 @@ pub fn setup_apic_timer() {
     apic_write(0x320, 0x20020);
 
     // Set initial count (this value controls frequency)
-    apic_write(0x380, 100_000);
+    // Higher values = longer time slice for each task
+    apic_write(0x380, 10_000_000);
     log::info!("Local APIC Timer configured.");
 }
 
