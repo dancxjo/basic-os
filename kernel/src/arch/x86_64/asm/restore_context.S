@@ -51,21 +51,23 @@ restore_context:
     movq %rdi, %rsp       # rdi points to context buffer
 
     # Restore general-purpose registers from context
-    popq %rax
-    popq %rbx
-    popq %rcx
-    popq %rdx
-    popq %rbp
-    popq %rdi
-    popq %rsi
-    popq %r8
-    popq %r9
-    popq %r10
-    popq %r11
-    popq %r12
-    popq %r13
-    popq %r14
+    # Order must match GeneralRegisters struct layout:
+    # r15 at offset 0, r14 at offset 8, ..., rax at offset 112
     popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rsi
+    popq %rdi
+    popq %rbp
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
 
     # Print marker before iretq
     movb $'>', %al
