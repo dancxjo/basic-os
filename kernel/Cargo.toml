@@ -28,6 +28,8 @@ x86_64  = { version = "0.14.11", default-features = false, features = [
 anyhow = { version = "1.0.98", default-features = false }
 goblin = { version = "0.10.0", default-features = false, features = ["alloc", "log", "elf64", "elf32", "endian_fd"] }
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+uuid = { version = "1.10", default-features = false, features = ["v5", "serde", "alloc"] }
+sha2 = { version = "0.10", default-features = false }
 [features]
 default=["apic", "threading"]
 apic = []

@@ -1,6 +1,7 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::framebuffer::Framebuffer;
 use crate::drivers::input::InputBuffer;
+use crate::drivers::registry::{DriverDescriptor, DriverKind};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::{Point, Primitive, RgbColor};
 use embedded_graphics::primitives::{Polyline, PrimitiveStyle};
@@ -17,6 +18,12 @@ const MOUSE_EVENT_CAPACITY: usize = 64;
 pub static MOUSE_RAW_BYTES: InputBuffer<u8, MOUSE_RAW_CAPACITY> = InputBuffer::new(0);
 pub static MOUSE_EVENTS: InputBuffer<MouseEvent, MOUSE_EVENT_CAPACITY> =
     InputBuffer::new(MouseEvent::default());
+pub const DRIVER: DriverDescriptor = DriverDescriptor::new(
+    "ps2-mouse",
+    DriverKind::Input,
+    "PS/2 mouse (3-byte packet)",
+    init,
+);
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct MouseEvent {
@@ -85,8 +92,6 @@ pub struct Mouse {
 
 impl Mouse {
     pub fn new(fb: &Framebuffer) -> Self {
-        enable_irq();
-
         Mouse {
             x: fb.width / 2,
             y: fb.height / 2,
@@ -163,6 +168,11 @@ pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptSta
 }
 
 static MOUSE_PACKET_DECODER: Mutex<PacketDecoder> = Mutex::new(PacketDecoder::new());
+
+pub fn init() -> Result<(), &'static str> {
+    enable_irq();
+    Ok(())
+}
 
 fn enable_irq() {
     unsafe {

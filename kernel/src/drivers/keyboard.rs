@@ -1,7 +1,9 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::input::InputBuffer;
+use crate::drivers::registry::{DriverDescriptor, DriverKind};
 use crate::serial_print;
 use crate::task::runtime;
+use crate::telemetry::{canon, journal};
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use log::{info, warn};
 use x86_64::instructions::port::Port;
@@ -369,6 +371,10 @@ fn handle_key_event(event: KeyEvent) {
         return;
     }
 
+    if let Some(symbol) = key_symbol(event.code) {
+        let _ = journal::record(canon::KEYBOARD, canon::PRESSED, symbol);
+    }
+
     match event.code {
         KeyCode::Printable(c) => serial_print!("{}", c),
         KeyCode::Tab => serial_print!("\t"),
@@ -390,6 +396,30 @@ fn handle_key_event(event: KeyEvent) {
         KeyCode::Delete => info!("Delete pressed"),
         KeyCode::Unknown(code) => info!("Unhandled scancode: 0x{:02X}", code),
     }
+}
+
+fn key_symbol(code: KeyCode) -> Option<u16> {
+    Some(match code {
+        KeyCode::Printable(c) => c as u16,
+        KeyCode::Tab => canon::cc(b'T', b'B'),
+        KeyCode::Enter => canon::cc(b'E', b'N'),
+        KeyCode::Escape => canon::cc(b'E', b'S'),
+        KeyCode::Space => b' ' as u16,
+        KeyCode::Function(idx) => 0xF000 | idx as u16,
+        KeyCode::ArrowUp => canon::cc(b'A', b'U'),
+        KeyCode::ArrowDown => canon::cc(b'A', b'D'),
+        KeyCode::ArrowLeft => canon::cc(b'A', b'L'),
+        KeyCode::ArrowRight => canon::cc(b'A', b'R'),
+        KeyCode::Home => canon::cc(b'H', b'M'),
+        KeyCode::End => canon::cc(b'E', b'D'),
+        KeyCode::PageUp => canon::cc(b'P', b'U'),
+        KeyCode::PageDown => canon::cc(b'P', b'D'),
+        KeyCode::Insert => canon::cc(b'I', b'N'),
+        KeyCode::Delete => canon::cc(b'D', b'L'),
+        KeyCode::YieldNow => canon::cc(b'Y', b'L'),
+        KeyCode::Backspace => canon::cc(b'B', b'S'),
+        KeyCode::Unknown(_) => return None,
+    })
 }
 
 pub fn process_scancode(scancode: u8) {
@@ -426,6 +456,17 @@ pub fn process_scancode(scancode: u8) {
 }
 
 pub static KEYBOARD_BUFFER: InputBuffer<u8, KEYBOARD_BUFFER_LEN> = InputBuffer::new(0);
+pub const DRIVER: DriverDescriptor = DriverDescriptor::new(
+    "ps2-keyboard",
+    DriverKind::Input,
+    "PS/2 keyboard (set 1 scancodes)",
+    init,
+);
+
+pub fn init() -> Result<(), &'static str> {
+    // All setup is performed by interrupts; nothing to probe here yet.
+    Ok(())
+}
 
 pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let mut data_port = Port::<u8>::new(0x60);

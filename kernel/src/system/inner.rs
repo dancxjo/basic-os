@@ -11,6 +11,7 @@ use crate::bootloader::{get_hhdm_offset, get_module};
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::{Framebuffer, init_console};
+use crate::drivers::registry;
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
@@ -57,6 +58,10 @@ impl System {
             init_heap(&mut mapper, &mut frame_allocator);
         });
 
+        bootstrap_step!("telemetry", {
+            crate::telemetry::init();
+        });
+
         bootstrap_step!("syscalls", {
             crate::arch::x86_64::syscall::init_syscall();
         });
@@ -79,6 +84,10 @@ impl System {
 
         let _mouse = bootstrap_step!("PS/2 devices", {
             ps2::enable_ps2_devices();
+        });
+
+        bootstrap_step!("drivers", {
+            registry::init_all();
         });
 
         let hpet = HPET::new(0xFED00000);
