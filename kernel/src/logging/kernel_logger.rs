@@ -31,23 +31,24 @@ impl log::Log for KernelLogger {
     }
 
     fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            use core::fmt::Write;
-
-            let mut msg = String::<128>::new();
-            let _ = write!(msg, "{}", record.args());
-
-            let entry = LogEntry {
-                level: record.level(),
-                message: msg,
-            };
-
-            // Serial log
-            serial_println!("[{}] {}", record.level(), record.args());
-
-            let mut buf = self.buffer.lock();
-            let _ = buf.enqueue(entry); // silently drop oldest if full
+        if !self.enabled(record.metadata()) {
+            return;
         }
+
+        // Serial log (fast path; avoid heapless formatting failure panicking)
+        serial_println!("[{}] {}", record.level(), record.args());
+
+        use core::fmt::Write;
+        let mut msg = String::<128>::new();
+        let _ = write!(msg, "{}", record.args());
+
+        let entry = LogEntry {
+            level: record.level(),
+            message: msg,
+        };
+
+        let mut buf = self.buffer.lock();
+        let _ = buf.enqueue(entry); // silently drop oldest if full
     }
 
     fn flush(&self) {}
