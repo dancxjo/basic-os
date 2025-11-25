@@ -1,9 +1,9 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
+use crate::drivers::input::InputBuffer;
 use crate::serial_print;
 use crate::task::runtime;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use log::{info, warn};
-use spin::Mutex;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::InterruptStackFrame;
 
@@ -276,14 +276,15 @@ fn scancode_to_char(scancode: u8, mods: &ModifierSnapshot) -> Option<char> {
         return None;
     }
 
-    let letter_shift = mods.shift ^ mods.caps_lock;
+    let shift = mods.shift || mods.altgr;
+    let letter_shift = shift ^ mods.caps_lock;
 
     let raw = match scancode {
         0x02..=0x0B => {
             let idx = (scancode - 0x02) as usize;
             let digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
             let shifted = ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')'];
-            if mods.shift {
+            if shift {
                 shifted.get(idx).copied()
             } else {
                 digits.get(idx).copied()
@@ -292,7 +293,7 @@ fn scancode_to_char(scancode: u8, mods: &ModifierSnapshot) -> Option<char> {
         0x10..=0x19 | 0x1E..=0x26 | 0x2C..=0x32 => letter_from_scancode(scancode, letter_shift),
         0x0F => Some('\t'),
         0x39 => Some(' '),
-        _ => punctuation_from_scancode(scancode, mods.shift),
+        _ => punctuation_from_scancode(scancode, shift),
     }?;
 
     if mods.deadkey == DeadKey::None {
@@ -424,27 +425,17 @@ pub fn process_scancode(scancode: u8) {
     }
 }
 
-pub static KEYBOARD_BUFFER: Mutex<[u8; KEYBOARD_BUFFER_LEN]> = Mutex::new([0; KEYBOARD_BUFFER_LEN]);
-pub static KEYBOARD_HEAD: AtomicUsize = AtomicUsize::new(0);
-pub static KEYBOARD_TAIL: AtomicUsize = AtomicUsize::new(0);
+pub static KEYBOARD_BUFFER: InputBuffer<u8, KEYBOARD_BUFFER_LEN> = InputBuffer::new(0);
 
 pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let mut data_port = Port::<u8>::new(0x60);
     let scancode: u8 = unsafe { data_port.read() };
 
-    let head = KEYBOARD_HEAD.load(Ordering::Relaxed);
-    let tail = KEYBOARD_TAIL.load(Ordering::Acquire);
-    let next = (head + 1) % KEYBOARD_BUFFER_LEN;
-
-    if next == tail {
+    if KEYBOARD_BUFFER.push(scancode).is_err() {
         warn!(
             "Keyboard buffer overflow, dropping scancode 0x{:02X}",
             scancode
         );
-    } else {
-        let mut buf = KEYBOARD_BUFFER.lock();
-        buf[head] = scancode;
-        KEYBOARD_HEAD.store(next, Ordering::Release);
     }
 
     // Process the scancode immediately since there is no dedicated
@@ -455,42 +446,5 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
 }
 
 pub fn pop_input() -> Option<u8> {
-    let head = KEYBOARD_HEAD.load(Ordering::Acquire);
-    let tail = KEYBOARD_TAIL.load(Ordering::Relaxed);
-
-    if head == tail {
-        return None;
-    }
-
-    let mut buf = KEYBOARD_BUFFER.lock();
-    let byte = buf[tail];
-    KEYBOARD_TAIL.store((tail + 1) % KEYBOARD_BUFFER_LEN, Ordering::Release);
-
-    Some(byte)
-}
-
-pub static MOUSE_PACKET_BUFFER: Mutex<[u8; 256]> = Mutex::new([0; 256]);
-pub static MOUSE_HEAD: AtomicUsize = AtomicUsize::new(0);
-pub static MOUSE_TAIL: AtomicUsize = AtomicUsize::new(0);
-
-pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    let mut data_port = Port::<u8>::new(0x60);
-    let packet: u8 = unsafe { data_port.read() };
-
-    let head = MOUSE_HEAD.load(Ordering::Relaxed);
-    let next = (head + 1) % 256;
-
-    let tail = MOUSE_TAIL.load(Ordering::Acquire);
-    if next == tail {
-        // Buffer full! Drop packet or handle overflow
-        warn!("Mouse packet buffer overflow!");
-        end_of_interrupt(12);
-        return;
-    }
-
-    let mut buf = MOUSE_PACKET_BUFFER.lock();
-    buf[head % 256] = packet;
-
-    MOUSE_HEAD.store(next, Ordering::Release);
-    end_of_interrupt(12);
+    KEYBOARD_BUFFER.pop()
 }

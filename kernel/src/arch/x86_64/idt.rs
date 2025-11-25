@@ -2,7 +2,7 @@
 
 use crate::{
     arch::x86_64::interrupts::{end_of_interrupt, init_io_apic_irq},
-    drivers::keyboard::{keyboard_interrupt_handler, mouse_interrupt_handler},
+    drivers::{keyboard::keyboard_interrupt_handler, mouse::mouse_interrupt_handler},
 };
 use core::sync::atomic::{AtomicU64, Ordering};
 use log::error;
