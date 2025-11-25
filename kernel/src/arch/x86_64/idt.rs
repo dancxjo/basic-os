@@ -8,7 +8,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use log::error;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
-pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
+// IST entries are 1-based in the IDT; we use slot 1 -> interrupt_stack_table[0].
+pub const DOUBLE_FAULT_IST_INDEX: u16 = 1;
 
 // === Internal ===
 
