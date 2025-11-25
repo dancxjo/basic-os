@@ -22,6 +22,15 @@ pub struct Edge {
     pub revision: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub revision: u64,
+    pub thing_count: usize,
+    pub edge_count: usize,
+    pub things: Vec<Thing>,
+    pub edges: Vec<Edge>,
+}
+
 #[derive(Default)]
 pub struct Store {
     pub things: BTreeMap<Uuid, Vec<Thing>>,
@@ -135,6 +144,42 @@ impl Store {
             self.edges.push(edge);
         }
     }
+
+    pub fn snapshot(&self) -> Snapshot {
+        let mut things = Vec::new();
+        let mut revision = 0;
+
+        for versions in self.things.values() {
+            for thing in versions {
+                revision = revision.max(thing.revision);
+                things.push(thing.clone());
+            }
+        }
+
+        for edge in &self.edges {
+            revision = revision.max(edge.revision);
+        }
+
+        Snapshot {
+            revision,
+            thing_count: self.things.len(),
+            edge_count: self.edges.len(),
+            things,
+            edges: self.edges.clone(),
+        }
+    }
+
+    pub fn apply_snapshot(&mut self, snapshot: Snapshot) {
+        self.things.clear();
+        self.edges.clear();
+        self.edges.extend(snapshot.edges.into_iter());
+
+        for thing in snapshot.things.into_iter() {
+            let versions = self.things.entry(thing.id).or_default();
+            versions.push(thing);
+            versions.sort_by_key(|t| t.revision);
+        }
+    }
 }
 
 static STORE: Mutex<Option<Store>> = Mutex::new(None);
@@ -150,4 +195,23 @@ pub fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
     let mut s = STORE.lock();
     let store = s.get_or_insert_with(Store::new);
     f(store)
+}
+
+pub fn snapshot() -> Snapshot {
+    with_store(|store| store.snapshot())
+}
+
+pub fn apply_snapshot(snapshot: Snapshot) {
+    with_store(|store| store.apply_snapshot(snapshot));
+}
+
+pub fn export_snapshot_bytes() -> Option<Vec<u8>> {
+    let snapshot = snapshot();
+    postcard::to_allocvec(&snapshot).ok()
+}
+
+pub fn import_snapshot_bytes(buf: &[u8]) -> Result<(), postcard::Error> {
+    let snapshot: Snapshot = postcard::from_bytes(buf)?;
+    apply_snapshot(snapshot);
+    Ok(())
 }
