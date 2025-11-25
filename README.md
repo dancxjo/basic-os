@@ -54,6 +54,29 @@ This repository is in a very early stage. Persistence and higher level
 services are not implemented yet. A simple cooperative multitasking
 system exists but remains experimental. Development is focused on
 bringing up the core kernel.
+
+## ThingOS vision (short)
+
+- **Everything is a Thing**: uniform data unit with identity, kind, and fields. Should be declarative, inspectable, and serializable; state comes from events, not in-place mutation.
+- **The Graph is the system**: directed, labeled multigraph describing containment, dependencies, supervision, IO, config, and message streams between Things.
+- **The Journal is the CPU**: append-only event log; components react to events and emit new ones. State is reconstructed by replay; persistence is the log.
+
+Current implementation status:
+
+- Telemetry core (kernel/src/telemetry): symbols (`canon`), append-only in-memory journal with snapshot/replay, and a Thing store/graph scaffold.
+- Drivers register declaratively and emit init/fail events; keyboard emits key press events into the journal.
+- Replay hook is wired but does not yet rebuild the graph from the journal; journal is in-memory only.
+
+## Near-term roadmap
+
+- Journal: introduce a durable sink (memory/serial/block when available), postcard/serde event format, and a replay pass on boot.
+- Graph: interpret journal propositions into Thing/edge updates; formalize predicates (contains/depends/supervises/streams/config-of) and make drivers/devices/configs Things with edges.
+- Immutability/versioning: remove in-place mutations of Thing data; treat updates as new versions/events with UUID+revision.
+- Subscriptions: add a simple iterator/subscription API so components consume relevant journal events.
+- Schema: centralize kind/predicate registration with dedupe and docs; expand symbol table for common lifecycle/IO/error events.
+- Snapshots: optional graph snapshots for faster boot, with journal replay for convergence.
+
+Contributors/agents: please keep these pillars in mind when adding drivers or services. Emit events instead of mutating globals; register Things and edges where possible; prefer declarative descriptors over bespoke wiring.
 ## License
 
 MIT
