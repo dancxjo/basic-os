@@ -4,6 +4,7 @@
 //! New drivers only need to expose a `DriverDescriptor` with metadata and an
 //! init function; everything else can discover them via `ALL_DRIVERS`.
 
+use crate::telemetry::{canon, journal};
 use log::{info, warn};
 
 pub type DriverInit = fn() -> Result<(), &'static str>;
@@ -51,8 +52,14 @@ pub const ALL_DRIVERS: &[DriverDescriptor] = &[
 pub fn init_all() {
     for driver in ALL_DRIVERS {
         match (driver.init)() {
-            Ok(()) => info!("Driver '{}' initialized", driver.name),
-            Err(err) => warn!("Driver '{}' failed to init: {}", driver.name, err),
+            Ok(()) => {
+                info!("Driver '{}' initialized", driver.name);
+                let _ = journal::record(canon::cc(b'D', b'R'), canon::INIT, canon::cc(b'N', b'W'));
+            }
+            Err(err) => {
+                warn!("Driver '{}' failed to init: {}", driver.name, err);
+                let _ = journal::record(canon::cc(b'D', b'R'), canon::FAIL, canon::cc(b'N', b'W'));
+            }
         }
     }
 }

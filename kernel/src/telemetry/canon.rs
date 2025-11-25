@@ -12,6 +12,8 @@ pub const MOUSE: u16 = cc(b'M', b'S');
 pub const PRESSED: u16 = cc(b'P', b'R');
 pub const MOVED: u16 = cc(b'M', b'V');
 pub const AT: u16 = cc(b'@', b' ');
+pub const INIT: u16 = cc(b'I', b'N');
+pub const FAIL: u16 = cc(b'F', b'L');
 
 /// Return the symbolic name for a code if known.
 pub fn sym_name(code: u16) -> &'static str {
@@ -23,6 +25,8 @@ pub fn sym_name(code: u16) -> &'static str {
         (PRESSED, "pressed"),
         (MOVED, "moved"),
         (AT, "at"),
+        (INIT, "init"),
+        (FAIL, "fail"),
     ];
     let mut i = 0;
     while i < TBL.len() {

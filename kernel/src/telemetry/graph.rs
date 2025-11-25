@@ -1,4 +1,5 @@
 use crate::serial_println;
+use crate::telemetry::journal::Proposition;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
 use core::mem;
 use sha2::{Digest, Sha256};
@@ -177,6 +178,11 @@ impl Graph {
         };
         self.facts.push(fact);
         self.facts.last().copied()
+    }
+
+    pub fn replay_events(&mut self, _events: &[Proposition]) {
+        // TODO: interpret propositions into graph updates (e.g., create things, add links).
+        // Stub keeps the replay path wired for now.
     }
 
     pub fn print_things(&self) {

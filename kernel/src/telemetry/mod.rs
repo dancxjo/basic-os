@@ -15,5 +15,7 @@ pub fn init() {
     INIT.call_once(|| {
         graph::init();
         journal::init();
+        let snapshot = journal::snapshot();
+        graph::with_graph(|g| g.replay_events(&snapshot));
     });
 }

@@ -1,5 +1,6 @@
 use crate::serial_println;
 use crate::telemetry::canon::sym_name;
+use alloc::vec::Vec;
 use core::fmt;
 use spin::Mutex;
 
@@ -31,27 +32,24 @@ impl fmt::Debug for Proposition {
     }
 }
 
-const JOURNAL_SIZE: usize = 256;
+const JOURNAL_CAPACITY: usize = 1024;
 
 struct Journal {
-    entries: [Proposition; JOURNAL_SIZE],
-    len: usize,
+    entries: Vec<Proposition>,
 }
 
 impl Journal {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
-            entries: [Proposition::new(0, 0, 0); JOURNAL_SIZE],
-            len: 0,
+            entries: Vec::new(),
         }
     }
 
     fn push(&mut self, p: Proposition) -> bool {
-        if self.len >= JOURNAL_SIZE {
+        if self.entries.len() >= JOURNAL_CAPACITY {
             return false;
         }
-        self.entries[self.len] = p;
-        self.len += 1;
+        self.entries.push(p);
         true
     }
 }
@@ -59,7 +57,8 @@ impl Journal {
 static JOURNAL: Mutex<Journal> = Mutex::new(Journal::new());
 
 pub fn init() {
-    JOURNAL.lock().len = 0;
+    let mut j = JOURNAL.lock();
+    j.entries.clear();
 }
 
 /// Record a proposition; returns false if the journal is full.
@@ -71,7 +70,7 @@ pub fn record(subject: u16, predicate: u16, object: u16) -> bool {
 /// Dump the journal as hex codes.
 pub fn dump() {
     let j = JOURNAL.lock();
-    for entry in j.entries.iter().take(j.len) {
+    for entry in &j.entries {
         serial_println!(
             "{:#06x} {:#06x} {:#06x}",
             entry.subject,
@@ -84,7 +83,7 @@ pub fn dump() {
 /// Dump the journal using symbolic names when possible.
 pub fn dump_pretty() {
     let j = JOURNAL.lock();
-    for entry in j.entries.iter().take(j.len) {
+    for entry in &j.entries {
         serial_println!(
             "{} {} {}",
             fmt_sym(entry.subject),
@@ -111,4 +110,18 @@ impl fmt::Display for SymDisplay {
             f.write_str(name)
         }
     }
+}
+
+/// Replay journal entries through a visitor.
+pub fn replay(mut f: impl FnMut(&Proposition)) {
+    let snapshot = snapshot();
+    for entry in &snapshot {
+        f(entry);
+    }
+}
+
+/// Return a snapshot of the current journal.
+pub fn snapshot() -> Vec<Proposition> {
+    let j = JOURNAL.lock();
+    j.entries.clone()
 }
