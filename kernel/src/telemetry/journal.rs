@@ -1,142 +1,180 @@
 use crate::serial_println;
-use crate::telemetry::canon::sym_name;
-use alloc::vec::Vec;
+use crate::telemetry::canon::Symbol;
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use core::fmt;
 use serde::{Deserialize, Serialize};
 use spin::Mutex;
+use uuid::Uuid;
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
-#[repr(C, packed)]
-pub struct Proposition {
-    pub subject: u16,
-    pub predicate: u16,
-    pub object: u16,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Value {
+    Null,
+    Bool(bool),
+    U64(u64),
+    I64(i64),
+    Bytes(Vec<u8>),
+    Symbol(Symbol),
+    Uuid(Uuid),
+    Text(String),
+    Map(BTreeMap<Symbol, Value>),
+    List(Vec<Value>),
 }
 
-impl Proposition {
-    pub const fn new(subject: u16, predicate: u16, object: u16) -> Self {
-        Self {
-            subject,
-            predicate,
-            object,
+impl Value {
+    pub fn as_map(&self) -> Option<&BTreeMap<Symbol, Value>> {
+        match self {
+            Value::Map(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    pub fn as_uuid(&self) -> Option<Uuid> {
+        match self {
+            Value::Uuid(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<Symbol> {
+        match self {
+            Value::Symbol(sym) => Some(*sym),
+            _ => None,
+        }
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Value::U64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::I64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Value::Text(s) => Some(s),
+            _ => None,
         }
     }
 }
 
-impl fmt::Debug for Proposition {
+impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Proposition")
-            .field("subject", &self.subject)
-            .field("predicate", &self.predicate)
-            .field("object", &self.object)
-            .finish()
+        match self {
+            Value::Null => f.write_str("null"),
+            Value::Bool(v) => write!(f, "{}", v),
+            Value::U64(v) => write!(f, "{}", v),
+            Value::I64(v) => write!(f, "{}", v),
+            Value::Bytes(b) => write!(f, "bytes({})", b.len()),
+            Value::Symbol(sym) => write!(f, "{}", sym),
+            Value::Uuid(id) => write!(f, "{}", id),
+            Value::Text(s) => write!(f, "\"{}\"", s),
+            Value::Map(m) => {
+                f.write_str("{")?;
+                let mut first = true;
+                for (k, v) in m.iter() {
+                    if !first {
+                        f.write_str(", ")?;
+                    }
+                    first = false;
+                    write!(f, "{}: {}", k, v)?;
+                }
+                f.write_str("}")
+            }
+            Value::List(items) => {
+                f.write_str("[")?;
+                let mut first = true;
+                for v in items {
+                    if !first {
+                        f.write_str(", ")?;
+                    }
+                    first = false;
+                    write!(f, "{}", v)?;
+                }
+                f.write_str("]")
+            }
+        }
     }
 }
 
-/// Serialized event entry in the journal.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
-    pub proposition: Proposition,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub payload: Option<Vec<u8>>,
+    pub timestamp: u64,
+    pub kind: Symbol,
+    pub data: Value,
 }
 
 impl Event {
-    pub fn new(proposition: Proposition) -> Self {
+    pub fn new(kind: Symbol, data: Value) -> Self {
         Self {
-            proposition,
-            payload: None,
+            timestamp: timestamp_now(),
+            kind,
+            data,
         }
     }
 
-    pub fn with_payload(proposition: Proposition, payload: Vec<u8>) -> Self {
+    pub fn with_timestamp(timestamp: u64, kind: Symbol, data: Value) -> Self {
         Self {
-            proposition,
-            payload: Some(payload),
+            timestamp,
+            kind,
+            data,
         }
     }
 }
 
 const JOURNAL_CAPACITY: usize = 1024;
 
+#[derive(Clone)]
 struct Journal {
     entries: Vec<Event>,
+    capacity: usize,
 }
 
 impl Journal {
-    fn new() -> Self {
+    fn new(capacity: usize) -> Self {
         Self {
             entries: Vec::new(),
+            capacity,
         }
     }
 
-    fn push(&mut self, e: Event) -> bool {
-        if self.entries.len() >= JOURNAL_CAPACITY {
-            return false;
+    fn emit(&mut self, e: Event) {
+        if self.entries.len() >= self.capacity {
+            self.entries.remove(0);
         }
         self.entries.push(e);
-        true
     }
 }
 
-static JOURNAL: Mutex<Journal> = Mutex::new(Journal::new());
+static JOURNAL: Mutex<Option<Journal>> = Mutex::new(None);
 
 pub fn init() {
-    let mut j = JOURNAL.lock();
-    j.entries.clear();
+    with_journal(|j| j.entries.clear());
 }
 
-/// Record a proposition; returns false if the journal is full.
-pub fn record(subject: u16, predicate: u16, object: u16) -> bool {
-    record_event(Event::new(Proposition::new(subject, predicate, object)))
+/// Record an event, evicting the oldest entry when at capacity.
+pub fn emit(event: Event) -> bool {
+    with_journal(|j| j.emit(event.clone()));
+    crate::telemetry::graph::with_store(|store| store.apply_event(&event));
+    true
 }
 
-/// Record a full event with optional payload.
-pub fn record_event(event: Event) -> bool {
-    let mut j = JOURNAL.lock();
-    j.push(event)
-}
-
-/// Dump the journal as hex codes.
-pub fn dump() {
-    let j = JOURNAL.lock();
-    for entry in &j.entries {
-        let p = entry.proposition;
-        serial_println!("{:#06x} {:#06x} {:#06x}", p.subject, p.predicate, p.object);
-    }
-}
-
-/// Dump the journal using symbolic names when possible.
-pub fn dump_pretty() {
-    let j = JOURNAL.lock();
-    for entry in &j.entries {
-        let p = entry.proposition;
-        serial_println!(
-            "{} {} {}",
-            fmt_sym(p.subject),
-            fmt_sym(p.predicate),
-            fmt_sym(p.object)
-        );
-    }
-}
-
-fn fmt_sym(code: u16) -> SymDisplay {
-    SymDisplay { code }
-}
-
-struct SymDisplay {
-    code: u16,
-}
-
-impl fmt::Display for SymDisplay {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = sym_name(self.code);
-        if name.is_empty() {
-            write!(f, "0x{:04x}", self.code)
-        } else {
-            f.write_str(name)
-        }
-    }
+/// Convenience helper to wrap data and fill in the timestamp automatically.
+pub fn emit_data(kind: Symbol, data: Value) -> bool {
+    emit(Event::new(kind, data))
 }
 
 /// Replay journal entries through a visitor.
@@ -149,8 +187,15 @@ pub fn replay(mut f: impl FnMut(&Event)) {
 
 /// Return a snapshot of the current journal.
 pub fn snapshot() -> Vec<Event> {
-    let j = JOURNAL.lock();
-    j.entries.clone()
+    with_journal(|j| j.entries.clone())
+}
+
+/// Dump the journal using symbolic names when possible.
+pub fn dump_pretty() {
+    let snapshot = snapshot();
+    for entry in &snapshot {
+        serial_println!("@{} {} {}", entry.timestamp, entry.kind, entry.data);
+    }
 }
 
 /// Export the journal to a postcard-serialized buffer.
@@ -162,11 +207,22 @@ pub fn export_bytes() -> Option<Vec<u8>> {
 /// Import a serialized journal buffer, appending entries if capacity allows.
 pub fn import_bytes(buf: &[u8]) -> Result<(), postcard::Error> {
     let events: Vec<Event> = postcard::from_bytes(buf)?;
-    let mut j = JOURNAL.lock();
     for e in events {
-        if !j.push(e) {
-            break;
-        }
+        let _ = emit(e);
     }
     Ok(())
+}
+
+fn timestamp_now() -> u64 {
+    let clock = unsafe { crate::clock::CLOCK };
+    match clock {
+        Some(clk) => clk.lock().ticks_since_boot(),
+        None => 0,
+    }
+}
+
+fn with_journal<R>(f: impl FnOnce(&mut Journal) -> R) -> R {
+    let mut j = JOURNAL.lock();
+    let journal = j.get_or_insert_with(|| Journal::new(JOURNAL_CAPACITY));
+    f(journal)
 }

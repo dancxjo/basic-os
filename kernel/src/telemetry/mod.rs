@@ -13,9 +13,9 @@ static INIT: Once<()> = Once::new();
 /// Initialize telemetry components. Idempotent.
 pub fn init() {
     INIT.call_once(|| {
-        graph::init();
         journal::init();
+        graph::init();
         let snapshot = journal::snapshot();
-        graph::with_graph(|g| g.replay_events(&snapshot));
+        graph::with_store(|g| g.replay_events(&snapshot));
     });
 }

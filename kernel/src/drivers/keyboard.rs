@@ -3,8 +3,9 @@ use crate::drivers::input::InputBuffer;
 use crate::drivers::registry::{DriverDescriptor, DriverKind};
 use crate::serial_print;
 use crate::task::runtime;
-use crate::telemetry::{canon, journal};
-use alloc::vec;
+use crate::telemetry::canon::{self, Symbol};
+use crate::telemetry::journal::{self, Event, Value};
+use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use log::{info, warn};
 use x86_64::instructions::port::Port;
@@ -382,19 +383,24 @@ fn handle_key_event(event: KeyEvent) {
         return;
     }
 
+    let mut payload = BTreeMap::new();
+    payload.insert(canon::SCANCODE, Value::U64(event.scancode as u64));
     if let Some(symbol) = key_symbol(event.code) {
-        let payload = vec![event.scancode];
-        let ev = journal::Event::with_payload(
-            journal::Proposition::new(canon::KEYBOARD, canon::PRESSED, symbol),
-            payload,
-        );
-        let _ = journal::record_event(ev);
+        payload.insert(canon::KEY, Value::Symbol(symbol));
     }
+    let ev = Event::new(canon::KEY_PRESSED, Value::Map(payload));
+    let _ = journal::emit(ev);
 
     match event.code {
-        KeyCode::Printable(c) => serial_print!("{}", c),
-        KeyCode::Tab => serial_print!("\t"),
-        KeyCode::Space => serial_print!(" "),
+        KeyCode::Printable(c) => {
+            serial_print!("{}", c);
+        }
+        KeyCode::Tab => {
+            serial_print!("\t");
+        }
+        KeyCode::Space => {
+            serial_print!(" ");
+        }
         KeyCode::Backspace => info!("Backspace key pressed"),
         KeyCode::Enter => runtime::yield_now(),
         KeyCode::Escape => info!("Escape key pressed"),
@@ -414,26 +420,26 @@ fn handle_key_event(event: KeyEvent) {
     }
 }
 
-fn key_symbol(code: KeyCode) -> Option<u16> {
+fn key_symbol(code: KeyCode) -> Option<Symbol> {
     Some(match code {
-        KeyCode::Printable(c) => c as u16,
-        KeyCode::Tab => canon::cc(b'T', b'B'),
-        KeyCode::Enter => canon::cc(b'E', b'N'),
-        KeyCode::Escape => canon::cc(b'E', b'S'),
-        KeyCode::Space => b' ' as u16,
-        KeyCode::Function(idx) => 0xF000 | idx as u16,
-        KeyCode::ArrowUp => canon::cc(b'A', b'U'),
-        KeyCode::ArrowDown => canon::cc(b'A', b'D'),
-        KeyCode::ArrowLeft => canon::cc(b'A', b'L'),
-        KeyCode::ArrowRight => canon::cc(b'A', b'R'),
-        KeyCode::Home => canon::cc(b'H', b'M'),
-        KeyCode::End => canon::cc(b'E', b'D'),
-        KeyCode::PageUp => canon::cc(b'P', b'U'),
-        KeyCode::PageDown => canon::cc(b'P', b'D'),
-        KeyCode::Insert => canon::cc(b'I', b'N'),
-        KeyCode::Delete => canon::cc(b'D', b'L'),
-        KeyCode::YieldNow => canon::cc(b'Y', b'L'),
-        KeyCode::Backspace => canon::cc(b'B', b'S'),
+        KeyCode::Printable(c) => canon::from_char(c),
+        KeyCode::Tab => canon::cc('T', 'B'),
+        KeyCode::Enter => canon::cc('E', 'N'),
+        KeyCode::Escape => canon::cc('E', 'S'),
+        KeyCode::Space => canon::from_char(' '),
+        KeyCode::Function(idx) => Symbol::new(0xF000 | idx as u32),
+        KeyCode::ArrowUp => canon::cc('A', 'U'),
+        KeyCode::ArrowDown => canon::cc('A', 'D'),
+        KeyCode::ArrowLeft => canon::cc('A', 'L'),
+        KeyCode::ArrowRight => canon::cc('A', 'R'),
+        KeyCode::Home => canon::cc('H', 'M'),
+        KeyCode::End => canon::cc('E', 'D'),
+        KeyCode::PageUp => canon::cc('P', 'U'),
+        KeyCode::PageDown => canon::cc('P', 'D'),
+        KeyCode::Insert => canon::cc('I', 'N'),
+        KeyCode::Delete => canon::cc('D', 'L'),
+        KeyCode::YieldNow => canon::cc('Y', 'L'),
+        KeyCode::Backspace => canon::cc('B', 'S'),
         KeyCode::Unknown(_) => return None,
     })
 }
