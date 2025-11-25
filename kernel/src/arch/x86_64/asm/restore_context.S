@@ -51,8 +51,8 @@ restore_context:
     movq %rdi, %rsp       # rdi points to context buffer
 
     # Restore general-purpose registers from context
-    # Order must match GeneralRegisters struct: r15, r14, ..., rax
-    # The struct is laid out with r15 at offset 0, rax at offset 112
+    # Order must match GeneralRegisters struct layout:
+    # r15 at offset 0, r14 at offset 8, ..., rax at offset 112
     popq %r15
     popq %r14
     popq %r13

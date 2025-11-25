@@ -26,8 +26,15 @@ pub struct IretFrame {
 ///
 /// IMPORTANT: The order of fields MUST match the push order in tick_handler.S
 /// and pop order in restore_context.S. When pushq is used in order:
-/// rax, rbx, rcx, rdx, rbp, rdi, rsi, r8-r15, the stack layout (low to high)
-/// becomes: r15, r14, ..., rax.
+/// rax, rbx, rcx, rdx, rbp, rdi, rsi, r8, r9, r10, r11, r12, r13, r14, r15,
+/// the stack layout (from low address to high) becomes:
+/// r15, r14, r13, r12, r11, r10, r9, r8, rsi, rdi, rbp, rdx, rcx, rbx, rax.
+///
+/// Offsets from start of struct:
+/// - r15: offset 0
+/// - r14: offset 8
+/// - ...
+/// - rax: offset 112 (14 * 8)
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct GeneralRegisters {
