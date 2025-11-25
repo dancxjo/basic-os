@@ -1,3 +1,24 @@
+//! Task scheduler implementation.
+//!
+//! The scheduler manages a set of tasks and switches between them using
+//! timer interrupts. The main entry point for context switching is
+//! `rust_schedule_and_switch`, which is called from the assembly
+//! tick_handler when a timer interrupt occurs.
+//!
+//! # Architecture
+//!
+//! 1. Timer interrupt fires, tick_handler.S saves all general-purpose registers
+//! 2. rust_schedule_and_switch copies saved context to current task
+//! 3. Scheduler selects next task using round-robin
+//! 4. restore_context.S restores the next task's registers and iretq's to it
+//!
+//! # Memory Layout
+//!
+//! Each task has its own stack at a unique virtual address:
+//! - Stack region base: 0xffff_8800_1000_0000
+//! - Stack size: 5 pages (20KB)
+//! - Tasks are spaced by stack size
+
 use crate::{
     arch::x86_64::interrupts::end_of_interrupt, mm::allocator::BootFrameAllocator, serial_print,
 };
@@ -9,6 +30,7 @@ use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
 
 use crate::task::context::{FullContext, TaskMode, prepare_context};
 
+/// Represents a schedulable task with its execution context and stack.
 #[repr(C)]
 #[derive(Debug)]
 pub struct Task {

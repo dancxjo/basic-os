@@ -1,9 +1,17 @@
+//! Task context structures for x86_64.
+//!
+//! These structures define the saved CPU state for context switching.
+//! The layout must match the assembly code in tick_handler.S and restore_context.S.
+
+/// Task execution mode (privilege level).
 #[derive(Debug, Clone, Copy)]
 pub enum TaskMode {
     Kernel,
     User,
 }
 
+/// Interrupt return frame pushed by the CPU on interrupt/exception.
+/// This is the state restored by the `iretq` instruction.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct IretFrame {
@@ -14,6 +22,12 @@ pub struct IretFrame {
     pub ss: u64,
 }
 
+/// General-purpose registers saved during context switch.
+///
+/// IMPORTANT: The order of fields MUST match the push order in tick_handler.S
+/// and pop order in restore_context.S. When pushq is used in order:
+/// rax, rbx, rcx, rdx, rbp, rdi, rsi, r8-r15, the stack layout (low to high)
+/// becomes: r15, r14, ..., rax.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct GeneralRegisters {
@@ -34,6 +48,7 @@ pub struct GeneralRegisters {
     pub rax: u64,
 }
 
+/// Complete saved context for a task, combining registers and interrupt frame.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct FullContext {
@@ -41,6 +56,10 @@ pub struct FullContext {
     pub frame: IretFrame,
 }
 
+/// Prepare initial context for a new task.
+///
+/// Creates a context that, when restored, will start executing at `entry`
+/// with the stack pointer set to `stack_top`.
 pub fn prepare_context(entry: extern "C" fn(), stack_top: u64, mode: TaskMode) -> FullContext {
     use crate::arch::x86_64::gdt::{
         KERNEL_CODE_SEG, KERNEL_DATA_SEG, USER_CODE_SEG, USER_DATA_SEG,
@@ -54,6 +73,7 @@ pub fn prepare_context(entry: extern "C" fn(), stack_top: u64, mode: TaskMode) -
         frame: IretFrame {
             rip: entry as u64,
             cs,
+            // 0x202 = interrupts enabled (IF flag set)
             rflags: 0x202,
             rsp: stack_top,
             ss,
