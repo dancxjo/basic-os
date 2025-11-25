@@ -57,15 +57,22 @@ bringing up the core kernel.
 
 ## ThingOS vision (short)
 
-- **Everything is a Thing**: uniform data unit with identity, kind, and fields. Should be declarative, inspectable, and serializable; state comes from events, not in-place mutation.
-- **The Graph is the system**: directed, labeled multigraph describing containment, dependencies, supervision, IO, config, and message streams between Things.
+- **Everything is a Thing**: uniform data unit with identity, kind, and fields. Should be declarative, inspectable, and serializable; state comes from events, not in-place mutation. Identities are stable and revisions accumulate (Things never “die”; they gain new versions).
+- **The Graph is the system**: directed, labeled multigraph describing containment, dependencies, supervision, IO, config, and message streams between Things. The graph is not stored — it is derived by replaying the journal, with optional snapshots for faster boot.
 - **The Journal is the CPU**: append-only event log; components react to events and emit new ones. State is reconstructed by replay; persistence is the log.
 
 Current implementation status:
 
 - Telemetry core (kernel/src/telemetry): symbols (`canon`), append-only in-memory journal with snapshot/replay, and a Thing store/graph scaffold.
-- Drivers register declaratively and emit init/fail events; keyboard emits key press events into the journal.
+- Drivers register declaratively and emit init/fail events; keyboard emits key press events into the journal. Drivers are Things too and should eventually appear as nodes with edges like `implements HardwareThing`, `streams IRQThing`, `depends_on ClockThing`, `supervises TaskThing`.
 - Replay hook is wired but does not yet rebuild the graph from the journal; journal is in-memory only.
+
+Example event (journal proposition):
+
+```
+subject: keyboard0   predicate: pressed   object: key='a', scancode=0x1e
+// canon form: (KB_PRESSED t:keyboard0 k:'a' sc:0x1e)
+```
 
 ## Near-term roadmap
 
