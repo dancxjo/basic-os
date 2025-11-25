@@ -12,16 +12,16 @@ This document summarizes the intended architecture so agents can pick up work wi
 
 - `kernel/src/telemetry`
   - `canon`: human-readable symbols (`cc('K','B')`, etc.).
-  - `journal`: append-only in-memory log with snapshot and replay hooks (capacity 1024 entries).
-  - `graph`: Thing store scaffold (UUID-based) with a stub replay interpreter.
+  - `journal`: append-only in-memory log with snapshot/replay hooks (capacity 1024 entries) and postcard export/import.
+  - `graph`: Thing store scaffold (UUID-based) with a stub replay interpreter that turns events into symbol Things and edges.
 - Drivers
   - Declarative descriptors in `drivers/registry.rs`; emit init/fail events to the journal.
-  - Keyboard emits key press events to the journal using canon symbols.
+  - Keyboard emits key press events (with scancode payloads); mouse emits move events (dx/dy/buttons payloads).
 - System init (`system/inner.rs`) initializes telemetry after the heap and replays the journal stub into the graph.
 
 ## Gaps vs. vision
 
-- Journal is in-memory only; no durable sink or on-boot replay of persisted events.
+- Journal is in-memory only; export/import exists but no durable sink or on-boot replay of persisted events.
 - Graph replay is a stub; edges and Things are not reconstructed from events.
 - Things can be mutated in place; no versioned/immutable snapshots or revision IDs.
 - No subscription/iterator API for consumers; no schema validation/dedup for kinds/predicates.

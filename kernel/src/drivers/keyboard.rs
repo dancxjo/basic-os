@@ -4,6 +4,7 @@ use crate::drivers::registry::{DriverDescriptor, DriverKind};
 use crate::serial_print;
 use crate::task::runtime;
 use crate::telemetry::{canon, journal};
+use alloc::vec;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use log::{info, warn};
 use x86_64::instructions::port::Port;
@@ -99,6 +100,7 @@ enum KeyCode {
 struct KeyEvent {
     code: KeyCode,
     pressed: bool,
+    scancode: u8,
 }
 
 fn set_dead_key(dead: DeadKey) {
@@ -329,11 +331,16 @@ fn decode_basic(scancode: u8, mods: &ModifierSnapshot) -> Option<KeyEvent> {
             return scancode_to_char(code, mods).map(|c| KeyEvent {
                 code: KeyCode::Printable(c),
                 pressed,
+                scancode: code,
             });
         }
     };
 
-    Some(KeyEvent { code: key, pressed })
+    Some(KeyEvent {
+        code: key,
+        pressed,
+        scancode: code,
+    })
 }
 
 fn decode_extended(scancode: u8, _mods: &ModifierSnapshot) -> Option<KeyEvent> {
@@ -355,7 +362,11 @@ fn decode_extended(scancode: u8, _mods: &ModifierSnapshot) -> Option<KeyEvent> {
         _ => return None,
     };
 
-    Some(KeyEvent { code: key, pressed })
+    Some(KeyEvent {
+        code: key,
+        pressed,
+        scancode: code,
+    })
 }
 
 fn handle_function_key(idx: u8) {
@@ -372,7 +383,12 @@ fn handle_key_event(event: KeyEvent) {
     }
 
     if let Some(symbol) = key_symbol(event.code) {
-        let _ = journal::record(canon::KEYBOARD, canon::PRESSED, symbol);
+        let payload = vec![event.scancode];
+        let ev = journal::Event::with_payload(
+            journal::Proposition::new(canon::KEYBOARD, canon::PRESSED, symbol),
+            payload,
+        );
+        let _ = journal::record_event(ev);
     }
 
     match event.code {

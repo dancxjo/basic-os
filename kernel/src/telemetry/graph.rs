@@ -1,5 +1,6 @@
 use crate::serial_println;
-use crate::telemetry::journal::Proposition;
+use crate::telemetry::canon::sym_name;
+use crate::telemetry::journal::{Event, Proposition};
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
 use core::mem;
 use sha2::{Digest, Sha256};
@@ -180,9 +181,53 @@ impl Graph {
         self.facts.last().copied()
     }
 
-    pub fn replay_events(&mut self, _events: &[Proposition]) {
-        // TODO: interpret propositions into graph updates (e.g., create things, add links).
-        // Stub keeps the replay path wired for now.
+    pub fn replay_events(&mut self, events: &[Event]) {
+        for event in events {
+            self.apply_event(event);
+        }
+    }
+
+    fn apply_event(&mut self, event: &Event) {
+        let p = event.proposition;
+        let subject_idx = self.ensure_symbol_thing(p.subject);
+        let object_idx = self.ensure_symbol_thing(p.object);
+
+        let pred_name = match sym_name(p.predicate) {
+            "" => "unknown",
+            name => name,
+        };
+        let pred_idx = self.add_predicate(pred_name, "symbol", "symbol");
+        let fact = Fact {
+            this: subject_idx,
+            that: object_idx,
+            predicate: pred_idx,
+        };
+        self.facts.push(fact);
+
+        if let Some(payload) = &event.payload {
+            // Store payload as another Thing linked via "payload".
+            let payload_uuid = self.insert_bytes("payload", payload);
+            if let Some(idx) = self.uuid_map.get(&payload_uuid).copied() {
+                let _ = self.add_predicate("payload", "symbol", "payload");
+                if let Some(fact) = self.link(subject_idx, idx, "payload") {
+                    let _ = fact;
+                }
+            }
+        }
+    }
+
+    fn ensure_symbol_thing(&mut self, code: u16) -> usize {
+        let bytes = code.to_be_bytes();
+        let uuid = make_uuid_from_seed(&bytes);
+        if let Some(idx) = self.uuid_map.get(&uuid).copied() {
+            return idx;
+        }
+
+        let idx = self.insert_bytes("symbol", &bytes);
+        self.uuid_map
+            .get(&uuid)
+            .copied()
+            .expect("symbol insertion failed to register")
     }
 
     pub fn print_things(&self) {

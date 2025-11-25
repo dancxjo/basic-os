@@ -2,6 +2,8 @@ use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::framebuffer::Framebuffer;
 use crate::drivers::input::InputBuffer;
 use crate::drivers::registry::{DriverDescriptor, DriverKind};
+use crate::telemetry::{canon, journal};
+use alloc::vec;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::{Point, Primitive, RgbColor};
 use embedded_graphics::primitives::{Polyline, PrimitiveStyle};
@@ -162,6 +164,14 @@ pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptSta
         if MOUSE_EVENTS.push(event).is_err() {
             warn!("Mouse event buffer overflow");
         }
+        let buttons: u8 =
+            (event.left as u8) | ((event.right as u8) << 1) | ((event.middle as u8) << 2);
+        let payload = vec![event.dx as u8, event.dy as u8, buttons];
+        let ev = journal::Event::with_payload(
+            journal::Proposition::new(canon::MOUSE, canon::MOVED, buttons as u16),
+            payload,
+        );
+        let _ = journal::record_event(ev);
     }
 
     end_of_interrupt(12);
