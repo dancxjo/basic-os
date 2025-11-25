@@ -46,7 +46,20 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/thingos -ex "target remote
   or rely on timer ticks to yield execution. Function keys `F1`–`F12`
   select which task runs next.
 
-- **hello\_from/** – minimal userland program that prints text using a syscall.
+- **hello\_from/** – minimal userland program that prints text by emitting a
+  journal event instead of writing directly to the framebuffer.
+
+## Syscall surface (early)
+
+- `journal_emit(kind, ptr, len)`: append an event to the telemetry journal. The
+  payload is parsed as postcard-serialized `Value` when possible, otherwise as
+  UTF-8 text or raw bytes. `write` events (symbol `WRT`) are also reflected to
+  the console for convenience.
+- `journal_snapshot(out_ptr, out_len)`: copy the postcard-serialized journal
+  into a user buffer. The return value is the required size; if the provided
+  buffer is too small no data is written.
+- `graph_snapshot(out_ptr, out_len)`: export the current Thing graph snapshot
+  with the same size-reporting convention as `journal_snapshot`.
 
 ## Status
 

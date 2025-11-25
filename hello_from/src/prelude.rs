@@ -15,11 +15,17 @@ unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
     ret
 }
 
+const fn canon(a: u8, b: u8, c: u8) -> u32 {
+    ((a as u32) << 16) | ((b as u32) << 8) | (c as u32)
+}
+
 const SYSCALL_WRITE_PORT: u64 = 0x01;
 const _SYSCALL_READ_PORT: u64 = 0x02;
+const SYSCALL_JOURNAL_EMIT: u64 = 0x10;
 
 const PORT_CONSOLE_OUT: u64 = 1;
 const _PORT_CONSOLE_IN: u64 = 2;
+const KIND_WRITE: u64 = canon(b'W', b'R', b'T') as u64;
 
 pub fn putchar(c: u8) {
     unsafe {
@@ -33,8 +39,24 @@ pub fn _getchar() -> u8 {
 
 pub struct Console;
 
+fn emit_write_event(s: &str) -> bool {
+    let res = unsafe {
+        syscall(
+            SYSCALL_JOURNAL_EMIT,
+            KIND_WRITE,
+            s.as_ptr() as u64,
+            s.len() as u64,
+        )
+    };
+    res == 0
+}
+
 impl Write for Console {
     fn write_str(&mut self, s: &str) -> fmt::Result {
+        if emit_write_event(s) {
+            return Ok(());
+        }
+
         for b in s.bytes() {
             putchar(b);
         }

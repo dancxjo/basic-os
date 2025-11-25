@@ -63,6 +63,10 @@ pub const KEY: Symbol = canon(b'K', b'E', b'Y');
 pub const DX: Symbol = canon(b'D', b'X', b' ');
 pub const DY: Symbol = canon(b'D', b'Y', b' ');
 pub const BUTTONS: Symbol = canon(b'B', b'T', b'N');
+pub const WRITE: Symbol = canon(b'W', b'R', b'T');
+pub const TARGET: Symbol = canon(b'T', b'G', b'T');
+pub const TEXT: Symbol = canon(b'T', b'X', b'T');
+pub const STDOUT: Symbol = canon(b'S', b'T', b'D');
 
 pub const DRIVER_INPUT: Symbol = canon(b'I', b'N', b'P');
 pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
@@ -99,6 +103,10 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (DX, "dx"),
         (DY, "dy"),
         (BUTTONS, "buttons"),
+        (WRITE, "write"),
+        (TARGET, "target"),
+        (TEXT, "text"),
+        (STDOUT, "stdout"),
         (DRIVER_INPUT, "driver_input"),
         (DRIVER_DISPLAY, "driver_display"),
         (DRIVER_STORAGE, "driver_storage"),
