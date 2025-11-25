@@ -258,7 +258,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     (*current).context_ptr()
                 } else {
                     error!("No current task; esperante.");
-                    rust_schedule_and_switch(current_rsp);
+                    rust_schedule_and_switch(current_rsp, irq);
                 };
                 CURRENT_TASK = current;
                 restore_context(ctx)
