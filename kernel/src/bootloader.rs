@@ -3,10 +3,10 @@ use core::str;
 
 use alloc::borrow::ToOwned;
 use alloc::{boxed::Box, collections::BTreeMap};
-use core::sync::atomic::{AtomicBool, Ordering};
 use limine::memory_map::EntryType;
 use limine::request::{HhdmRequest, MemoryMapRequest, ModuleRequest};
 use log::{debug, info};
+use spin::Mutex;
 use x86_64::VirtAddr;
 
 #[used]
@@ -22,51 +22,64 @@ pub static MODULE_REQUEST: ModuleRequest = ModuleRequest::new();
 #[used]
 pub static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 
-static mut MODULE_CACHE: Option<BTreeMap<&'static str, &'static [u8]>> = None;
-static INIT: AtomicBool = AtomicBool::new(false);
+static MODULE_CACHE: Mutex<Option<BTreeMap<&'static str, &'static [u8]>>> = Mutex::new(None);
 
 pub fn get_module(name: &str) -> Option<&'static [u8]> {
-    unsafe {
-        if !INIT.load(Ordering::Acquire) {
-            let mut map = BTreeMap::new();
-            if let Some(response) = MODULE_REQUEST.get_response() {
-                for module in response.modules() {
-                    if let Ok(path_str) = module.path().to_str() {
-                        let raw_addr = module.addr() as u64;
-                        let hhdm = get_hhdm_offset().as_u64();
-                        let base = if raw_addr >= hhdm {
-                            raw_addr
-                        } else {
-                            raw_addr + hhdm
-                        };
-                        log::info!(
-                            "Module {}: addr={:#x} size={:#x} base={:#x}",
-                            path_str,
-                            raw_addr,
-                            module.size(),
-                            base
-                        );
-                        let ptr = base as *const u8;
-                        let len = module.size().try_into().unwrap();
-                        let data = core::slice::from_raw_parts(ptr, len);
-                        map.insert(
-                            Box::leak(path_str.to_owned().into_boxed_str()) as &str,
-                            data,
-                        );
-                    }
-                }
-            }
-            MODULE_CACHE = Some(map);
-            INIT.store(true, Ordering::Release);
-        }
-        #[allow(static_mut_refs)]
-        MODULE_CACHE.as_ref().and_then(|cache| {
-            cache
-                .iter()
-                .find(|(k, _)| k.ends_with(name))
-                .map(|(_, v)| *v)
-        })
+    ensure_module_cache();
+    let guard = MODULE_CACHE.lock();
+    guard.as_ref().and_then(|cache| {
+        cache
+            .iter()
+            .find(|(k, _)| k.ends_with(name))
+            .map(|(_, v)| *v)
+    })
+}
+
+/// Return a snapshot of all loaded modules (path, data).
+pub fn list_modules() -> alloc::vec::Vec<(&'static str, &'static [u8])> {
+    ensure_module_cache();
+    let guard = MODULE_CACHE.lock();
+    guard
+        .as_ref()
+        .map(|cache| cache.iter().map(|(k, v)| (*k, *v)).collect())
+        .unwrap_or_default()
+}
+
+fn ensure_module_cache() {
+    let mut guard = MODULE_CACHE.lock();
+    if guard.is_some() {
+        return;
     }
+
+    let mut map = BTreeMap::new();
+    if let Some(response) = MODULE_REQUEST.get_response() {
+        for module in response.modules() {
+            if let Ok(path_str) = module.path().to_str() {
+                let raw_addr = module.addr() as u64;
+                let hhdm = get_hhdm_offset().as_u64();
+                let base = if raw_addr >= hhdm {
+                    raw_addr
+                } else {
+                    raw_addr + hhdm
+                };
+                log::info!(
+                    "Module {}: addr={:#x} size={:#x} base={:#x}",
+                    path_str,
+                    raw_addr,
+                    module.size(),
+                    base
+                );
+                let ptr = base as *const u8;
+                let len = module.size().try_into().unwrap();
+                let data = unsafe { core::slice::from_raw_parts(ptr, len) };
+                map.insert(
+                    Box::leak(path_str.to_owned().into_boxed_str()) as &str,
+                    data,
+                );
+            }
+        }
+    }
+    *guard = Some(map);
 }
 
 #[derive(Clone, Copy, Debug)]

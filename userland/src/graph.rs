@@ -9,6 +9,9 @@ use uuid::Uuid;
 
 pub type Map = BTreeMap<Symbol, Value>;
 
+// Snapshot buffers are small; guard against bogus sizes coming from the kernel.
+const MAX_SNAPSHOT_BYTES: usize = 1 << 20; // 1 MiB upper bound
+
 pub fn map() -> Map {
     BTreeMap::new()
 }
@@ -154,6 +157,9 @@ pub fn graph_snapshot() -> Option<GraphSnapshot> {
             things: Vec::new(),
             edges: Vec::new(),
         });
+    }
+    if needed > MAX_SNAPSHOT_BYTES {
+        return None;
     }
     if needed > buf.len() {
         buf.resize(needed, 0);

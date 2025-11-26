@@ -93,7 +93,7 @@ pub fn init_interrupts() {
     let rflags = x86_64::registers::rflags::read();
     info!("RFLAGS: {:#x}", rflags.bits());
 
-    // x86_64::instructions::interrupts::enable(); // Only one sti here
+    // Do not enable interrupts here; the system brings them up after full init.
 }
 
 pub fn init_apic() {

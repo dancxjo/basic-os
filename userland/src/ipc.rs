@@ -5,6 +5,9 @@ use crate::graph::{map, Event, Value};
 use crate::{canon, sys, Symbol};
 use uuid::Uuid;
 
+// Journal snapshots are small; bail out rather than trying to allocate nonsense sizes.
+const MAX_JOURNAL_BYTES: usize = 1 << 20; // 1 MiB upper bound
+
 fn emit(kind: Symbol, data: Value) {
     if let Ok(buf) = postcard::to_allocvec(&data) {
         let _ = sys::journal_emit_raw(kind.0, &buf);
@@ -54,6 +57,9 @@ pub fn fetch_journal_events() -> Option<Vec<Event>> {
     let needed = sys::journal_snapshot_raw(&mut buf) as usize;
     if needed == 0 {
         return Some(Vec::new());
+    }
+    if needed > MAX_JOURNAL_BYTES {
+        return None;
     }
     if needed > buf.len() {
         buf.resize(needed, 0);

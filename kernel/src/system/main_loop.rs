@@ -7,7 +7,7 @@ use crate::arch::x86_64::idt::init_idt;
 use crate::arch::x86_64::interrupts::init_interrupts;
 use crate::arch::x86_64::ps2;
 use crate::arch::x86_64::stack::init_kernel_stack;
-use crate::bootloader::{get_hhdm_offset, get_module};
+use crate::bootloader::{get_hhdm_offset, get_module, list_modules};
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::{Framebuffer, init_console, register_framebuffer_device};
@@ -17,6 +17,8 @@ use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::Mutex as SpinMutex;
 use x86_64::PhysAddr;
 use x86_64::structures::paging::PhysFrame;
@@ -32,6 +34,9 @@ pub struct System {
     clock: &'static SpinMutex<Clock>,
     // scheduler: Arc<SpinMutex<crate::scheduler::Scheduler>>,
 }
+
+static USER_MODULES: spin::Mutex<Option<Vec<&'static str>>> = spin::Mutex::new(None);
+static NEXT_USER_MODULE: AtomicUsize = AtomicUsize::new(0);
 
 impl System {
     pub fn boot() -> Self {
@@ -110,7 +115,14 @@ impl System {
         info!("ThingOS initialized.");
 
         bootstrap_step!("executable", {
-            runtime::spawn_kernel(start_user_task);
+            init_user_modules();
+            let count = user_module_count();
+            if count == 0 {
+                info!("No user modules to launch.");
+            }
+            for _ in 0..count {
+                runtime::spawn_kernel(start_user_task);
+            }
         });
 
         Self {
@@ -123,6 +135,8 @@ impl System {
     pub fn run(&mut self) -> ! {
         info!("ThingOS running...");
         info!("System initialized. Entering main loop...");
+        // Enable interrupts only after the full system (including the clock) is ready.
+        x86_64::instructions::interrupts::enable();
         runtime::start();
     }
 }
@@ -131,6 +145,31 @@ pub fn init_and_run_system() -> ! {
     let system = System::boot();
     *SYSTEM.lock() = Some(system);
     SYSTEM.lock().as_mut().unwrap().run()
+}
+
+fn init_user_modules() {
+    let mut modules: Vec<&'static str> = Vec::new();
+    for (name, data) in crate::bootloader::list_modules().into_iter() {
+        if data.starts_with(b"\x7FELF") {
+            info!("Queueing user module '{}'", name);
+            modules.push(name);
+        } else {
+            info!("Skipping non-ELF module '{}'", name);
+        }
+    }
+    *USER_MODULES.lock() = Some(modules);
+    NEXT_USER_MODULE.store(0, Ordering::Release);
+}
+
+fn next_user_module() -> Option<&'static str> {
+    let guard = USER_MODULES.lock();
+    let list = guard.as_ref()?;
+    let idx = NEXT_USER_MODULE.fetch_add(1, Ordering::AcqRel);
+    list.get(idx).copied()
+}
+
+fn user_module_count() -> usize {
+    USER_MODULES.lock().as_ref().map(|v| v.len()).unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
@@ -147,13 +186,20 @@ pub extern "C" fn task_entry_trampoline() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
-    let module = get_module("boot/compositor").expect("Module 'boot/compositor' not found");
+    let module_name = next_user_module().unwrap_or_else(|| {
+        info!("No remaining user modules to start; halting task.");
+        loop {}
+    });
+    let module = get_module(module_name).unwrap_or_else(|| {
+        panic!("Module '{}' not found", module_name);
+    });
     let frame_allocator = BootFrameAllocator::global();
     let (new_l4, mut new_mapper) = create_user_page_table(frame_allocator, get_hhdm_offset());
     let loaded =
         load_elf(module, new_l4, &mut new_mapper, frame_allocator).expect("Failed to load ELF");
     info!(
-        "User entry prepared: rip={:#x} stack_top={:#x}",
+        "User entry prepared for {}: rip={:#x} stack_top={:#x}",
+        module_name,
         loaded.entry.as_u64(),
         loaded.stack_top.as_u64()
     );

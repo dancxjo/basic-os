@@ -1,5 +1,5 @@
 pub mod panic;
 
-mod inner;
+mod main_loop;
 
-pub use inner::*;
+pub use main_loop::*;

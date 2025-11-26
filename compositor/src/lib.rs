@@ -11,8 +11,8 @@ use core::convert::TryInto;
 
 use unifont::{get_glyph, Glyph};
 use userland::{
-    canon, extract_text, load_thing, AppEvent, DriverContext, EventFilter, FramebufferDriver,
-    FramebufferInfo, ThingFilter, Value, WatchId, WatchManager, Window,
+    canon, extract_text, load_thing, println, AppEvent, DriverContext, EventFilter,
+    FramebufferDriver, FramebufferInfo, ThingFilter, Value, WatchId, WatchManager, Window,
 };
 use uuid::Uuid;
 
@@ -29,6 +29,9 @@ const COLOR_BORDER: u32 = 0x00252d3a;
 const COLOR_TEXT: u32 = 0x00272f3a;
 const COLOR_CURSOR_PRIMARY: u32 = 0x00ffffff;
 const COLOR_CURSOR_SHADOW: u32 = 0x00000000;
+const MAX_BACKBUFFER_PIXELS: usize = 8_388_608; // 8 Mi pixels (~32 MiB)
+const SAFE_FB_WIDTH: usize = 1024;
+const SAFE_FB_HEIGHT: usize = 768;
 
 pub struct Compositor {
     frame_no: u64,
@@ -119,16 +122,24 @@ impl Compositor {
         let fb_info = sanitize_fb_info(fb_info);
         let mut stride = max(fb_info.pitch / 4, fb_info.width.max(1));
         let mut height = fb_info.height.max(1);
-        if stride.saturating_mul(height) > 2_000_000 {
-            stride = max(1024, fb_info.width);
-            height = max(768, fb_info.height);
+        if stride.saturating_mul(height) > MAX_BACKBUFFER_PIXELS {
+            println!(
+                "Clamping framebuffer from {}x{} stride {} to {}x{}",
+                fb_info.width, fb_info.height, stride, SAFE_FB_WIDTH, SAFE_FB_HEIGHT
+            );
+            stride = SAFE_FB_WIDTH;
+            height = SAFE_FB_HEIGHT;
+        } else if stride.saturating_mul(height) > 2_000_000 {
+            stride = max(SAFE_FB_WIDTH, fb_info.width);
+            height = max(SAFE_FB_HEIGHT, fb_info.height);
         }
+        let width = min(fb_info.width.max(1), stride);
         let background = load_background();
 
         Self {
             frame_no: 0,
             framebuffer: FramebufferSurface {
-                width: fb_info.width.max(1),
+                width,
                 height,
                 stride,
             },
