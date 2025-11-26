@@ -59,6 +59,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "app-mouse-driver"
+version = "0.1.0"
+dependencies = [
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "app-toy-rect"
 version = "0.1.0"
 dependencies = [
@@ -91,6 +99,7 @@ dependencies = [
  "app-graph-demo",
  "app-hello",
  "app-keyboard-driver",
+ "app-mouse-driver",
  "app-toy-rect",
  "flate2",
  "linked_list_allocator",

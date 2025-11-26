@@ -47,6 +47,7 @@ pub const SYSCALL_KBD_READ: u64 = 0x08;
 pub const SYSCALL_FB_INFO: u64 = 0x09;
 pub const SYSCALL_FB_MAP: u64 = 0x0A;
 pub const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
+pub const SYSCALL_MOUSE_READ: u64 = 0x0C;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[repr(C)]

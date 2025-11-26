@@ -102,6 +102,15 @@ pub mod canon {
     pub const BPP: Symbol = canon(b'B', b'P', b'P');
     pub const ADDR: Symbol = canon(b'A', b'D', b'R');
     pub const EMITS: Symbol = canon(b'E', b'M', b'T');
+    
+    pub const INPUT_DEVICE_MOUSE: Symbol = canon(b'I', b'D', b'M');
+    pub const INPUT_EVENT: Symbol = canon(b'I', b'E', b'V');
+    pub const MOVE: Symbol = canon(b'M', b'O', b'V');
+    pub const DEVICE_ID: Symbol = canon(b'D', b'I', b'D');
+    pub const TS: Symbol = canon(b'T', b'S', b' ');
+    pub const DOWN: Symbol = canon(b'D', b'W', b'N');
+    pub const BUTTON: Symbol = canon(b'B', b'T', b'#');
+
     pub const DISPLAY_FRAMEBUFFER: Symbol = canon(b'D', b'F', b'B');
     pub const DISPLAY_FRAME: Symbol = canon(b'D', b'F', b'R');
     pub const CURRENT_FRAME: Symbol = canon(b'C', b'U', b'R');

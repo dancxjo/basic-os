@@ -88,6 +88,14 @@ pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
 pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
 pub const EMITS: Symbol = canon(b'E', b'M', b'T');
 
+pub const INPUT_DEVICE_MOUSE: Symbol = canon(b'I', b'D', b'M');
+pub const INPUT_EVENT: Symbol = canon(b'I', b'E', b'V');
+pub const MOVE: Symbol = canon(b'M', b'O', b'V');
+pub const DEVICE_ID: Symbol = canon(b'D', b'I', b'D');
+pub const TS: Symbol = canon(b'T', b'S', b' ');
+pub const DOWN: Symbol = canon(b'D', b'W', b'N');
+pub const BUTTON: Symbol = canon(b'B', b'T', b'#');
+
 /// Return the symbolic name for a code if known.
 pub fn sym_name(code: Symbol) -> &'static str {
     // Linear scan keeps it tiny; expand or sort if this grows.
@@ -97,6 +105,13 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (KEY_PRESSED, "key_pressed"),
         (MOUSE, "mouse"),
         (MOUSE_MOVED, "mouse_moved"),
+        (INPUT_DEVICE_MOUSE, "input.device.mouse"),
+        (INPUT_EVENT, "input.event"),
+        (MOVE, "move"),
+        (DEVICE_ID, "device_id"),
+        (TS, "ts"),
+        (DOWN, "down"),
+        (BUTTON, "button"),
         (AT, "at"),
         (INIT, "init"),
         (FAIL, "fail"),

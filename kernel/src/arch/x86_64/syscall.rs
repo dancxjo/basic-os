@@ -31,6 +31,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_FB_INFO => fb_info(rdi, rsi),
         SYSCALL_FB_MAP => fb_map(),
         SYSCALL_GRAPH_FIND_BY_KIND => graph_find_by_kind(rdi, rsi, rdx),
+        SYSCALL_MOUSE_READ => mouse_read(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -50,6 +51,7 @@ const SYSCALL_KBD_READ: u64 = 0x08;
 const SYSCALL_FB_INFO: u64 = 0x09;
 const SYSCALL_FB_MAP: u64 = 0x0A;
 const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
+const SYSCALL_MOUSE_READ: u64 = 0x0C;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -108,6 +110,14 @@ fn kbd_read(out_ptr: u64, out_len: u64) -> u64 {
     }
     let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
     crate::drivers::keyboard::read_scancodes(buf) as u64
+}
+
+fn mouse_read(out_ptr: u64, out_len: u64) -> u64 {
+    if out_ptr == 0 || out_len == 0 {
+        return 0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
+    crate::drivers::mouse::read_mouse(buf) as u64
 }
 
 fn graph_get(id_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {

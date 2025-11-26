@@ -12,8 +12,8 @@ use core::ptr;
 
 use unifont::{get_glyph, Glyph};
 use userland::{
-    canon, extract_text, load_thing, println, AppEvent, Symbol, ThingFilter, Thingable, Value, WatchId,
-    WatchManager, Window,
+    canon, extract_text, load_thing, println, AppEvent, Symbol, ThingFilter, Thingable, Value,
+    WatchId, WatchManager, Window,
 };
 use uuid::Uuid;
 
@@ -76,9 +76,6 @@ struct WindowSurface {
     pixmap: Uuid,
     text: String,
 }
-
-
-
 
 struct CursorState {
     x: i32,
@@ -192,7 +189,7 @@ impl Compositor {
         let mouse_watch = watch_manager.register_graph(
             app_id,
             ThingFilter {
-                kind: Some(canon::MOUSE_MOVED),
+                kind: Some(canon::INPUT_EVENT),
                 id: None,
             },
         );
@@ -220,9 +217,9 @@ impl Compositor {
         // Initial window discovery
         let windows = userland::graph::find_by_kind("window");
         for thing in windows {
-             if let Some(window) = Window::load(&thing) {
-                 comp.ingest_window(window);
-             }
+            if let Some(window) = Window::load(&thing) {
+                comp.ingest_window(window);
+            }
         }
 
         comp
@@ -234,7 +231,9 @@ impl Compositor {
                 if Some(*watch) == self.watch_window_buffers {
                     self.ingest_window_buffer(thing);
                 } else if Some(*watch) == self.watch_mouse {
-                    self.ingest_mouse_event(&thing.fields);
+                    if thing.kind == canon::INPUT_EVENT {
+                        self.ingest_input_event(thing);
+                    }
                 } else if Some(*watch) == self.watch_windows {
                     if let Some(window) = Window::load(thing) {
                         self.ingest_window(window);
@@ -250,9 +249,7 @@ impl Compositor {
     }
 
     pub fn tick(&mut self) {
-        if self.backbuffer.is_empty()
-            || self.framebuffer.width == 0
-            || self.framebuffer.height == 0
+        if self.backbuffer.is_empty() || self.framebuffer.width == 0 || self.framebuffer.height == 0
         {
             return;
         }
@@ -302,30 +299,34 @@ impl Compositor {
         self.bump_window(window_id);
     }
 
-    fn ingest_mouse_event(&mut self, fields: &BTreeMap<Symbol, Value>) {
-        let dx = match fields.get(&canon::DX) {
-            Some(Value::I64(v)) => *v,
-            Some(Value::U64(v)) => *v as i64,
-            _ => 0,
-        };
-        let dy = match fields.get(&canon::DY) {
-            Some(Value::I64(v)) => *v,
-            Some(Value::U64(v)) => *v as i64,
-            _ => 0,
-        };
-        let buttons = match fields.get(&canon::BUTTONS) {
-            Some(Value::U64(v)) => *v as u8,
-            Some(Value::I64(v)) => *v as u8,
-            _ => self.cursor.buttons,
-        };
+    fn ingest_input_event(&mut self, thing: &userland::GraphThing) {
+        if let Some(kind) = thing.fields.get(&canon::KIND).and_then(|v| v.as_symbol()) {
+            if kind == canon::MOVE {
+                let dx = thing
+                    .fields
+                    .get(&canon::DX)
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let dy = thing
+                    .fields
+                    .get(&canon::DY)
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let buttons = thing
+                    .fields
+                    .get(&canon::BUTTON)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
 
-        self.cursor.update(
-            dx,
-            dy,
-            buttons,
-            self.framebuffer.width,
-            self.framebuffer.height,
-        );
+                self.cursor.update(
+                    dx,
+                    dy,
+                    buttons as u8,
+                    self.framebuffer.width,
+                    self.framebuffer.height,
+                );
+            }
+        }
     }
 
     fn ingest_window(&mut self, window: Window) {
@@ -591,7 +592,10 @@ impl Compositor {
             fields.insert(canon::ADDR, Value::U64(self.backbuffer.as_ptr() as u64));
             fields.insert(canon::WIDTH, Value::U64(self.framebuffer.width as u64));
             fields.insert(canon::HEIGHT, Value::U64(self.framebuffer.height as u64));
-            fields.insert(canon::PITCH, Value::U64((self.framebuffer.stride * 4) as u64));
+            fields.insert(
+                canon::PITCH,
+                Value::U64((self.framebuffer.stride * 4) as u64),
+            );
             fields.insert(canon::BPP, Value::U64(32));
 
             let frame_id = userland::fiat(None, canon::DISPLAY_FRAME, fields);
@@ -708,4 +712,3 @@ fn decode_bmp(data: &[u8]) -> Option<Bitmap> {
         pixels,
     })
 }
-
