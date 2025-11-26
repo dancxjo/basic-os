@@ -3,6 +3,7 @@
 extern crate alloc;
 
 pub mod app;
+pub mod driver_runtime;
 pub mod drivers;
 pub mod graph;
 pub mod ipc;
@@ -47,6 +48,10 @@ pub mod canon {
         Symbol(((a as u32) << 16) | ((b as u32) << 8) | (c as u32))
     }
 
+    pub const fn from_char(c: char) -> Symbol {
+        Symbol(c as u32)
+    }
+
     pub const JOURNAL: Symbol = cc('J', 'N');
     pub const KEYBOARD: Symbol = cc('K', 'B');
     pub const KEY_PRESSED: Symbol = cc('K', 'P');
@@ -67,6 +72,12 @@ pub mod canon {
     pub const PREDICATE: Symbol = canon(b'P', b'R', b'D');
     pub const NAME: Symbol = canon(b'N', b'A', b'M');
     pub const STATUS: Symbol = canon(b'S', b'T', b'A');
+    pub const SCANCODE: Symbol = canon(b'S', b'C', b'N');
+    pub const KEY: Symbol = canon(b'K', b'E', b'Y');
+    pub const DX: Symbol = canon(b'D', b'X', b' ');
+    pub const DY: Symbol = canon(b'D', b'Y', b' ');
+    pub const BUTTONS: Symbol = canon(b'B', b'T', b'N');
+    pub const WRITE: Symbol = canon(b'W', b'R', b'T');
     pub const TEXT: Symbol = canon(b'T', b'X', b'T');
     pub const TARGET: Symbol = canon(b'T', b'G', b'T');
     pub const STDOUT: Symbol = canon(b'S', b'T', b'D');
@@ -102,6 +113,10 @@ pub mod prelude {
 }
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
+pub use driver_runtime::{
+    default_drivers, DeviceHandle as DriverDeviceHandle, DeviceKind as DriverDeviceKind, Driver,
+    DriverContext, FramebufferDriver, KeyboardDriver, MouseDriver, SerialDriver,
+};
 pub use graph::{
     extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,
     update_thing, Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,

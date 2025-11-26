@@ -1,5 +1,6 @@
 //! Serial I/O with synchronized access
 
+use crate::drivers::device::{self, DeviceKind};
 use core::fmt::{self, Write};
 use spin::Mutex;
 use x86_64::instructions::port::Port;
@@ -71,6 +72,15 @@ pub fn _print(args: core::fmt::Arguments) {
     }
 }
 
+fn write_serial(buf: &[u8]) -> usize {
+    let mut guard = SERIAL1.lock();
+    for byte in buf {
+        guard.write_byte(*byte);
+    }
+    buf.len()
+}
+
 pub fn init_serial() {
     SERIAL1.lock().init();
+    device::register_device(DeviceKind::Serial, None, Some(write_serial), None);
 }

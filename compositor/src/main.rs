@@ -13,7 +13,10 @@ use app_graph_demo::app_entry as graph_demo_app;
 use app_hello::app_entry as hello_app;
 use compositor::Compositor;
 use userland::app::DynApp;
-use userland::{canon, drivers, emit_frame_ready, fiat, map, println, that, Value};
+use userland::{
+    canon, drivers, emit_frame_ready, fiat, map, println, that, DriverContext, FramebufferDriver,
+    KeyboardDriver, MouseDriver, SerialDriver, Value,
+};
 use uuid::Uuid;
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
@@ -29,9 +32,21 @@ pub extern "C" fn _start() -> ! {
     register_compositor_things();
     let mut apps = register_apps();
 
+    let mut driver_ctx = DriverContext::new();
+    let mut keyboard = KeyboardDriver::init(&mut driver_ctx);
+    let mut mouse = MouseDriver::init(&mut driver_ctx);
+    let mut _framebuffer_driver = FramebufferDriver::init(&mut driver_ctx);
+    let _serial_driver = SerialDriver::init(&mut driver_ctx);
+
     let mut compositor = Compositor::new();
     let mut tick: u64 = 0;
     loop {
+        if let Some(kb) = keyboard.as_mut() {
+            kb.poll(&mut driver_ctx);
+        }
+        if let Some(ms) = mouse.as_mut() {
+            ms.poll(&mut driver_ctx);
+        }
         tick_apps(&mut apps, tick);
         let frame = compositor.tick();
         emit_frame_ready(

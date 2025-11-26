@@ -10,7 +10,8 @@ use crate::arch::x86_64::stack::init_kernel_stack;
 use crate::bootloader::{get_hhdm_offset, get_module};
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
-use crate::drivers::framebuffer::{Framebuffer, init_console};
+use crate::drivers::framebuffer::{Framebuffer, init_console, register_framebuffer_device};
+use crate::drivers::{keyboard, serial};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
@@ -29,8 +30,6 @@ pub(crate) static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 pub struct System {
     framebuffer: Arc<SpinMutex<Framebuffer>>,
     clock: &'static SpinMutex<Clock>,
-    keyboard_index: usize,
-    mouse_index: usize,
     // scheduler: Arc<SpinMutex<crate::scheduler::Scheduler>>,
 }
 
@@ -82,11 +81,20 @@ impl System {
                 Framebuffer::new().expect("Framebuffer not available"),
             ));
             init_console(fb.clone());
+            register_framebuffer_device(fb.clone());
             fb
         });
 
         let _mouse = bootstrap_step!("PS/2 devices", {
             ps2::enable_ps2_devices();
+        });
+
+        bootstrap_step!("serial", {
+            serial::init_serial();
+        });
+
+        bootstrap_step!("keyboard driver", {
+            keyboard::init();
         });
 
         bootstrap_step!("mouse driver", {
@@ -108,8 +116,6 @@ impl System {
         Self {
             framebuffer,
             clock: _clock,
-            keyboard_index: 0,
-            mouse_index: 0,
             // scheduler,
         }
     }

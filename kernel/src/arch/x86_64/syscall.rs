@@ -1,6 +1,7 @@
 use alloc::string::{String, ToString};
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
+use crate::drivers::device;
 use crate::telemetry::{
     canon,
     canon::Symbol,
@@ -21,32 +22,21 @@ static mut SYSCALL_KERNEL_STACK: AlignedStack = AlignedStack([0; KERNEL_STACK_SI
 
 #[unsafe(no_mangle)]
 pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
-    serial_println!(
-        "Syscall: rax={:#x} rdi={:#x} rsi={:#x} rdx={:#x}",
-        rax,
-        rdi,
-        rsi,
-        rdx
-    );
-    unsafe {
-        let rsp = USER_RSP;
-        serial_println!("USER_RSP: {:#x}", rsp);
-    }
     let ret = match rax {
         SYSCALL_WRITE_PORT => write_port(rdi, rsi, rdx),
         SYSCALL_READ_PORT => read_port(rdi),
         SYSCALL_JOURNAL_EMIT => journal_emit(rdi, rsi, rdx),
         SYSCALL_JOURNAL_SNAPSHOT => journal_snapshot(rdi, rsi),
         SYSCALL_GRAPH_SNAPSHOT => graph_snapshot(rdi, rsi),
+        SYSCALL_DEV_OPEN => dev_open(rdi as u32, rsi as usize),
+        SYSCALL_DEV_READ => dev_read(rdi, rsi, rdx),
+        SYSCALL_DEV_WRITE => dev_write(rdi, rsi, rdx),
+        SYSCALL_DEV_MAP => dev_map(rdi, rsi, rdx),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
         }
     };
-    unsafe {
-        let rsp = USER_RSP;
-        serial_println!("USER_RSP exit: {:#x}", rsp);
-    }
     ret
 }
 
@@ -55,6 +45,10 @@ const SYSCALL_READ_PORT: u64 = 0x02;
 const SYSCALL_JOURNAL_EMIT: u64 = 0x10;
 const SYSCALL_JOURNAL_SNAPSHOT: u64 = 0x11;
 const SYSCALL_GRAPH_SNAPSHOT: u64 = 0x12;
+const SYSCALL_DEV_OPEN: u64 = 0x20;
+const SYSCALL_DEV_READ: u64 = 0x21;
+const SYSCALL_DEV_WRITE: u64 = 0x22;
+const SYSCALL_DEV_MAP: u64 = 0x23;
 
 // Write to port (e.g., port 1 = console)
 fn write_port(port: u64, data: u64, _flags: u64) -> u64 {
@@ -131,6 +125,41 @@ fn graph_snapshot(out_ptr: u64, out_len: u64) -> u64 {
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 
+fn dev_open(kind_raw: u32, index: usize) -> u64 {
+    match device::dev_open(kind_raw, index) {
+        Some(handle) => handle,
+        None => !0,
+    }
+}
+
+fn dev_read(handle: u64, buf_ptr: u64, len: u64) -> u64 {
+    if buf_ptr == 0 || len == 0 {
+        return 0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize) };
+    device::dev_read(handle, buf) as u64
+}
+
+fn dev_write(handle: u64, buf_ptr: u64, len: u64) -> u64 {
+    if buf_ptr == 0 || len == 0 {
+        return 0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len as usize) };
+    device::dev_write(handle, buf) as u64
+}
+
+fn dev_map(handle: u64, len_out_ptr: u64, _hint: u64) -> u64 {
+    let Some((addr, len)) = device::dev_map(handle) else {
+        return 0;
+    };
+    if len_out_ptr != 0 {
+        unsafe {
+            *(len_out_ptr as *mut u64) = len as u64;
+        }
+    }
+    addr
+}
+
 fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
     let required = buf.len() as u64;
     if out_len == 0 || out_ptr == 0 {
@@ -171,13 +200,6 @@ fn extract_text(value: &Value) -> Option<String> {
 // Read from port (e.g., port 2 = keyboard)
 fn read_port(port: u64) -> u64 {
     match port {
-        2 => {
-            if let Some(byte) = crate::drivers::keyboard::pop_input() {
-                byte as u64
-            } else {
-                !0 // No data available
-            }
-        }
         _ => !0,
     }
 }

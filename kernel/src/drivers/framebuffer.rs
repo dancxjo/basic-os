@@ -1,21 +1,24 @@
 use alloc::sync::Arc;
-use core::cmp::max;
+use core::cmp::{max, min};
+use core::ops::Range;
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use limine::request::FramebufferRequest;
 use spin::Mutex as SpinMutex;
 use x86_64::VirtAddr;
-use core::ops::Range;
 
-use crate::bootloader::get_hhdm_offset;
+use crate::drivers::device::{self, DeviceKind};
 
 static FRAMEBUFFER_VIRT_RANGE: SpinMutex<Option<Range<VirtAddr>>> = SpinMutex::new(None);
+static FRAMEBUFFER_REGION: SpinMutex<Option<(u64, usize)>> = SpinMutex::new(None);
+static FRAMEBUFFER_DEVICE: SpinMutex<Option<Arc<SpinMutex<Framebuffer>>>> = SpinMutex::new(None);
 
 pub fn get_framebuffer_virt_range() -> Option<Range<VirtAddr>> {
     FRAMEBUFFER_VIRT_RANGE.lock().clone()
 }
 
-const MAX_WIDTH: usize = 3840;
-const MAX_HEIGHT: usize = 2160;
+fn set_framebuffer_region(base: u64, len: usize) {
+    *FRAMEBUFFER_REGION.lock() = Some((base, len));
+}
 
 #[derive(Debug)]
 pub struct Framebuffer {
@@ -39,11 +42,14 @@ impl Framebuffer {
         let pitch_pixels = pitch / 4;
         let len = pitch_pixels * height;
         let virt_addr = fb_info.addr();
-        
-        *FRAMEBUFFER_VIRT_RANGE.lock() = Some(VirtAddr::new(virt_addr as u64)..VirtAddr::new((virt_addr as u64) + (len * 4) as u64));
+
+        *FRAMEBUFFER_VIRT_RANGE.lock() = Some(
+            VirtAddr::new(virt_addr as u64)..VirtAddr::new((virt_addr as u64) + (len * 4) as u64),
+        );
 
         let fb_ptr = virt_addr as *mut u32;
         let fb_slice = unsafe { core::slice::from_raw_parts_mut(fb_ptr, len) };
+        set_framebuffer_region(virt_addr as u64, len * core::mem::size_of::<u32>());
 
         Some(Self {
             fb: fb_slice,
@@ -248,4 +254,39 @@ pub fn console_write_byte(byte: u8) {
     if let Some(ref mut console) = *CONSOLE.lock() {
         console.write_byte(byte);
     }
+}
+
+fn map_framebuffer() -> Option<(u64, usize)> {
+    FRAMEBUFFER_REGION.lock().clone()
+}
+
+fn write_framebuffer(buf: &[u8]) -> usize {
+    let fb_arc = match FRAMEBUFFER_DEVICE.lock().clone() {
+        Some(fb) => fb,
+        None => return 0,
+    };
+    let mut fb = fb_arc.lock();
+    let dst = unsafe {
+        core::slice::from_raw_parts_mut(
+            fb.fb.as_mut_ptr() as *mut u8,
+            fb.fb_len() * core::mem::size_of::<u32>(),
+        )
+    };
+    let count = min(buf.len(), dst.len());
+    if count > 0 {
+        dst[..count].copy_from_slice(&buf[..count]);
+    }
+    count
+}
+
+/// Advertise the framebuffer as a device endpoint so userland drivers can map
+/// or push pixel data directly.
+pub fn register_framebuffer_device(framebuffer: Arc<SpinMutex<Framebuffer>>) {
+    *FRAMEBUFFER_DEVICE.lock() = Some(framebuffer);
+    device::register_device(
+        DeviceKind::Framebuffer,
+        None,
+        Some(write_framebuffer),
+        Some(map_framebuffer),
+    );
 }

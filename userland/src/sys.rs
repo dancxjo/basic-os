@@ -45,6 +45,10 @@ pub const _SYSCALL_READ_PORT: u64 = 0x02;
 pub const SYSCALL_JOURNAL_EMIT: u64 = 0x10;
 pub const SYSCALL_JOURNAL_SNAPSHOT: u64 = 0x11;
 pub const SYSCALL_GRAPH_SNAPSHOT: u64 = 0x12;
+pub const SYSCALL_DEV_OPEN: u64 = 0x20;
+pub const SYSCALL_DEV_READ: u64 = 0x21;
+pub const SYSCALL_DEV_WRITE: u64 = 0x22;
+pub const SYSCALL_DEV_MAP: u64 = 0x23;
 
 const PORT_CONSOLE_OUT: u64 = 1;
 const _PORT_CONSOLE_IN: u64 = 2;
@@ -86,6 +90,62 @@ pub fn graph_snapshot_raw(out: &mut [u8]) -> u64 {
             out.len() as u64,
             0,
         )
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct DeviceMapping {
+    pub addr: u64,
+    pub len: usize,
+}
+
+pub fn dev_open(kind: u32, index: u32) -> Option<u64> {
+    let ret = unsafe { syscall(SYSCALL_DEV_OPEN, kind as u64, index as u64, 0) };
+    if ret == !0 {
+        None
+    } else {
+        Some(ret)
+    }
+}
+
+pub fn dev_read(handle: u64, out: &mut [u8]) -> usize {
+    if out.is_empty() {
+        return 0;
+    }
+    unsafe {
+        syscall(
+            SYSCALL_DEV_READ,
+            handle,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+        ) as usize
+    }
+}
+
+pub fn dev_write(handle: u64, buf: &[u8]) -> usize {
+    if buf.is_empty() {
+        return 0;
+    }
+    unsafe {
+        syscall(
+            SYSCALL_DEV_WRITE,
+            handle,
+            buf.as_ptr() as u64,
+            buf.len() as u64,
+        ) as usize
+    }
+}
+
+pub fn dev_map(handle: u64) -> Option<DeviceMapping> {
+    let mut len_out: u64 = 0;
+    let addr = unsafe { syscall(SYSCALL_DEV_MAP, handle, &mut len_out as *mut u64 as u64, 0) };
+    if addr == 0 || len_out == 0 {
+        None
+    } else {
+        Some(DeviceMapping {
+            addr,
+            len: len_out as usize,
+        })
     }
 }
 
