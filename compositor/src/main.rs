@@ -5,6 +5,7 @@ extern crate alloc;
 
 mod heap;
 
+use alloc::vec;
 use alloc::vec::Vec;
 use app_clock::app_entry as clock_app;
 use app_clouds::app_entry as clouds_app;
