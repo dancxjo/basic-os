@@ -2,6 +2,7 @@
 #![no_main]
 
 extern crate alloc;
+use alloc::vec;
 
 use compositor::{Compositor, FramebufferInfo, FramebufferTarget};
 use userland::{canon, drivers, fiat, map, println, that, Value, WatchManager};

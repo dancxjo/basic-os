@@ -11,6 +11,10 @@ const UNIFONT_GZ: &str = "unifont-15.1.05.hex.gz";
 const UNIFONT_HEX: &str = "unifont-15.1.05.hex";
 
 fn main() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    println!("cargo:rustc-link-arg=-T{}/link.ld", manifest_dir);
+    println!("cargo:rerun-if-changed=link.ld");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     let gz_path = out_dir.join(UNIFONT_GZ);
     let hex_path = out_dir.join(UNIFONT_HEX);

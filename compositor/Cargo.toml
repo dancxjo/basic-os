@@ -12,29 +12,19 @@ uuid = { version = "1.10", default-features = false, features = [
 ] }
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 
-[profile.release]
-panic = "abort"
+[build-dependencies]
+flate2 = "1.0"
 
 [features]
 default = []
 demo-apps = []
 
-[build]
-target = "x86_64-unknown-none"
-
-[target.x86_64-unknown-none]
-rustflags = ["-C", "link-arg=-Tlink.ld", "-C", "relocation-model=static"]
-
-[build-dependencies]
-flate2 = "1.0"
-
 [[bin]]
 name = "compositor"
 path = "src/main.rs"
-required-features = ["demo-apps"]
 
 [lib]
 path = "src/lib.rs"
 
-[unstable]
-build-std = ["core"]
+[profile.release]
+panic = "abort"

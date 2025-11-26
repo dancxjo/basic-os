@@ -167,47 +167,17 @@ pub fn load_elf<'a>(
 
         for page in Page::range_inclusive(start_page, end_page) {
             if mapper.translate_page(page).is_ok() {
+                info!(
+                    "Page {:#x} already mapped, skipping",
+                    page.start_address().as_u64()
+                );
                 continue;
             }
-            let p4_index = page.p4_index();
-            unsafe {
-                let entry = &_page_table[p4_index];
-                log::debug!(
-                    "P4[{:#x}] flags={:?} addr={:#x}",
-                    u64::from(p4_index),
-                    entry.flags(),
-                    entry.addr().as_u64()
-                );
-                if !entry.is_unused() {
-                    let hhdm = get_hhdm_offset().as_u64();
-                    let p3_ptr = (hhdm + entry.addr().as_u64()) as *const PageTable;
-                    let p3 = &*p3_ptr;
-                    let p3_entry = &p3[page.p3_index()];
-                    log::debug!(
-                        "  P3[{:#x}] flags={:?} addr={:#x}",
-                        u64::from(page.p3_index()),
-                        p3_entry.flags(),
-                        p3_entry.addr().as_u64()
-                    );
-                    if !p3_entry.is_unused()
-                        && !p3_entry.flags().contains(PageTableFlags::HUGE_PAGE)
-                    {
-                        let p2_ptr = (hhdm + p3_entry.addr().as_u64()) as *const PageTable;
-                        let p2 = &*p2_ptr;
-                        let p2_entry = &p2[page.p2_index()];
-                        log::debug!(
-                            "    P2[{:#x}] flags={:?} addr={:#x}",
-                            u64::from(page.p2_index()),
-                            p2_entry.flags(),
-                            p2_entry.addr().as_u64()
-                        );
-                    }
-                }
-            }
+
             let frame = frame_allocator
                 .allocate_frame()
                 .ok_or("Failed to allocate frame")?;
-
+            // Leave this commented out as it slows copying significantly
             // info!(
             //     "Mapping page {:#x} to frame {:#x} with flags {:?}",
             //     page.start_address().as_u64(),
