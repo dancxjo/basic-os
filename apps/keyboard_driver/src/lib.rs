@@ -16,17 +16,17 @@ impl App for KeyboardDriver {
         let mut fields = BTreeMap::new();
         fields.insert(canon::KIND, Value::Symbol(canon::KEYBOARD));
         fields.insert(canon::NAME, Value::Text("ps2-keyboard".into()));
-        
+
         // Fiat the keyboard device
         let device_id = fiat(None, canon::KEYBOARD, fields);
-        
+
         KeyboardDriver { device_id }
     }
 
     fn tick(&mut self, _ctx: &mut AppContext<'_>, _tick: u64) {
         let mut buf = [0u8; 32];
         let count = sys::kbd_read_raw(&mut buf) as usize;
-        
+
         for i in 0..count {
             let scancode = buf[i];
             self.publish_key_event(scancode);

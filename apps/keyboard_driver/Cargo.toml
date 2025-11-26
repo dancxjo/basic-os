@@ -5,4 +5,7 @@ edition = "2024"
 
 [dependencies]
 userland = { path = "../../userland" }
-uuid = { version = "1.10", default-features = false, features = ["v5", "serde"] }
+uuid = { version = "1.10", default-features = false, features = [
+    "v5",
+    "serde",
+] }
