@@ -14,8 +14,8 @@ use app_hello::app_entry as hello_app;
 use compositor::Compositor;
 use userland::app::DynApp;
 use userland::{
-    canon, drivers, emit_frame_ready, fiat, map, println, start_builtin_drivers, that,
-    DriverContext, Value,
+    canon, drivers, emit_frame_ready, fetch_journal_events, fiat, ingest_watch_journal, map,
+    println, process_graph, start_builtin_drivers, that, DriverContext, Value,
 };
 use uuid::Uuid;
 
@@ -37,8 +37,11 @@ pub extern "C" fn _start() -> ! {
     let mut tick: u64 = 0;
     loop {
         running_drivers.poll_all(&mut driver_ctx);
+        let journal_events = fetch_journal_events().unwrap_or_default();
+        ingest_watch_journal(&journal_events);
+        process_graph();
         tick_apps(&mut apps, tick);
-        let frame = compositor.tick();
+        let frame = compositor.tick(&journal_events);
         emit_frame_ready(
             compositor_id(),
             framebuffer_id(),

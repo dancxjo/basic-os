@@ -5,7 +5,8 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::fmt::Write;
 use alloc::string::{String, ToString};
-use userland::{canon, extract_text, fetch_journal_events, Value};
+use userland::Event;
+use userland::{canon, extract_text, Value};
 use uuid::Uuid;
 
 pub struct Compositor {
@@ -24,18 +25,14 @@ impl Compositor {
     }
 
     /// Ingest new journal events and produce a composed frame string.
-    pub fn tick(&mut self) -> String {
-        self.ingest_events();
+    pub fn tick(&mut self, events: &[Event]) -> String {
+        self.ingest_events(events);
         let frame = self.compose_frame();
         self.frame_no = self.frame_no.wrapping_add(1);
         frame
     }
 
-    fn ingest_events(&mut self) {
-        let events = match fetch_journal_events() {
-            Some(evts) => evts,
-            None => return,
-        };
+    fn ingest_events(&mut self, events: &[Event]) {
         for evt in events {
             if evt.timestamp <= self.last_seen {
                 continue;

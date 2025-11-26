@@ -36,11 +36,17 @@ use core::fmt::{self, Write};
 use crate::canon;
 use crate::graph::{self, load_thing, update_thing, Thingable, Window};
 use crate::ipc;
+use crate::watch::{
+    drain_app, poll_watch as poll_watch_event, register_app, watch_graph as watch_graph_filter,
+    watch_journal as watch_journal_filter, AppEvent, EventFilter, ThingFilter, WatchId,
+};
 use uuid::Uuid;
 
 pub trait App {
     fn init(ctx: &mut AppContext) -> Self;
     fn tick(&mut self, ctx: &mut AppContext, tick: u64);
+
+    fn on_event(&mut self, _ctx: &mut AppContext, _ev: AppEvent) {}
 }
 
 pub trait AppRunner {
@@ -70,15 +76,17 @@ pub struct AppContext {
     buffers: BTreeMap<Uuid, String>,
     window_pixmaps: BTreeMap<Uuid, Uuid>,
     window_counter: u64,
+    app_id: usize,
 }
 
 impl AppContext {
-    pub fn new(compositor: Uuid) -> Self {
+    pub fn new(compositor: Uuid, app_id: usize) -> Self {
         Self {
             compositor,
             buffers: BTreeMap::new(),
             window_pixmaps: BTreeMap::new(),
             window_counter: 0,
+            app_id,
         }
     }
 
@@ -151,6 +159,22 @@ impl AppContext {
         }
         self.buffers.clear();
     }
+
+    pub fn watch_journal(&mut self, filter: EventFilter) -> WatchId {
+        watch_journal_filter(self.app_id, filter)
+    }
+
+    pub fn watch_graph(&mut self, filter: ThingFilter) -> WatchId {
+        watch_graph_filter(self.app_id, filter)
+    }
+
+    pub fn poll_watch(&mut self, watch: WatchId) -> Option<AppEvent> {
+        poll_watch_event(self.app_id, watch)
+    }
+
+    pub fn drain_events(&mut self) -> impl Iterator<Item = AppEvent> {
+        drain_app(self.app_id)
+    }
 }
 
 struct HostedApp<A: App> {
@@ -161,13 +185,18 @@ struct HostedApp<A: App> {
 impl<A: App> AppRunner for HostedApp<A> {
     fn tick(&mut self, tick: u64) {
         self.ctx.begin_tick();
+        let mut drain = self.ctx.drain_events();
+        while let Some(ev) = drain.next() {
+            self.app.on_event(&mut self.ctx, ev);
+        }
         self.app.tick(&mut self.ctx, tick);
         self.ctx.flush(tick);
     }
 }
 
 pub fn create_app<A: App + 'static>(compositor: Uuid) -> DynApp {
-    let mut ctx = AppContext::new(compositor);
+    let app_id = register_app();
+    let mut ctx = AppContext::new(compositor, app_id);
     let app = A::init(&mut ctx);
     Box::new(HostedApp { app, ctx })
 }
