@@ -85,6 +85,7 @@ fn register_compositor_things() {
     let surface_id = compositor_surface_id();
 
     let mut compositor_fields = map();
+    println!("compositor_fields addr: {:p}", &compositor_fields);
     compositor_fields.insert(canon::NAME, Value::text("compositor0"));
     compositor_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
     fiat(Some(compositor_id), canon::COMPOSITOR, compositor_fields);

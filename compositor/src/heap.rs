@@ -25,24 +25,21 @@ impl SafeHeap {
 
 unsafe impl GlobalAlloc for SafeHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = self.inner.alloc(layout);
-        println!("alloc size={} => {:p}", layout.size(), ptr);
+        // println!("Allocating layout: {:?}", layout);
+        let mut heap = self.inner.lock();
+        let ptr = heap
+            .allocate_first_fit(layout)
+            .ok()
+            .map_or(core::ptr::null_mut(), |allocation| allocation.as_ptr());
+        // println!("Allocated: {:?}", ptr);
         ptr
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // Ignore null pointers and zero-sized deallocations: they don't
-        // correspond to real heap blocks and can confuse the linked-list
-        // allocator (leading to aliasing / double-free panics).
-        if ptr.is_null() || layout.size() == 0 {
-            return;
-        }
-
-        if self.in_heap(ptr) {
-            println!("dealloc ptr={:p} size={}", ptr, layout.size());
-            self.inner.dealloc(ptr, layout);
-        } else {
-            println!("dealloc ptr={:p} NOT IN HEAP", ptr);
+        // println!("Deallocating layout: {:?} at {:?}", layout, ptr);
+        let mut heap = self.inner.lock();
+        unsafe {
+            heap.deallocate(core::ptr::NonNull::new_unchecked(ptr), layout);
         }
     }
 
@@ -65,9 +62,12 @@ static mut HEAP_SPACE: HeapBuffer = HeapBuffer([0; 32 * 1024 * 1024]);
 
 pub fn init_heap() {
     unsafe {
+        let start = HEAP_SPACE.0.as_mut_ptr();
+        let len = HEAP_SPACE.0.len();
+        println!("Heap init: start={:p} len={}", start, len);
         ALLOCATOR
             .inner
             .lock()
-            .init(HEAP_SPACE.0.as_mut_ptr(), HEAP_SPACE.0.len());
+            .init(start, len);
     }
 }

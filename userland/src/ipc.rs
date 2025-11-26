@@ -10,18 +10,29 @@ const MAX_JOURNAL_BYTES: usize = 1 << 20; // 1 MiB upper bound
 
 fn emit(kind: Symbol, data: Value) {
     if let Ok(buf) = postcard::to_allocvec(&data) {
+        crate::println!("emit: calling syscall");
         let _ = sys::journal_emit_raw(kind.0, &buf);
+        crate::println!("emit: syscall returned");
     }
+    crate::println!("emit: returning");
 }
 
 #[deprecated(note = "use graph::fiat instead")]
 pub fn emit_thing_created(id: Uuid, kind: Symbol, revision: u64, fields: crate::graph::Map) {
+    crate::println!("emit_thing_created: start");
     let mut data = map();
+    crate::println!("emit_thing_created: inserting ID");
     data.insert(canon::ID, Value::Uuid(id));
+    crate::println!("emit_thing_created: inserting KIND");
     data.insert(canon::KIND, Value::Symbol(kind));
+    crate::println!("emit_thing_created: inserting REVISION");
     data.insert(canon::REVISION, Value::U64(revision));
+    crate::println!("emit_thing_created: inserting FIELDS");
+    crate::println!("emit_thing_created: fields: {:?}", fields); 
     data.insert(canon::FIELDS, Value::Map(fields));
+    crate::println!("emit_thing_created: calling emit");
     emit(canon::THING_CREATED, Value::Map(data));
+    crate::println!("emit_thing_created: done");
 }
 
 #[deprecated(note = "use graph::that instead")]

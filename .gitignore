@@ -5,9 +5,10 @@
 /iso_root
 /hello_from.bin
 
-# Cargo build directories
+# Cargo build directories (including nested targets)
 /target/
 */target/
+**/target/
 
 # Tool-generated files
 kernel/target/CACHEDIR.TAG

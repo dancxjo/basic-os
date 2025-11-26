@@ -106,11 +106,14 @@ fn journal_emit(kind_raw: u64, data_ptr: u64, len: u64) -> u64 {
     }
 
     // Test allocator
+    /*
     {
         let mut test_vec = alloc::vec::Vec::new();
         test_vec.push(1u8);
         serial_println!("Allocator test: vec len = {}", test_vec.len());
     }
+    */
+
 
     let kind = Symbol::new(kind_raw as u32);
     let data_slice = unsafe { core::slice::from_raw_parts(data_ptr as *const u8, len as usize) };

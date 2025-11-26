@@ -65,7 +65,12 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/thingos -ex "target remote
 - `graph_snapshot(out_ptr, out_len)`: export the current Thing graph snapshot
   with the same size-reporting convention as `journal_snapshot`.
 
-## Status
+## Current status
+
+- kernel boots, sets up devices, and exposes journal/graph/dev syscalls
+- compositor launches four sample apps
+- "Everything is a Thing" graph is wired via journal events and snapshots
+- userland `WatchManager` drives app events
 
 This repository is in a very early stage. Persistence and higher level
 services are not implemented yet. A simple cooperative multitasking
