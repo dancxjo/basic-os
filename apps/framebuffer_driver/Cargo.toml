@@ -1,0 +1,13 @@
+[package]
+name = "app-framebuffer-driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+uuid = { version = "1.10", default-features = false, features = [
+    "v5",
+    "serde",
+] }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }

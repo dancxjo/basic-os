@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use app_clock::app_entry as clock_app;
 use app_hello::app_entry as hello_app;
 use app_keyboard_driver::app_entry as keyboard_driver_app;
+use app_framebuffer_driver::app_entry as framebuffer_driver_app;
 use compositor::{Compositor, FramebufferInfo, FramebufferTarget};
 use userland::app::DynApp;
 use userland::{canon, drivers, fiat, graph_snapshot, map, println, that, Value, WatchManager};
@@ -22,7 +23,7 @@ pub extern "C" fn _start() -> ! {
     heap::init_heap();
 
     drivers::register_builtin_drivers();
-    register_compositor_things();
+    // register_compositor_things();
     let mut watch_manager = WatchManager::new();
     let compositor_app_id = watch_manager.register_app();
     let mut apps = register_apps(&mut watch_manager);
@@ -55,34 +56,17 @@ pub extern "C" fn _start() -> ! {
 
 fn register_compositor_things() {
     let compositor_id = compositor_id();
-    let framebuffer_id = framebuffer_id();
     let surface_id = compositor_surface_id();
-    let snapshot = graph_snapshot();
 
     let mut compositor_fields = map();
     compositor_fields.insert(canon::NAME, Value::text("compositor0"));
     compositor_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
     fiat(Some(compositor_id), canon::COMPOSITOR, compositor_fields);
 
-    let mut fb_fields = snapshot
-        .as_ref()
-        .and_then(|snap| {
-            snap.things
-                .iter()
-                .find(|t| t.id == framebuffer_id)
-                .map(|t| t.fields.clone())
-        })
-        .unwrap_or_else(map);
-    fb_fields.insert(canon::NAME, Value::text("framebuffer0"));
-    fb_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    fiat(Some(framebuffer_id), canon::PIXMAP, fb_fields);
-
     let mut surface_fields = map();
     surface_fields.insert(canon::NAME, Value::text("compositor-surface"));
     surface_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
     fiat(Some(surface_id), canon::PIXMAP, surface_fields);
-
-    that(compositor_id, canon::STREAMS, framebuffer_id, 0);
 }
 
 fn register_apps(watch_manager: &mut WatchManager) -> Vec<DynApp> {
@@ -90,6 +74,7 @@ fn register_apps(watch_manager: &mut WatchManager) -> Vec<DynApp> {
         clock_app(compositor_id(), watch_manager),
         hello_app(compositor_id(), watch_manager),
         keyboard_driver_app(compositor_id(), watch_manager),
+        framebuffer_driver_app(compositor_id(), watch_manager),
     ]
 }
 
@@ -104,24 +89,16 @@ fn app_ids(apps: &[DynApp]) -> Vec<usize> {
 }
 
 fn discover_framebuffer() -> Option<FramebufferTarget> {
-    let snapshot = graph_snapshot()?;
-    let fb_id = framebuffer_id();
-    let thing = snapshot.things.iter().find(|t| t.id == fb_id)?;
-    let width = thing.fields.get(&canon::WIDTH)?.as_u64()? as usize;
-    let height = thing.fields.get(&canon::HEIGHT)?.as_u64()? as usize;
-    let pitch = thing.fields.get(&canon::PITCH)?.as_u64()? as usize;
-    let bpp = thing.fields.get(&canon::BPP)?.as_u64()? as u16;
-    let addr = thing.fields.get(&canon::ADDR)?.as_u64()? as *mut u32;
-    let len_bytes = pitch.saturating_mul(height);
+    let info = userland::sys::fb_info()?;
     Some(FramebufferTarget {
         info: FramebufferInfo {
-            width,
-            height,
-            pitch,
-            bpp,
+            width: info.width as usize,
+            height: info.height as usize,
+            pitch: info.pitch as usize,
+            bpp: info.bpp as u16,
         },
-        addr,
-        len_bytes,
+        addr: core::ptr::null_mut(), // Not used by compositor anymore
+        len_bytes: 0,
     })
 }
 
@@ -140,10 +117,6 @@ fn fallback_framebuffer() -> FramebufferTarget {
 
 fn compositor_id() -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_OID, b"compositor0")
-}
-
-fn framebuffer_id() -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0")
 }
 
 fn compositor_surface_id() -> Uuid {

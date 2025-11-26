@@ -26,6 +26,8 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_WATCH_REGISTER => watch_register(rdi, rsi),
         SYSCALL_WATCH_POLL => watch_poll(rdi, rsi, rdx),
         SYSCALL_KBD_READ => kbd_read(rdi, rsi),
+        SYSCALL_FB_INFO => fb_info(rdi, rsi),
+        SYSCALL_FB_MAP => fb_map(),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -42,6 +44,8 @@ const SYSCALL_GRAPH_GET: u64 = 0x05;
 const SYSCALL_WATCH_REGISTER: u64 = 0x06;
 const SYSCALL_WATCH_POLL: u64 = 0x07;
 const SYSCALL_KBD_READ: u64 = 0x08;
+const SYSCALL_FB_INFO: u64 = 0x09;
+const SYSCALL_FB_MAP: u64 = 0x0A;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -133,6 +137,32 @@ fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
         core::ptr::copy_nonoverlapping(buf.as_ptr(), out_ptr as *mut u8, buf.len());
     }
     required
+}
+
+fn fb_info(out_ptr: u64, out_len: u64) -> u64 {
+    if out_ptr == 0 || out_len == 0 {
+        return !0;
+    }
+    let info = match crate::drivers::framebuffer::get_framebuffer_info() {
+        Some(info) => info,
+        None => return !0,
+    };
+
+    let bytes = unsafe {
+        core::slice::from_raw_parts(
+            &info as *const _ as *const u8,
+            core::mem::size_of::<crate::drivers::framebuffer::FramebufferInfo>(),
+        )
+    };
+
+    copy_out_slice(bytes, out_ptr, out_len)
+}
+
+fn fb_map() -> u64 {
+    match crate::drivers::framebuffer::get_framebuffer_info() {
+        Some(info) => info.addr,
+        None => 0,
+    }
 }
 
 unsafe extern "C" {

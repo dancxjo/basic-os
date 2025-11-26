@@ -52,14 +52,14 @@ pub struct FramebufferTarget {
 pub struct Compositor {
     frame_no: u64,
     framebuffer: FramebufferSurface,
-    framebuffer_ptr: *mut u32,
-    framebuffer_len: usize,
     backbuffer: Vec<u32>,
     windows: BTreeMap<Uuid, WindowSurface>,
     window_order: Vec<Uuid>,
     watch_window_buffers: Option<WatchId>,
     watch_windows: Option<WatchId>,
     watch_mouse: Option<WatchId>,
+    watch_fb: Option<WatchId>,
+    fb_id: Option<Uuid>,
     cursor: CursorState,
     background: Bitmap,
 }
@@ -76,6 +76,9 @@ struct WindowSurface {
     pixmap: Uuid,
     text: String,
 }
+
+
+
 
 struct CursorState {
     x: i32,
@@ -161,14 +164,14 @@ impl Compositor {
                 height,
                 stride,
             },
-            framebuffer_ptr: target.addr,
-            framebuffer_len: target.len_bytes,
             backbuffer: vec![0u32; stride * height],
             windows: BTreeMap::new(),
             window_order: Vec::new(),
             watch_window_buffers: None,
             watch_windows: None,
             watch_mouse: None,
+            watch_fb: None,
+            fb_id: None,
             cursor: CursorState::new(fb_info.width, height),
             background,
         }
@@ -200,11 +203,19 @@ impl Compositor {
                 id: None,
             },
         );
+        let fb_watch = watch_manager.register_graph(
+            app_id,
+            ThingFilter {
+                kind: Some(canon::DISPLAY_FRAMEBUFFER),
+                id: None,
+            },
+        );
 
         let mut comp = Self::new(fb);
         comp.watch_window_buffers = Some(window_buffer_watch);
         comp.watch_windows = Some(window_watch);
         comp.watch_mouse = Some(mouse_watch);
+        comp.watch_fb = Some(fb_watch);
         comp
     }
 
@@ -217,6 +228,10 @@ impl Compositor {
                     self.ingest_mouse_event(&thing.fields);
                 } else if Some(*watch) == self.watch_windows {
                     self.refresh_window(thing.id);
+                } else if Some(*watch) == self.watch_fb {
+                    if thing.kind == canon::DISPLAY_FRAMEBUFFER {
+                        self.fb_id = Some(thing.id);
+                    }
                 }
             }
             AppEvent::Edge { .. } => {}
@@ -556,17 +571,18 @@ impl Compositor {
     }
 
     fn present(&self) {
-        if self.framebuffer_ptr.is_null() || self.framebuffer_len == 0 {
-            return;
-        }
-        let byte_len = self.backbuffer.len() * core::mem::size_of::<u32>();
-        let copy_len = core::cmp::min(byte_len, self.framebuffer_len);
-        unsafe {
-            ptr::copy_nonoverlapping(
-                self.backbuffer.as_ptr() as *const u8,
-                self.framebuffer_ptr as *mut u8,
-                copy_len,
-            );
+        if let Some(fb_id) = self.fb_id {
+            let mut fields = BTreeMap::new();
+            fields.insert(canon::KIND, Value::Symbol(canon::DISPLAY_FRAME));
+            fields.insert(canon::SEQ, Value::U64(self.frame_no));
+            fields.insert(canon::ADDR, Value::U64(self.backbuffer.as_ptr() as u64));
+            fields.insert(canon::WIDTH, Value::U64(self.framebuffer.width as u64));
+            fields.insert(canon::HEIGHT, Value::U64(self.framebuffer.height as u64));
+            fields.insert(canon::PITCH, Value::U64((self.framebuffer.stride * 4) as u64));
+            fields.insert(canon::BPP, Value::U64(32));
+
+            let frame_id = userland::fiat(None, canon::DISPLAY_FRAME, fields);
+            userland::that(fb_id, canon::CURRENT_FRAME, frame_id, 0);
         }
     }
 }
@@ -678,3 +694,4 @@ fn decode_bmp(data: &[u8]) -> Option<Bitmap> {
         pixels,
     })
 }
+

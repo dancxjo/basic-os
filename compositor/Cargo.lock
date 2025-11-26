@@ -25,6 +25,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "app-framebuffer-driver"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "app-graph-demo"
 version = "0.1.0"
 dependencies = [
@@ -69,6 +79,7 @@ version = "0.1.0"
 dependencies = [
  "app-clock",
  "app-clouds",
+ "app-framebuffer-driver",
  "app-graph-demo",
  "app-hello",
  "app-keyboard-driver",

@@ -44,6 +44,45 @@ pub const SYSCALL_GRAPH_GET: u64 = 0x05;
 pub const SYSCALL_WATCH_REGISTER: u64 = 0x06;
 pub const SYSCALL_WATCH_POLL: u64 = 0x07;
 pub const SYSCALL_KBD_READ: u64 = 0x08;
+pub const SYSCALL_FB_INFO: u64 = 0x09;
+pub const SYSCALL_FB_MAP: u64 = 0x0A;
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct FramebufferInfo {
+    pub width: u64,
+    pub height: u64,
+    pub pitch: u64,
+    pub bpp: u64,
+    pub addr: u64,
+}
+
+pub fn fb_info() -> Option<FramebufferInfo> {
+    let mut info = FramebufferInfo {
+        width: 0,
+        height: 0,
+        pitch: 0,
+        bpp: 0,
+        addr: 0,
+    };
+    let ret = unsafe {
+        syscall(
+            SYSCALL_FB_INFO,
+            &mut info as *mut _ as u64,
+            core::mem::size_of::<FramebufferInfo>() as u64,
+            0,
+        )
+    };
+    if ret == 0 {
+        Some(info)
+    } else {
+        None
+    }
+}
+
+pub fn fb_map() -> u64 {
+    unsafe { syscall(SYSCALL_FB_MAP, 0, 0, 0) }
+}
 
 pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
     unsafe {

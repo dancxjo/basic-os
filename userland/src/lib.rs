@@ -102,6 +102,10 @@ pub mod canon {
     pub const BPP: Symbol = canon(b'B', b'P', b'P');
     pub const ADDR: Symbol = canon(b'A', b'D', b'R');
     pub const EMITS: Symbol = canon(b'E', b'M', b'T');
+    pub const DISPLAY_FRAMEBUFFER: Symbol = canon(b'D', b'F', b'B');
+    pub const DISPLAY_FRAME: Symbol = canon(b'D', b'F', b'R');
+    pub const CURRENT_FRAME: Symbol = canon(b'C', b'U', b'R');
+    pub const SEQ: Symbol = canon(b'S', b'E', b'Q');
 }
 
 pub mod prelude {

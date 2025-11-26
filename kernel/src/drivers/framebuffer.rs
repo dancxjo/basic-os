@@ -17,6 +17,22 @@ static FRAMEBUFFER_VIRT_RANGE: SpinMutex<Option<Range<VirtAddr>>> = SpinMutex::n
 static FRAMEBUFFER_REGION: SpinMutex<Option<(u64, usize)>> = SpinMutex::new(None);
 static FRAMEBUFFER_DEVICE: SpinMutex<Option<Arc<SpinMutex<Framebuffer>>>> = SpinMutex::new(None);
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct FramebufferInfo {
+    pub width: u64,
+    pub height: u64,
+    pub pitch: u64,
+    pub bpp: u64,
+    pub addr: u64,
+}
+
+static FRAMEBUFFER_INFO: SpinMutex<Option<FramebufferInfo>> = SpinMutex::new(None);
+
+pub fn get_framebuffer_info() -> Option<FramebufferInfo> {
+    *FRAMEBUFFER_INFO.lock()
+}
+
 pub fn get_framebuffer_virt_range() -> Option<Range<VirtAddr>> {
     FRAMEBUFFER_VIRT_RANGE.lock().clone()
 }
@@ -47,6 +63,15 @@ impl Framebuffer {
         let pitch_pixels = pitch / 4;
         let len = pitch_pixels * height;
         let virt_addr = fb_info.addr();
+
+        let info = FramebufferInfo {
+            width: width as u64,
+            height: height as u64,
+            pitch: pitch as u64,
+            bpp: fb_info.bpp() as u64,
+            addr: virt_addr as u64,
+        };
+        *FRAMEBUFFER_INFO.lock() = Some(info);
 
         *FRAMEBUFFER_VIRT_RANGE.lock() = Some(
             VirtAddr::new(virt_addr as u64)..VirtAddr::new((virt_addr as u64) + (len * 4) as u64),
