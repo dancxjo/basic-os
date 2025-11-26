@@ -30,8 +30,11 @@ pub fn mirror_kernel_region(
                     frame_allocator,
                 ) {
                     Ok(flusher) => flusher.flush(),
-                    Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(_)) => {
-                        // Ignore
+                    Err(
+                        x86_64::structures::paging::mapper::MapToError::ParentEntryHugePage
+                        | x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(_),
+                    ) => {
+                        // Already covered by a huge page (e.g., HHDM) or mapped; skip.
                     }
                     Err(e) => panic!("failed to mirror kernel region: {:?}", e),
                 }

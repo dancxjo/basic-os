@@ -43,6 +43,13 @@ pub fn create_user_page_table(
         table.zero();
         table
     };
+    // Reuse the existing HHDM PML4 entry so kernel code running with the user
+    // address space still has the higher-half direct map available.
+    let hhdm_index = hhdm_offset.p4_index();
+    let active_cr3 = Cr3::read().0.start_address();
+    let active_l4_virt = hhdm_offset + active_cr3.as_u64();
+    let active_l4: &PageTable = unsafe { &*active_l4_virt.as_ptr() };
+    l4_table[hhdm_index] = active_l4[hhdm_index].clone();
     let l4_table_ptr: *mut PageTable = l4_table;
     let mut offset_page_table = unsafe {
         x86_64::structures::paging::OffsetPageTable::new(&mut *l4_table_ptr, hhdm_offset)
@@ -93,11 +100,6 @@ pub fn create_user_page_table(
         frame_allocator,
         (VirtAddr::new(HPET_BASE)..VirtAddr::new(HPET_BASE + 0x1000)).into(),
     );
-
-    // Mirror framebuffer
-    if let Some(range) = crate::drivers::framebuffer::get_framebuffer_virt_range() {
-        mirror_kernel_region(&mut offset_page_table, frame_allocator, range);
-    }
 
     (l4_table, offset_page_table)
 }
