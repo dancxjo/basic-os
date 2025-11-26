@@ -1,6 +1,12 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::device::{self, DeviceKind};
 use crate::drivers::input::InputBuffer;
+use crate::telemetry::{
+    canon,
+    graph::{self, GraphFiatRequest},
+    journal::Value,
+};
+use alloc::collections::BTreeMap;
 use log::warn;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::InterruptStackFrame;
@@ -39,5 +45,19 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
         );
     }
 
+    publish_key_event(scancode);
+
     end_of_interrupt(1);
+}
+
+fn publish_key_event(scancode: u8) {
+    let mut fields = BTreeMap::new();
+    fields.insert(canon::SCANCODE, Value::U64(scancode as u64));
+
+    let req = GraphFiatRequest {
+        id: None,
+        kind: canon::KEY_PRESSED,
+        fields,
+    };
+    let _ = graph::fiat(req);
 }

@@ -1,4 +1,5 @@
 use alloc::sync::Arc;
+use alloc::{collections::BTreeMap, string::ToString};
 use core::cmp::{max, min};
 use core::ops::Range;
 use font8x8::{BASIC_FONTS, UnicodeFonts};
@@ -7,6 +8,10 @@ use spin::Mutex as SpinMutex;
 use x86_64::VirtAddr;
 
 use crate::drivers::device::{self, DeviceKind};
+use crate::telemetry::canon;
+use crate::telemetry::graph::{self, GraphFiatRequest};
+use crate::telemetry::journal::Value;
+use uuid::Uuid;
 
 static FRAMEBUFFER_VIRT_RANGE: SpinMutex<Option<Range<VirtAddr>>> = SpinMutex::new(None);
 static FRAMEBUFFER_REGION: SpinMutex<Option<(u64, usize)>> = SpinMutex::new(None);
@@ -312,4 +317,28 @@ pub fn register_framebuffer_device(framebuffer: Arc<SpinMutex<Framebuffer>>) {
         Some(write_framebuffer),
         Some(map_framebuffer),
     );
+}
+
+/// Publish framebuffer metadata into the shared graph so userland can discover
+/// the display surface without bespoke syscalls.
+pub fn publish_framebuffer_node(framebuffer: Arc<SpinMutex<Framebuffer>>) {
+    let fb = framebuffer.lock();
+    let mut fields = BTreeMap::new();
+    fields.insert(canon::NAME, Value::Text("framebuffer0".to_string()));
+    fields.insert(canon::STATUS, Value::Symbol(canon::INIT));
+    fields.insert(canon::WIDTH, Value::U64(fb.width as u64));
+    fields.insert(canon::HEIGHT, Value::U64(fb.height as u64));
+    fields.insert(canon::PITCH, Value::U64(fb.pitch as u64));
+    fields.insert(canon::BPP, Value::U64(fb.bpp as u64));
+    if let Some((addr, _len)) = *FRAMEBUFFER_REGION.lock() {
+        fields.insert(canon::ADDR, Value::U64(addr));
+    }
+
+    let framebuffer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0");
+    let req = GraphFiatRequest {
+        id: Some(framebuffer_id),
+        kind: canon::PIXMAP,
+        fields,
+    };
+    let _ = graph::fiat(req);
 }

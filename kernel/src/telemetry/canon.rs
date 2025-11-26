@@ -67,6 +67,11 @@ pub const WRITE: Symbol = canon(b'W', b'R', b'T');
 pub const TARGET: Symbol = canon(b'T', b'G', b'T');
 pub const TEXT: Symbol = canon(b'T', b'X', b'T');
 pub const STDOUT: Symbol = canon(b'S', b'T', b'D');
+pub const ADDR: Symbol = canon(b'A', b'D', b'R');
+pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
+pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
+pub const PITCH: Symbol = canon(b'P', b'T', b'H');
+pub const BPP: Symbol = canon(b'B', b'P', b'P');
 pub const COMPOSITOR: Symbol = canon(b'C', b'M', b'P');
 pub const WINDOW: Symbol = canon(b'W', b'I', b'N');
 pub const PIXMAP: Symbol = canon(b'P', b'X', b'M');
@@ -115,6 +120,11 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (TARGET, "target"),
         (TEXT, "text"),
         (STDOUT, "stdout"),
+        (ADDR, "addr"),
+        (WIDTH, "width"),
+        (HEIGHT, "height"),
+        (PITCH, "pitch"),
+        (BPP, "bpp"),
         (COMPOSITOR, "compositor"),
         (WINDOW, "window"),
         (PIXMAP, "pixmap"),

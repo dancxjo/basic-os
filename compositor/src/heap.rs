@@ -64,10 +64,6 @@ pub fn init_heap() {
     unsafe {
         let start = HEAP_SPACE.0.as_mut_ptr();
         let len = HEAP_SPACE.0.len();
-        println!("Heap init: start={:p} len={}", start, len);
-        ALLOCATOR
-            .inner
-            .lock()
-            .init(start, len);
+        ALLOCATOR.inner.lock().init(start, len);
     }
 }

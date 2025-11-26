@@ -2,8 +2,9 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+use core::fmt;
 
-use crate::{canon, ipc, sys, Symbol};
+use crate::{canon, sys, Symbol};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -81,6 +82,13 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::I64(v) => Some(*v),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +96,21 @@ pub struct Event {
     pub timestamp: u64,
     pub kind: Symbol,
     pub data: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphFiatRequest {
+    pub id: Option<Uuid>,
+    pub kind: Symbol,
+    pub fields: Map,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphThatRequest {
+    pub src: Uuid,
+    pub pred: Symbol,
+    pub dst: Uuid,
+    pub revision_hint: u64,
 }
 
 pub fn extract_text(value: &Value) -> Option<String> {
@@ -110,15 +133,28 @@ pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: Map) -> Uuid {
         }
         Uuid::new_v5(&Uuid::NAMESPACE_OID, &name)
     });
-    #[allow(deprecated)]
-    ipc::emit_thing_created(id, kind, 0, fields);
+    let req = GraphFiatRequest {
+        id: Some(id),
+        kind,
+        fields,
+    };
+    if let Ok(buf) = postcard::to_allocvec(&req) {
+        let _ = sys::graph_fiat_raw(&buf);
+    }
     id
 }
 
 /// Add an edge between two Things in the graph.
 pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
-    #[allow(deprecated)]
-    ipc::emit_edge_added(src, pred, dst, revision);
+    let req = GraphThatRequest {
+        src,
+        pred,
+        dst,
+        revision_hint: revision,
+    };
+    if let Ok(buf) = postcard::to_allocvec(&req) {
+        let _ = sys::graph_link_raw(&buf);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +182,28 @@ pub struct GraphSnapshot {
     pub edges: Vec<GraphEdge>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GraphChange {
+    Thing(GraphThing),
+    Edge(GraphEdge),
+}
+
+impl GraphChange {
+    pub fn revision(&self) -> u64 {
+        match self {
+            GraphChange::Thing(t) => t.revision,
+            GraphChange::Edge(e) => e.revision,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphWatchBatch {
+    pub from_revision: u64,
+    pub latest_revision: u64,
+    pub changes: Vec<GraphChange>,
+}
+
 pub fn graph_snapshot() -> Option<GraphSnapshot> {
     let mut buf = vec![0u8; 4096];
     let needed = sys::graph_snapshot_raw(&mut buf) as usize;
@@ -169,6 +227,37 @@ pub fn graph_snapshot() -> Option<GraphSnapshot> {
         return None;
     }
     postcard::from_bytes::<GraphSnapshot>(&buf[..written]).ok()
+}
+
+pub fn graph_watch(since: u64) -> Option<GraphWatchBatch> {
+    let mut buf = vec![0u8; 4096];
+    let needed = sys::graph_watch_raw(since, &mut buf) as usize;
+    if needed == 0 {
+        return Some(GraphWatchBatch {
+            from_revision: since,
+            latest_revision: since,
+            changes: Vec::new(),
+        });
+    }
+    if needed > MAX_SNAPSHOT_BYTES {
+        return None;
+    }
+    if needed > buf.len() {
+        buf.resize(needed, 0);
+    }
+    let written = sys::graph_watch_raw(since, &mut buf) as usize;
+    if written == 0 || written > buf.len() {
+        return None;
+    }
+    postcard::from_bytes::<GraphWatchBatch>(&buf[..written]).ok()
+}
+
+pub fn log_args(args: fmt::Arguments<'_>) {
+    let mut buf = String::new();
+    let _ = fmt::write(&mut buf, args);
+    let mut fields = Map::new();
+    fields.insert(canon::TEXT, Value::Text(buf));
+    fiat(None, canon::WRITE, fields);
 }
 
 pub trait Thingable: Sized {

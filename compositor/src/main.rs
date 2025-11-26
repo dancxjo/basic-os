@@ -9,12 +9,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use app_clock::app_entry as clock_app;
 use app_hello::app_entry as hello_app;
-use compositor::Compositor;
+use compositor::{Compositor, FramebufferInfo, FramebufferTarget};
 use userland::app::DynApp;
-use userland::{
-    canon, drivers, fetch_journal_events, fiat, map, println, start_builtin_drivers, that,
-    DriverContext, FramebufferInfo, Value, WatchManager,
-};
+use userland::{canon, drivers, fiat, graph_snapshot, map, println, that, Value, WatchManager};
 use uuid::Uuid;
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
@@ -29,37 +26,19 @@ pub extern "C" fn _start() -> ! {
     let compositor_app_id = watch_manager.register_app();
     let mut apps = register_apps(&mut watch_manager);
 
-    let mut driver_ctx = DriverContext::new();
-    let mut running_drivers =
-        start_builtin_drivers(&mut driver_ctx, compositor_id(), framebuffer_id());
-
-    let fb_info = running_drivers
-        .framebuffer
-        .as_ref()
-        .and_then(|fb| fb.info())
-        .unwrap_or(FramebufferInfo {
-            width: 1024,
-            height: 768,
-            pitch: 1024 * 4,
-            bpp: 32,
-        });
+    let fb_target = discover_framebuffer().unwrap_or_else(fallback_framebuffer);
     println!(
         "Framebuffer info: {}x{} pitch={} bpp={}",
-        fb_info.width, fb_info.height, fb_info.pitch, fb_info.bpp
+        fb_target.info.width, fb_target.info.height, fb_target.info.pitch, fb_target.info.bpp
     );
 
     let mut compositor =
-        Compositor::init_with_watches(&mut watch_manager, compositor_app_id, fb_info);
+        Compositor::init_with_watches(&mut watch_manager, compositor_app_id, fb_target);
     let mut tick: u64 = 0;
-    let mut logged_missing_fb = false;
     loop {
-        running_drivers.poll_all(&mut driver_ctx);
-        let journal_events = fetch_journal_events().unwrap_or_default();
-
         let mut all_ids = vec![compositor_app_id];
         all_ids.extend(app_ids(&apps));
 
-        watch_manager.process_journal_batch(&all_ids, &journal_events);
         watch_manager.process_graph(&all_ids);
 
         for ev in watch_manager.drain_inbox(compositor_app_id) {
@@ -67,13 +46,7 @@ pub extern "C" fn _start() -> ! {
         }
 
         tick_apps(&mut apps, &mut watch_manager, tick);
-        if let Some(fb_driver) = running_drivers.framebuffer.as_ref() {
-            compositor.tick(fb_driver, &driver_ctx);
-            logged_missing_fb = false;
-        } else if !logged_missing_fb {
-            println!("Framebuffer driver missing; compositor skipping render");
-            logged_missing_fb = true;
-        }
+        compositor.tick();
         tick = tick.wrapping_add(1);
         busy_wait();
     }
@@ -83,14 +56,22 @@ fn register_compositor_things() {
     let compositor_id = compositor_id();
     let framebuffer_id = framebuffer_id();
     let surface_id = compositor_surface_id();
+    let snapshot = graph_snapshot();
 
     let mut compositor_fields = map();
-    println!("compositor_fields addr: {:p}", &compositor_fields);
     compositor_fields.insert(canon::NAME, Value::text("compositor0"));
     compositor_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
     fiat(Some(compositor_id), canon::COMPOSITOR, compositor_fields);
 
-    let mut fb_fields = map();
+    let mut fb_fields = snapshot
+        .as_ref()
+        .and_then(|snap| {
+            snap.things
+                .iter()
+                .find(|t| t.id == framebuffer_id)
+                .map(|t| t.fields.clone())
+        })
+        .unwrap_or_else(map);
     fb_fields.insert(canon::NAME, Value::text("framebuffer0"));
     fb_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
     fiat(Some(framebuffer_id), canon::PIXMAP, fb_fields);
@@ -118,6 +99,41 @@ fn tick_apps(apps: &mut [DynApp], watch_manager: &mut WatchManager, tick: u64) {
 
 fn app_ids(apps: &[DynApp]) -> Vec<usize> {
     apps.iter().map(|app| app.app_id()).collect()
+}
+
+fn discover_framebuffer() -> Option<FramebufferTarget> {
+    let snapshot = graph_snapshot()?;
+    let fb_id = framebuffer_id();
+    let thing = snapshot.things.iter().find(|t| t.id == fb_id)?;
+    let width = thing.fields.get(&canon::WIDTH)?.as_u64()? as usize;
+    let height = thing.fields.get(&canon::HEIGHT)?.as_u64()? as usize;
+    let pitch = thing.fields.get(&canon::PITCH)?.as_u64()? as usize;
+    let bpp = thing.fields.get(&canon::BPP)?.as_u64()? as u16;
+    let addr = thing.fields.get(&canon::ADDR)?.as_u64()? as *mut u32;
+    let len_bytes = pitch.saturating_mul(height);
+    Some(FramebufferTarget {
+        info: FramebufferInfo {
+            width,
+            height,
+            pitch,
+            bpp,
+        },
+        addr,
+        len_bytes,
+    })
+}
+
+fn fallback_framebuffer() -> FramebufferTarget {
+    FramebufferTarget {
+        info: FramebufferInfo {
+            width: 1024,
+            height: 768,
+            pitch: 1024 * 4,
+            bpp: 32,
+        },
+        addr: core::ptr::null_mut(),
+        len_bytes: 0,
+    }
 }
 
 fn compositor_id() -> Uuid {

@@ -8,11 +8,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::{max, min};
 use core::convert::TryInto;
+use core::ptr;
 
 use unifont::{get_glyph, Glyph};
 use userland::{
-    canon, extract_text, load_thing, println, AppEvent, DriverContext, EventFilter,
-    FramebufferDriver, FramebufferInfo, ThingFilter, Value, WatchId, WatchManager, Window,
+    canon, extract_text, load_thing, println, AppEvent, Symbol, ThingFilter, Value, WatchId,
+    WatchManager, Window,
 };
 use uuid::Uuid;
 
@@ -33,9 +34,26 @@ const MAX_BACKBUFFER_PIXELS: usize = 8_388_608; // 8 Mi pixels (~32 MiB)
 const SAFE_FB_WIDTH: usize = 1024;
 const SAFE_FB_HEIGHT: usize = 768;
 
+#[derive(Clone, Copy, Debug)]
+pub struct FramebufferInfo {
+    pub width: usize,
+    pub height: usize,
+    pub pitch: usize,
+    pub bpp: u16,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct FramebufferTarget {
+    pub info: FramebufferInfo,
+    pub addr: *mut u32,
+    pub len_bytes: usize,
+}
+
 pub struct Compositor {
     frame_no: u64,
     framebuffer: FramebufferSurface,
+    framebuffer_ptr: *mut u32,
+    framebuffer_len: usize,
     backbuffer: Vec<u32>,
     windows: BTreeMap<Uuid, WindowSurface>,
     window_order: Vec<Uuid>,
@@ -118,8 +136,8 @@ const CURSOR_MASK: [u16; CURSOR_SIZE] = [
 ];
 
 impl Compositor {
-    pub fn new(fb_info: FramebufferInfo) -> Self {
-        let fb_info = sanitize_fb_info(fb_info);
+    pub fn new(target: FramebufferTarget) -> Self {
+        let fb_info = sanitize_fb_info(target.info);
         let mut stride = max(fb_info.pitch / 4, fb_info.width.max(1));
         let mut height = fb_info.height.max(1);
         if stride.saturating_mul(height) > MAX_BACKBUFFER_PIXELS {
@@ -143,6 +161,8 @@ impl Compositor {
                 height,
                 stride,
             },
+            framebuffer_ptr: target.addr,
+            framebuffer_len: target.len_bytes,
             backbuffer: vec![0u32; stride * height],
             windows: BTreeMap::new(),
             window_order: Vec::new(),
@@ -157,22 +177,20 @@ impl Compositor {
     pub fn init_with_watches(
         watch_manager: &mut WatchManager,
         app_id: usize,
-        fb_info: FramebufferInfo,
+        fb: FramebufferTarget,
     ) -> Self {
-        let window_buffer_watch = watch_manager.register_journal(
+        let window_buffer_watch = watch_manager.register_graph(
             app_id,
-            EventFilter {
+            ThingFilter {
                 kind: Some(canon::WINDOW_BUFFER_UPDATED),
-                src: None,
-                dst: None,
+                id: None,
             },
         );
-        let mouse_watch = watch_manager.register_journal(
+        let mouse_watch = watch_manager.register_graph(
             app_id,
-            EventFilter {
+            ThingFilter {
                 kind: Some(canon::MOUSE_MOVED),
-                src: None,
-                dst: None,
+                id: None,
             },
         );
         let window_watch = watch_manager.register_graph(
@@ -183,7 +201,7 @@ impl Compositor {
             },
         );
 
-        let mut comp = Self::new(fb_info);
+        let mut comp = Self::new(fb);
         comp.watch_window_buffers = Some(window_buffer_watch);
         comp.watch_windows = Some(window_watch);
         comp.watch_mouse = Some(mouse_watch);
@@ -192,22 +210,20 @@ impl Compositor {
 
     pub fn on_event(&mut self, ev: &AppEvent) {
         match ev {
-            AppEvent::Journal { watch, event } => {
+            AppEvent::Thing { watch, thing } => {
                 if Some(*watch) == self.watch_window_buffers {
-                    self.ingest_window_buffer(event.data.clone());
+                    self.ingest_window_buffer(thing);
                 } else if Some(*watch) == self.watch_mouse {
-                    self.ingest_mouse_event(&event.data);
+                    self.ingest_mouse_event(&thing.fields);
+                } else if Some(*watch) == self.watch_windows {
+                    self.refresh_window(thing.id);
                 }
             }
-            AppEvent::Graph { watch, thing_id } => {
-                if Some(*watch) == self.watch_windows {
-                    self.refresh_window(*thing_id);
-                }
-            }
+            AppEvent::Edge { .. } => {}
         }
     }
 
-    pub fn tick(&mut self, framebuffer: &FramebufferDriver, driver_ctx: &DriverContext) {
+    pub fn tick(&mut self) {
         if self.backbuffer.is_empty()
             || self.framebuffer.width == 0
             || self.framebuffer.height == 0
@@ -225,15 +241,15 @@ impl Compositor {
         self.draw_background();
         self.draw_windows();
         self.draw_cursor();
-        self.present(framebuffer, driver_ctx);
+        self.present();
         self.frame_no = self.frame_no.wrapping_add(1);
     }
 
-    fn ingest_window_buffer(&mut self, data: Value) {
-        let map = match data {
-            Value::Map(m) => m,
-            _ => return,
-        };
+    fn ingest_window_buffer(&mut self, thing: &userland::GraphThing) {
+        if thing.kind != canon::WINDOW_BUFFER_UPDATED {
+            return;
+        }
+        let map = &thing.fields;
         let window_id = map.get(&canon::SRC).and_then(Value::as_uuid);
         let pixmap = map.get(&canon::TARGET).and_then(Value::as_uuid);
         let text = map
@@ -257,23 +273,18 @@ impl Compositor {
         self.bump_window(window_id);
     }
 
-    fn ingest_mouse_event(&mut self, data: &Value) {
-        let map = match data {
-            Value::Map(m) => m,
-            _ => return,
-        };
-
-        let dx = match map.get(&canon::DX) {
+    fn ingest_mouse_event(&mut self, fields: &BTreeMap<Symbol, Value>) {
+        let dx = match fields.get(&canon::DX) {
             Some(Value::I64(v)) => *v,
             Some(Value::U64(v)) => *v as i64,
             _ => 0,
         };
-        let dy = match map.get(&canon::DY) {
+        let dy = match fields.get(&canon::DY) {
             Some(Value::I64(v)) => *v,
             Some(Value::U64(v)) => *v as i64,
             _ => 0,
         };
-        let buttons = match map.get(&canon::BUTTONS) {
+        let buttons = match fields.get(&canon::BUTTONS) {
             Some(Value::U64(v)) => *v as u8,
             Some(Value::I64(v)) => *v as u8,
             _ => self.cursor.buttons,
@@ -544,11 +555,19 @@ impl Compositor {
         }
     }
 
-    fn present(&self, framebuffer: &FramebufferDriver, driver_ctx: &DriverContext) {
+    fn present(&self) {
+        if self.framebuffer_ptr.is_null() || self.framebuffer_len == 0 {
+            return;
+        }
         let byte_len = self.backbuffer.len() * core::mem::size_of::<u32>();
-        let bytes =
-            unsafe { core::slice::from_raw_parts(self.backbuffer.as_ptr() as *const u8, byte_len) };
-        let _ = framebuffer.blit(driver_ctx, bytes);
+        let copy_len = core::cmp::min(byte_len, self.framebuffer_len);
+        unsafe {
+            ptr::copy_nonoverlapping(
+                self.backbuffer.as_ptr() as *const u8,
+                self.framebuffer_ptr as *mut u8,
+                copy_len,
+            );
+        }
     }
 }
 

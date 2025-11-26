@@ -3,10 +3,8 @@
 extern crate alloc;
 
 pub mod app;
-pub mod driver_runtime;
 pub mod drivers;
 pub mod graph;
-pub mod ipc;
 pub mod sys;
 pub mod watch;
 
@@ -100,6 +98,9 @@ pub mod canon {
     pub const Y: Symbol = canon(b'Y', b' ', b' ');
     pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
     pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
+    pub const ADDR: Symbol = canon(b'A', b'D', b'R');
+    pub const PITCH: Symbol = canon(b'P', b'T', b'H');
+    pub const BPP: Symbol = canon(b'B', b'P', b'P');
 }
 
 pub mod prelude {
@@ -109,22 +110,13 @@ pub mod prelude {
         extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,
         update_thing, Thingable, Value, Window,
     };
-    pub use crate::ipc::{emit_frame_ready, emit_window_buffer_updated};
-    pub use crate::watch::{
-        AppEvent, EventFilter, ThingFilter, WatchId, WatchManager, WatchSource,
-    };
+    pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
     pub use crate::{print, println};
 }
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
-pub use driver_runtime::{
-    start_builtin_drivers, DeviceHandle as DriverDeviceHandle, DeviceKind as DriverDeviceKind,
-    Driver, DriverContext, FramebufferDriver, FramebufferInfo, KeyboardDriver, MouseDriver,
-    RunningDrivers, SerialDriver,
-};
 pub use graph::{
     extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,
     update_thing, Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,
 };
-pub use ipc::{emit_frame_ready, emit_window_buffer_updated, fetch_journal_events};
-pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager, WatchSource};
+pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};

@@ -35,8 +35,7 @@ use alloc::vec::Vec;
 use core::fmt::{self, Write};
 
 use crate::canon;
-use crate::graph::{self, load_thing, update_thing, Thingable, Window};
-use crate::ipc;
+use crate::graph::{self, load_thing, update_thing, Thingable, Value, Window};
 use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 use uuid::Uuid;
 
@@ -170,7 +169,12 @@ impl<'a> AppContext<'a> {
     pub fn flush(&mut self, tick: u64) {
         for (window, text) in self.state.buffers.iter() {
             if let Some(pixmap) = self.state.window_pixmaps.get(window) {
-                ipc::emit_window_buffer_updated(*window, *pixmap, tick, text.as_bytes());
+                let mut payload = graph::map();
+                payload.insert(canon::SRC, Value::Uuid(*window));
+                payload.insert(canon::TARGET, Value::Uuid(*pixmap));
+                payload.insert(canon::REVISION, Value::U64(tick));
+                payload.insert(canon::TEXT, Value::Bytes(text.as_bytes().to_vec()));
+                graph::fiat(None, canon::WINDOW_BUFFER_UPDATED, payload);
             }
         }
         self.state.buffers.clear();

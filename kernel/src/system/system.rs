@@ -90,6 +90,10 @@ impl System {
             fb
         });
 
+        bootstrap_step!("framebuffer graph", {
+            crate::drivers::framebuffer::publish_framebuffer_node(framebuffer.clone());
+        });
+
         let _mouse = bootstrap_step!("PS/2 devices", {
             ps2::enable_ps2_devices();
         });

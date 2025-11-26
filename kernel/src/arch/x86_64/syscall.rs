@@ -1,18 +1,8 @@
-use alloc::collections::BTreeMap;
-use alloc::string::{String, ToString};
 use x86_64::VirtAddr;
-use x86_64::registers::control::Cr3;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
-use x86_64::structures::paging::{OffsetPageTable, Page, PageTable, Size4KiB};
 
-use crate::drivers::device;
-use crate::telemetry::{
-    canon,
-    canon::Symbol,
-    graph::{self, GraphFiatRequest, GraphThatRequest},
-    journal::{self, Event, Value},
-};
-use crate::{serial_print, serial_println};
+use crate::serial_println;
+use crate::telemetry::graph::{self, GraphFiatRequest, GraphThatRequest};
 
 #[unsafe(no_mangle)]
 static mut USER_RSP: u64 = 0;
@@ -28,15 +18,10 @@ static mut SYSCALL_KERNEL_STACK: AlignedStack = AlignedStack([0; KERNEL_STACK_SI
 #[unsafe(no_mangle)]
 pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
     let ret = match rax {
-        SYSCALL_WRITE_PORT => write_port(rdi, rsi, rdx),
-        SYSCALL_READ_PORT => read_port(rdi),
-        SYSCALL_JOURNAL_EMIT => journal_emit(rdi, rsi, rdx),
-        SYSCALL_JOURNAL_SNAPSHOT => journal_snapshot(rdi, rsi),
-        SYSCALL_GRAPH_SNAPSHOT => graph_snapshot(rdi, rsi),
-        SYSCALL_DEV_OPEN => dev_open(rdi as u32, rsi as usize),
-        SYSCALL_DEV_READ => dev_read(rdi, rsi, rdx),
-        SYSCALL_DEV_WRITE => dev_write(rdi, rsi, rdx),
-        SYSCALL_DEV_MAP => dev_map(rdi, rsi, rdx),
+        SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),
+        SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
+        SYSCALL_GRAPH_QUERY => graph_query(rdi, rsi),
+        SYSCALL_GRAPH_WATCH => graph_watch(rdi, rsi, rdx),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -45,155 +30,35 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
     ret
 }
 
-const SYSCALL_WRITE_PORT: u64 = 0x01;
-const SYSCALL_READ_PORT: u64 = 0x02;
-const SYSCALL_JOURNAL_EMIT: u64 = 0x10;
-const SYSCALL_JOURNAL_SNAPSHOT: u64 = 0x11;
-const SYSCALL_GRAPH_SNAPSHOT: u64 = 0x12;
-const SYSCALL_DEV_OPEN: u64 = 0x20;
-const SYSCALL_DEV_READ: u64 = 0x21;
-const SYSCALL_DEV_WRITE: u64 = 0x22;
-const SYSCALL_DEV_MAP: u64 = 0x23;
+const SYSCALL_GRAPH_FIAT: u64 = 0x01;
+const SYSCALL_GRAPH_LINK: u64 = 0x02;
+const SYSCALL_GRAPH_QUERY: u64 = 0x03;
+const SYSCALL_GRAPH_WATCH: u64 = 0x04;
 
-// Write to port (e.g., port 1 = console)
-fn write_port(port: u64, data: u64, _flags: u64) -> u64 {
-    match port {
-        1 => {
-            crate::drivers::framebuffer::console_write_byte(data as u8);
-            serial_print!("{}", data as u8 as char);
-            0
-        }
-        _ => !0, // error
-    }
-}
-
-fn journal_emit(kind_raw: u64, data_ptr: u64, len: u64) -> u64 {
-    serial_println!(
-        "journal_emit: kind={:#x} ptr={:#x} len={}",
-        kind_raw,
-        data_ptr,
-        len
-    );
-    if data_ptr == 0 && len > 0 {
+fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
         return !0;
     }
-
-    // Validate that the user-provided buffer is mapped in the current
-    // page-table before dereferencing it. Creating a raw slice from an
-    // unmapped user pointer can fault in kernel context and cause a
-    // double-fault. We check page-by-page to keep this cheap.
-    if len > 0 {
-        let (frame, _) = Cr3::read();
-        let phys = frame.start_address();
-        let hhdm = crate::bootloader::get_hhdm_offset();
-        let virt = hhdm + phys.as_u64();
-        let l4_table = unsafe { &mut *(virt.as_mut_ptr() as *mut PageTable) };
-        let mapper = unsafe { OffsetPageTable::new(l4_table, hhdm) };
-
-        let start = VirtAddr::new(data_ptr);
-        let end = start + (len.saturating_sub(1) as u64);
-        let start_page = Page::<Size4KiB>::containing_address(start);
-        let end_page = Page::<Size4KiB>::containing_address(end);
-        for page in Page::<Size4KiB>::range_inclusive(start_page, end_page) {
-            if !crate::mm::allocator::is_mapped(&mapper, page.start_address()) {
-                serial_println!(
-                    "journal_emit: user buffer not mapped at page {:#x}",
-                    page.start_address().as_u64()
-                );
-                return !0;
-            }
-        }
-    }
-
-    // Test allocator
-    /*
-    {
-        let mut test_vec = alloc::vec::Vec::new();
-        test_vec.push(1u8);
-        serial_println!("Allocator test: vec len = {}", test_vec.len());
-    }
-    */
-
-
-    let kind = Symbol::new(kind_raw as u32);
-    let data_slice = unsafe { core::slice::from_raw_parts(data_ptr as *const u8, len as usize) };
-
-    serial_println!("journal_emit: parsing data...");
-    // Try to read the slice first to ensure it's accessible
-    let mut sum: u64 = 0;
-    for b in data_slice {
-        sum += *b as u64;
-    }
-    serial_println!("journal_emit: slice sum = {}", sum);
-
-    let data = postcard::from_bytes::<Value>(data_slice).unwrap_or_else(|_| {
-        match core::str::from_utf8(data_slice) {
-            Ok(s) => Value::Text(s.into()),
-            Err(_) => Value::Bytes(data_slice.to_vec()),
-        }
-    });
-    serial_println!("journal_emit: data parsed. Creating event...");
-
-    let event = Event::new(kind, data);
-    serial_println!("journal_emit: event created. Emitting...");
-    apply_graph_side_effect(&event);
-    let _ = journal::emit(event.clone());
-    reflect_write_event(&event);
-    serial_println!("journal_emit: done.");
-    0
-}
-
-fn apply_graph_side_effect(event: &Event) {
-    if let Some(map) = event.data.as_map() {
-        if event.kind == canon::THING_CREATED {
-            if let Some(req) = build_graph_fiat(map) {
-                let _ = graph::fiat(req);
-            }
-        } else if event.kind == canon::EDGE_ADDED {
-            if let Some(req) = build_graph_that(map) {
-                let _ = graph::that(req);
-            }
-        }
-    }
-}
-
-fn build_graph_fiat(fields: &BTreeMap<Symbol, Value>) -> Option<GraphFiatRequest> {
-    let id = fields.get(&canon::ID).and_then(Value::as_uuid);
-    let kind = fields.get(&canon::KIND).and_then(Value::as_symbol)?;
-    let raw_fields = fields.get(&canon::FIELDS).and_then(Value::as_map)?.clone();
-    Some(GraphFiatRequest {
-        id,
-        kind,
-        fields: raw_fields,
-    })
-}
-
-fn build_graph_that(fields: &BTreeMap<Symbol, Value>) -> Option<GraphThatRequest> {
-    let src = fields.get(&canon::SRC).and_then(Value::as_uuid)?;
-    let dst = fields.get(&canon::DST).and_then(Value::as_uuid)?;
-    let pred = fields.get(&canon::PREDICATE).and_then(Value::as_symbol)?;
-    let revision_hint = fields
-        .get(&canon::REVISION)
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    Some(GraphThatRequest {
-        src,
-        pred,
-        dst,
-        revision_hint,
-    })
-}
-
-fn journal_snapshot(out_ptr: u64, out_len: u64) -> u64 {
-    let bytes = match journal::export_bytes() {
-        Some(buf) => buf,
-        None => return !0,
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<GraphFiatRequest>(buf) else {
+        return !0;
     };
-
-    copy_out_slice(&bytes, out_ptr, out_len)
+    let thing = graph::fiat(request);
+    thing.revision
 }
 
-fn graph_snapshot(out_ptr: u64, out_len: u64) -> u64 {
+fn graph_link(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<GraphThatRequest>(buf) else {
+        return !0;
+    };
+    graph::that(request)
+}
+
+fn graph_query(out_ptr: u64, out_len: u64) -> u64 {
     let bytes = match crate::telemetry::graph::export_snapshot_bytes() {
         Some(buf) => buf,
         None => return !0,
@@ -202,39 +67,12 @@ fn graph_snapshot(out_ptr: u64, out_len: u64) -> u64 {
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 
-fn dev_open(kind_raw: u32, index: usize) -> u64 {
-    match device::dev_open(kind_raw, index) {
-        Some(handle) => handle,
-        None => !0,
-    }
-}
-
-fn dev_read(handle: u64, buf_ptr: u64, len: u64) -> u64 {
-    if buf_ptr == 0 || len == 0 {
-        return 0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize) };
-    device::dev_read(handle, buf) as u64
-}
-
-fn dev_write(handle: u64, buf_ptr: u64, len: u64) -> u64 {
-    if buf_ptr == 0 || len == 0 {
-        return 0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len as usize) };
-    device::dev_write(handle, buf) as u64
-}
-
-fn dev_map(handle: u64, len_out_ptr: u64, _hint: u64) -> u64 {
-    let Some((addr, len)) = device::dev_map(handle) else {
-        return 0;
+fn graph_watch(since_rev: u64, out_ptr: u64, out_len: u64) -> u64 {
+    let bytes = match crate::telemetry::graph::export_changes_since(since_rev) {
+        Some(buf) => buf,
+        None => return !0,
     };
-    if len_out_ptr != 0 {
-        unsafe {
-            *(len_out_ptr as *mut u64) = len as u64;
-        }
-    }
-    addr
+    copy_out_slice(&bytes, out_ptr, out_len)
 }
 
 fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
@@ -251,34 +89,6 @@ fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
         core::ptr::copy_nonoverlapping(buf.as_ptr(), out_ptr as *mut u8, buf.len());
     }
     required
-}
-
-fn reflect_write_event(event: &Event) {
-    if event.kind != canon::WRITE && event.kind != canon::FRAME_READY {
-        return;
-    }
-
-    if let Some(text) = extract_text(&event.data) {
-        for byte in text.bytes() {
-            crate::drivers::framebuffer::console_write_byte(byte);
-        }
-    }
-}
-
-fn extract_text(value: &Value) -> Option<String> {
-    match value {
-        Value::Text(s) => Some(s.clone()),
-        Value::Bytes(b) => core::str::from_utf8(b).ok().map(|s| s.to_string()),
-        Value::Map(m) => m.get(&canon::TEXT).and_then(extract_text),
-        _ => None,
-    }
-}
-
-// Read from port (e.g., port 2 = keyboard)
-fn read_port(port: u64) -> u64 {
-    match port {
-        _ => !0,
-    }
 }
 
 unsafe extern "C" {

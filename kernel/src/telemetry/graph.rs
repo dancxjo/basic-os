@@ -8,6 +8,21 @@ use spin::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GraphChange {
+    Thing(GraphThing),
+    Edge(GraphEdge),
+}
+
+impl GraphChange {
+    pub fn revision(&self) -> u64 {
+        match self {
+            GraphChange::Thing(t) => t.revision,
+            GraphChange::Edge(e) => e.revision,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphThing {
     pub id: Uuid,
     pub kind: Symbol,
@@ -33,6 +48,13 @@ pub struct GraphSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphWatchBatch {
+    pub from_revision: u64,
+    pub latest_revision: u64,
+    pub changes: Vec<GraphChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphFiatRequest {
     pub id: Option<Uuid>,
     pub kind: Symbol,
@@ -47,6 +69,8 @@ pub struct GraphThatRequest {
     pub revision_hint: u64,
 }
 
+const MAX_CHANGE_LOG: usize = 1024;
+
 #[derive(Default)]
 pub struct Store {
     next_revision: u64,
@@ -54,6 +78,7 @@ pub struct Store {
     edges: Vec<GraphEdge>,
     kind_index: BTreeMap<Symbol, BTreeSet<Uuid>>,
     edges_by_src_pred: BTreeMap<(Uuid, Symbol), Vec<GraphEdge>>,
+    changes: Vec<GraphChange>,
 }
 
 impl Store {
@@ -64,6 +89,7 @@ impl Store {
             edges: Vec::new(),
             kind_index: BTreeMap::new(),
             edges_by_src_pred: BTreeMap::new(),
+            changes: Vec::new(),
         }
     }
 
@@ -80,7 +106,9 @@ impl Store {
         };
 
         self.insert_thing(thing.clone());
+        self.record_change(GraphChange::Thing(thing.clone()));
         emit_thing_event(&thing);
+        reflect_thing_side_effects(&thing);
         thing
     }
 
@@ -93,6 +121,7 @@ impl Store {
             revision,
         };
         self.insert_edge(edge.clone());
+        self.record_change(GraphChange::Edge(edge.clone()));
         emit_edge_event(&edge);
         revision
     }
@@ -120,6 +149,21 @@ impl Store {
             .unwrap_or_else(Vec::new)
     }
 
+    pub fn changes_since(&self, revision: u64) -> GraphWatchBatch {
+        let latest = self.next_revision.saturating_sub(1);
+        let changes = self
+            .changes
+            .iter()
+            .filter(|c| c.revision() > revision)
+            .cloned()
+            .collect();
+        GraphWatchBatch {
+            from_revision: revision,
+            latest_revision: latest,
+            changes,
+        }
+    }
+
     pub fn snapshot(&self) -> GraphSnapshot {
         let mut things = Vec::new();
         for versions in self.things.values() {
@@ -140,6 +184,7 @@ impl Store {
         self.edges.clear();
         self.kind_index.clear();
         self.edges_by_src_pred.clear();
+        self.changes.clear();
 
         for thing in snapshot.things.into_iter() {
             self.insert_thing(thing);
@@ -156,6 +201,14 @@ impl Store {
         let rev = self.next_revision;
         self.next_revision = self.next_revision.wrapping_add(1);
         rev
+    }
+
+    fn record_change(&mut self, change: GraphChange) {
+        self.changes.push(change);
+        if self.changes.len() > MAX_CHANGE_LOG {
+            let overflow = self.changes.len().saturating_sub(MAX_CHANGE_LOG);
+            self.changes.drain(0..overflow);
+        }
     }
 
     fn insert_thing(&mut self, thing: GraphThing) {
@@ -239,6 +292,11 @@ pub fn import_snapshot_bytes(buf: &[u8]) -> Result<(), postcard::Error> {
     Ok(())
 }
 
+pub fn export_changes_since(revision: u64) -> Option<Vec<u8>> {
+    let batch = with_store(|store| store.changes_since(revision));
+    postcard::to_allocvec(&batch).ok()
+}
+
 fn emit_thing_event(thing: &GraphThing) {
     let mut payload = BTreeMap::new();
     payload.insert(canon::ID, Value::Uuid(thing.id));
@@ -264,4 +322,27 @@ fn derive_uuid(kind: Symbol, fields: &BTreeMap<Symbol, Value>) -> Uuid {
         name.extend_from_slice(&buf);
     }
     Uuid::new_v5(&Uuid::NAMESPACE_OID, &name)
+}
+
+fn reflect_thing_side_effects(thing: &GraphThing) {
+    if thing.kind != canon::WRITE {
+        return;
+    }
+
+    if let Some(text) = extract_text(&Value::Map(thing.fields.clone())) {
+        for byte in text.bytes() {
+            crate::drivers::framebuffer::console_write_byte(byte);
+        }
+    }
+}
+
+fn extract_text(value: &Value) -> Option<alloc::string::String> {
+    match value {
+        Value::Text(s) => Some(s.clone()),
+        Value::Bytes(b) => core::str::from_utf8(b)
+            .ok()
+            .map(alloc::string::String::from),
+        Value::Map(m) => m.get(&canon::TEXT).and_then(extract_text),
+        _ => None,
+    }
 }
