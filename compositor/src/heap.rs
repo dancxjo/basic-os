@@ -42,7 +42,7 @@ unsafe impl GlobalAlloc for SafeHeap {
             println!("dealloc ptr={:p} size={}", ptr, layout.size());
             self.inner.dealloc(ptr, layout);
         } else {
-             println!("dealloc ptr={:p} NOT IN HEAP", ptr);
+            println!("dealloc ptr={:p} NOT IN HEAP", ptr);
         }
     }
 
