@@ -249,7 +249,6 @@ $(IMAGE_NAME).iso: limine/limine kernel userland
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
 	cp -v userland.bin iso_root/boot/
-	cp -v compositor/target/x86_64-unknown-none/release/compositor iso_root/boot/compositor
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT

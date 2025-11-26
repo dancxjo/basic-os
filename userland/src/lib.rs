@@ -102,7 +102,7 @@ pub mod canon {
     pub const BPP: Symbol = canon(b'B', b'P', b'P');
     pub const ADDR: Symbol = canon(b'A', b'D', b'R');
     pub const EMITS: Symbol = canon(b'E', b'M', b'T');
-    
+
     pub const INPUT_DEVICE_MOUSE: Symbol = canon(b'I', b'D', b'M');
     pub const INPUT_EVENT: Symbol = canon(b'I', b'E', b'V');
     pub const MOVE: Symbol = canon(b'M', b'O', b'V');
@@ -121,14 +121,15 @@ pub mod canon {
     pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
     pub const COLOR: Symbol = canon(b'C', b'L', b'R');
     pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
+    pub const BITMAP: Symbol = canon(b'B', b'M', b'P');
 }
 
 pub mod prelude {
     pub use crate::app::{App, AppContext, WindowHandle};
     pub use crate::app_main;
     pub use crate::graph::{
-        extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that,
-        update_thing, Thingable, Value, Window,
+        extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that, update_thing,
+        Thingable, Value, Window,
     };
     pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
     pub use crate::{print, println};
@@ -136,8 +137,8 @@ pub mod prelude {
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
-    extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that,
-    update_thing, Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,
+    extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that, update_thing,
+    Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 

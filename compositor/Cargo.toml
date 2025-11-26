@@ -12,13 +12,9 @@ uuid = { version = "1.10", default-features = false, features = [
 ] }
 linked_list_allocator = { version = "0.10", optional = true }
 app-clouds = { path = "../apps/clouds", optional = true }
-app-hello = { path = "../apps/hello", optional = true }
-app-clock = { path = "../apps/clock", optional = true }
-app-graph-demo = { path = "../apps/graph_demo", optional = true }
 app-keyboard-driver = { path = "../apps/keyboard_driver", optional = true }
 app-mouse-driver = { path = "../apps/mouse_driver", optional = true }
 app-framebuffer-driver = { path = "../apps/framebuffer_driver", optional = true }
-app-toy-rect = { path = "../apps/toy_rect", optional = true }
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 
 [profile.release]
@@ -29,13 +25,9 @@ default = []
 demo-apps = [
   "linked_list_allocator",
   "app-clouds",
-  "app-hello",
-  "app-clock",
-  "app-graph-demo",
   "app-keyboard-driver",
   "app-mouse-driver",
   "app-framebuffer-driver",
-  "app-toy-rect",
 ]
 
 [build]

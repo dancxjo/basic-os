@@ -6,6 +6,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+use alloc::sync::Arc;
 use core::cmp::{max, min};
 use core::convert::TryInto;
 use core::ptr;
@@ -75,6 +76,7 @@ struct WindowSurface {
     window: Window,
     pixmap: Uuid,
     text: String,
+    bitmap: Option<Arc<Bitmap>>,
 }
 
 struct CursorState {
@@ -292,10 +294,18 @@ impl Compositor {
             window: window.clone(),
             pixmap,
             text: String::new(),
+            bitmap: None,
         });
         entry.window = window;
         entry.pixmap = pixmap;
         entry.text = text;
+        
+        if let Some(Value::Bytes(bytes)) = map.get(&canon::BITMAP) {
+            if let Some(bmp) = decode_bmp(bytes) {
+                entry.bitmap = Some(Arc::new(bmp));
+            }
+        }
+
         self.bump_window(window_id);
     }
 
@@ -340,6 +350,7 @@ impl Compositor {
                     window,
                     pixmap: Uuid::nil(),
                     text: String::new(),
+                    bitmap: None,
                 },
             );
         }
@@ -416,6 +427,10 @@ impl Compositor {
         let client_w = w.saturating_sub(BORDER_THICKNESS * 2 + WINDOW_PADDING * 2);
         let client_h =
             h.saturating_sub(TITLE_BAR_HEIGHT + BORDER_THICKNESS * 2 + WINDOW_PADDING * 2);
+
+        if let Some(bmp) = &surface.bitmap {
+            self.draw_tiled_bitmap(client_x, client_y, client_w, client_h, bmp);
+        }
 
         self.draw_text_block(
             client_x,
@@ -600,6 +615,22 @@ impl Compositor {
 
             let frame_id = userland::fiat(None, canon::DISPLAY_FRAME, fields);
             userland::that(fb_id, canon::CURRENT_FRAME, frame_id, 0);
+        }
+    }
+
+    fn draw_tiled_bitmap(&mut self, x: usize, y: usize, w: usize, h: usize, bmp: &Bitmap) {
+        for dy in 0..h {
+            let row_offset = (y + dy) * self.framebuffer.stride;
+            if y + dy >= self.framebuffer.height {
+                break;
+            }
+            for dx in 0..w {
+                if x + dx >= self.framebuffer.width {
+                    break;
+                }
+                let color = bmp.sample(dx, dy);
+                self.backbuffer[row_offset + x + dx] = color;
+            }
         }
     }
 }

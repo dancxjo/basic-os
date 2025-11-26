@@ -72,6 +72,7 @@ impl WindowHandle {
 pub struct AppState {
     compositor: Uuid,
     buffers: BTreeMap<Uuid, String>,
+    bitmaps: BTreeMap<Uuid, Vec<u8>>,
     window_pixmaps: BTreeMap<Uuid, Uuid>,
     window_counter: u64,
     app_id: usize,
@@ -82,6 +83,7 @@ impl AppState {
         Self {
             compositor,
             buffers: BTreeMap::new(),
+            bitmaps: BTreeMap::new(),
             window_pixmaps: BTreeMap::new(),
             window_counter: 0,
             app_id,
@@ -155,6 +157,10 @@ impl<'a> AppContext<'a> {
         let _ = buf.write_fmt(args);
     }
 
+    pub fn draw_bitmap(&mut self, win: &WindowHandle, data: &[u8]) {
+        self.state.bitmaps.insert(win.window, data.to_vec());
+    }
+
     pub fn load_window(&self, win: &WindowHandle) -> Option<Window> {
         load_thing::<Window>(win.window)
     }
@@ -175,10 +181,16 @@ impl<'a> AppContext<'a> {
                 payload.insert(canon::TARGET, Value::Uuid(*pixmap));
                 payload.insert(canon::REVISION, Value::U64(tick));
                 payload.insert(canon::TEXT, Value::Bytes(text.as_bytes().to_vec()));
+                
+                if let Some(bmp) = self.state.bitmaps.remove(window) {
+                    payload.insert(canon::BITMAP, Value::Bytes(bmp));
+                }
+
                 graph::fiat(None, canon::WINDOW_BUFFER_UPDATED, payload);
             }
         }
         self.state.buffers.clear();
+        // Bitmaps are removed as they are consumed
     }
 
     pub fn watch_journal(&mut self, filter: EventFilter) -> WatchId {

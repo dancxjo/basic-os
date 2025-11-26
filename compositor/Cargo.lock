@@ -9,14 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "app-clock"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
 name = "app-clouds"
 version = "0.1.0"
 dependencies = [
@@ -35,22 +27,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "app-graph-demo"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
-name = "app-hello"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
 name = "app-keyboard-driver"
 version = "0.1.0"
 dependencies = [
@@ -60,14 +36,6 @@ dependencies = [
 
 [[package]]
 name = "app-mouse-driver"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
-name = "app-toy-rect"
 version = "0.1.0"
 dependencies = [
  "userland",
@@ -93,14 +61,10 @@ dependencies = [
 name = "compositor"
 version = "0.1.0"
 dependencies = [
- "app-clock",
  "app-clouds",
  "app-framebuffer-driver",
- "app-graph-demo",
- "app-hello",
  "app-keyboard-driver",
  "app-mouse-driver",
- "app-toy-rect",
  "flate2",
  "linked_list_allocator",
  "unifont",
