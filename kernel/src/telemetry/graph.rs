@@ -143,8 +143,8 @@ impl Store {
     }
 
     pub fn find_by_kind(&self, kind: &str, cursor: u64) -> (Vec<GraphThing>, u64) {
-        let symbol = if kind == "window" {
-            canon::WINDOW
+        let symbol = if let Some(s) = canon::from_str(kind) {
+            s
         } else {
             return (Vec::new(), 0);
         };

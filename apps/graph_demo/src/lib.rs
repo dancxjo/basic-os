@@ -35,12 +35,8 @@ impl App for GraphDemoApp {
         let _ = writeln!(&mut text, "Tick: {}", tick);
         let _ = writeln!(&mut text, "");
 
-        if let Some(snapshot) = graph_snapshot() {
-            let _ = writeln!(&mut text, "Graph Revision: {}", snapshot.revision);
-            let _ = writeln!(&mut text, "Things: {}", snapshot.thing_count);
-            let _ = writeln!(&mut text, "Edges: {}", snapshot.edge_count);
-            let _ = writeln!(&mut text, "");
-
+        // Snapshot API removed. Using granular queries.
+        {
             let windows = load_things_of_kind::<Window>();
             let _ = writeln!(&mut text, "Windows in graph: {}", windows.len());
             for (_id, window) in windows.iter() {
@@ -50,26 +46,6 @@ impl App for GraphDemoApp {
                     window.title, window.x, window.y
                 );
             }
-
-            if let Some(my_window) = ctx.load_window(&self.window) {
-                let _ = writeln!(&mut text, "");
-                let _ = writeln!(&mut text, "My window:");
-                let _ = writeln!(
-                    &mut text,
-                    "  Size: {}x{}",
-                    my_window.width, my_window.height
-                );
-
-                if tick % 64 == 0 {
-                    let mut updated = my_window.clone();
-                    updated.width = 400 + (tick % 200);
-                    updated.height = 300 + (tick % 150);
-                    ctx.update_window(&self.window, &updated);
-                    let _ = writeln!(&mut text, "  [Updated size!]");
-                }
-            }
-        } else {
-            let _ = writeln!(&mut text, "Failed to get graph snapshot");
         }
 
         ctx.clear_window(&self.window);

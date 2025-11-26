@@ -11,7 +11,7 @@ use uuid::Uuid;
 pub type Map = BTreeMap<Symbol, Value>;
 
 // Snapshot buffers are small; guard against bogus sizes coming from the kernel.
-const MAX_SNAPSHOT_BYTES: usize = 1 << 20; // 1 MiB upper bound
+// const MAX_SNAPSHOT_BYTES: usize = 1 << 20; // 1 MiB upper bound
 
 pub fn map() -> Map {
     BTreeMap::new()
@@ -215,15 +215,6 @@ impl GraphChange {
     }
 }
 
-pub fn graph_snapshot() -> Option<GraphSnapshot> {
-    let mut buf = vec![0u8; MAX_SNAPSHOT_BYTES];
-    let len = sys::graph_snapshot_raw(&mut buf);
-    if len == !0 {
-        return None;
-    }
-    postcard::from_bytes(&buf[..len as usize]).ok()
-}
-
 pub fn find_by_kind(kind: &str) -> Vec<GraphThing> {
     let mut results = Vec::new();
     let mut cursor = 0;
@@ -265,6 +256,7 @@ pub fn find_by_kind(kind: &str) -> Vec<GraphThing> {
 }
 
 pub trait Thingable: Sized {
+    fn kind() -> &'static str;
     fn load(thing: &GraphThing) -> Option<Self>;
 }
 
@@ -293,15 +285,39 @@ pub struct Window {
 }
 
 impl Thingable for Window {
+    fn kind() -> &'static str {
+        "window"
+    }
+
     fn load(thing: &GraphThing) -> Option<Self> {
         if thing.kind != canon::WINDOW {
             return None;
         }
-        let width = thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64()).unwrap_or(0);
-        let height = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64()).unwrap_or(0);
-        let title = thing.fields.get(&canon::TITLE).and_then(|v| extract_text(v)).unwrap_or_default();
-        let x = thing.fields.get(&canon::X).and_then(|v| v.as_u64()).unwrap_or(0);
-        let y = thing.fields.get(&canon::Y).and_then(|v| v.as_u64()).unwrap_or(0);
+        let width = thing
+            .fields
+            .get(&canon::WIDTH)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let height = thing
+            .fields
+            .get(&canon::HEIGHT)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let title = thing
+            .fields
+            .get(&canon::TITLE)
+            .and_then(|v| extract_text(v))
+            .unwrap_or_default();
+        let x = thing
+            .fields
+            .get(&canon::X)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let y = thing
+            .fields
+            .get(&canon::Y)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         Some(Window {
             id: thing.id,
             width,
@@ -350,17 +366,14 @@ pub fn fiat_thing<T>(thing: &T) -> Uuid {
 }
 
 pub fn load_things_of_kind<T: Thingable>() -> Vec<(Uuid, T)> {
-    if let Some(snapshot) = graph_snapshot() {
-        let mut results = Vec::new();
-        for thing in snapshot.things {
-            if let Some(obj) = T::load(&thing) {
-                results.push((thing.id, obj));
-            }
+    let things = find_by_kind(T::kind());
+    let mut results = Vec::new();
+    for thing in things {
+        if let Some(obj) = T::load(&thing) {
+            results.push((thing.id, obj));
         }
-        results
-    } else {
-        Vec::new()
     }
+    results
 }
 
 pub fn log_args(args: fmt::Arguments) {

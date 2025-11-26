@@ -23,7 +23,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
     let ret = match rax {
         SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),
         SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
-        SYSCALL_GRAPH_QUERY => graph_query(rdi, rsi),
+        // SYSCALL_GRAPH_QUERY => graph_query(rdi, rsi),
         SYSCALL_GRAPH_GET => graph_get(rdi, rsi, rdx),
         SYSCALL_WATCH_REGISTER => watch_register(rdi, rsi),
         SYSCALL_WATCH_POLL => watch_poll(rdi, rsi, rdx),
@@ -42,7 +42,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
 
 const SYSCALL_GRAPH_FIAT: u64 = 0x01;
 const SYSCALL_GRAPH_LINK: u64 = 0x02;
-const SYSCALL_GRAPH_QUERY: u64 = 0x03;
+// const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 // const SYSCALL_GRAPH_WATCH: u64 = 0x04;
 const SYSCALL_GRAPH_GET: u64 = 0x05;
 const SYSCALL_WATCH_REGISTER: u64 = 0x06;
@@ -74,15 +74,6 @@ fn graph_link(req_ptr: u64, req_len: u64) -> u64 {
         return !0;
     };
     graph::that(request)
-}
-
-fn graph_query(out_ptr: u64, out_len: u64) -> u64 {
-    let bytes = match crate::telemetry::graph::export_snapshot_bytes() {
-        Some(buf) => buf,
-        None => return !0,
-    };
-
-    copy_out_slice(&bytes, out_ptr, out_len)
 }
 
 fn watch_register(req_ptr: u64, req_len: u64) -> u64 {

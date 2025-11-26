@@ -15,7 +15,7 @@ use app_mouse_driver::app_entry as mouse_driver_app;
 use app_toy_rect::app_entry as toy_rect_app;
 use compositor::{Compositor, FramebufferInfo, FramebufferTarget};
 use userland::app::DynApp;
-use userland::{canon, drivers, fiat, graph_snapshot, map, println, that, Value, WatchManager};
+use userland::{canon, drivers, fiat, map, println, that, Value, WatchManager};
 use uuid::Uuid;
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;

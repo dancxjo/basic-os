@@ -165,6 +165,73 @@ pub fn sym_name(code: Symbol) -> &'static str {
     ""
 }
 
+pub fn from_str(s: &str) -> Option<Symbol> {
+    const TBL: &[(Symbol, &str)] = &[
+        (JOURNAL, "journal"),
+        (KEYBOARD, "keyboard"),
+        (KEY_PRESSED, "key_pressed"),
+        (MOUSE, "mouse"),
+        (MOUSE_MOVED, "mouse_moved"),
+        (INPUT_DEVICE_MOUSE, "input.device.mouse"),
+        (INPUT_EVENT, "input.event"),
+        (MOVE, "move"),
+        (DEVICE_ID, "device_id"),
+        (TS, "ts"),
+        (DOWN, "down"),
+        (BUTTON, "button"),
+        (AT, "at"),
+        (INIT, "init"),
+        (FAIL, "fail"),
+        (DRIVER, "driver"),
+        (THING_CREATED, "thing_created"),
+        (EDGE_ADDED, "edge_added"),
+        (ID, "id"),
+        (KIND, "kind"),
+        (FIELDS, "fields"),
+        (REVISION, "revision"),
+        (SRC, "src"),
+        (DST, "dst"),
+        (PREDICATE, "predicate"),
+        (NAME, "name"),
+        (STATUS, "status"),
+        (SCANCODE, "scancode"),
+        (KEY, "key"),
+        (DX, "dx"),
+        (DY, "dy"),
+        (BUTTONS, "buttons"),
+        (WRITE, "write"),
+        (TARGET, "target"),
+        (TEXT, "text"),
+        (STDOUT, "stdout"),
+        (ADDR, "addr"),
+        (WIDTH, "width"),
+        (HEIGHT, "height"),
+        (PITCH, "pitch"),
+        (BPP, "bpp"),
+        (COMPOSITOR, "compositor"),
+        (WINDOW, "window"),
+        (PIXMAP, "pixmap"),
+        (STREAMS, "streams"),
+        (COMPOSED_BY, "composed_by"),
+        (WINDOW_CREATED, "window_created"),
+        (WINDOW_BUFFER_UPDATED, "window_buffer_updated"),
+        (FRAME_READY, "frame_ready"),
+        (DRIVER_INPUT, "driver_input"),
+        (DRIVER_DISPLAY, "driver_display"),
+        (DRIVER_STORAGE, "driver_storage"),
+        (DRIVER_TIMER, "driver_timer"),
+        (DRIVER_OTHER, "driver_other"),
+    ];
+    let mut i = 0;
+    while i < TBL.len() {
+        if TBL[i].1 == s {
+            return Some(TBL[i].0);
+        }
+        i += 1;
+    }
+    None
+}
+
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = sym_name(*self);

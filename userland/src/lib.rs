@@ -127,7 +127,7 @@ pub mod prelude {
     pub use crate::app::{App, AppContext, WindowHandle};
     pub use crate::app_main;
     pub use crate::graph::{
-        extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,
+        extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that,
         update_thing, Thingable, Value, Window,
     };
     pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
@@ -136,7 +136,7 @@ pub mod prelude {
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
-    extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,
+    extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that,
     update_thing, Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};

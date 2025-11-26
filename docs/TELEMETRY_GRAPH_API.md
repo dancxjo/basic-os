@@ -28,32 +28,28 @@ An Edge represents a directed relationship between two Things:
 - `dst`: Destination Thing UUID
 - `revision`: Version number
 
-### Graph Snapshot
+### Graph Queries
 
-A snapshot is a point-in-time view of the entire graph, containing all Things and Edges along with metadata about the graph state.
+The graph can be queried for specific Things by kind, or by ID.
 
 ## Userland API
 
 ### Reading the Graph
 
 ```rust
-use userland::{graph_snapshot, GraphSnapshot};
+use userland::{find_by_kind, load_thing};
 
-// Get the current state of the graph
-if let Some(snapshot) = graph_snapshot() {
-    println!("Graph revision: {}", snapshot.revision);
-    println!("Things: {}", snapshot.thing_count);
-    println!("Edges: {}", snapshot.edge_count);
-    
-    // Iterate over all things
-    for thing in &snapshot.things {
-        println!("Thing {} of kind {}", thing.id, thing.kind);
-    }
-    
-    // Iterate over all edges
-    for edge in &snapshot.edges {
-        println!("{} --{}--> {}", edge.src, edge.pred, edge.dst);
-    }
+// Find all things of a specific kind
+let windows = find_by_kind("window");
+println!("Found {} windows", windows.len());
+
+for thing in windows {
+    println!("Window {} with fields {:?}", thing.id, thing.fields);
+}
+
+// Load a specific thing by ID
+if let Some(thing) = load_thing::<Window>(some_id) {
+    println!("Loaded window: {:?}", thing);
 }
 ```
 
@@ -95,27 +91,20 @@ pub struct Window {
 }
 
 impl Thingable for Window {
-    fn kind() -> Symbol {
-        canon::WINDOW
+    fn kind() -> &'static str {
+        "window"
     }
 
-    fn to_fields(&self) -> BTreeMap<Symbol, Value> {
-        let mut m = BTreeMap::new();
-        m.insert(canon::TITLE, Value::Text(self.title.clone()));
-        m.insert(canon::X, Value::U64(self.x));
-        m.insert(canon::Y, Value::U64(self.y));
-        m.insert(canon::WIDTH, Value::U64(self.width));
-        m.insert(canon::HEIGHT, Value::U64(self.height));
-        m
-    }
-
-    fn from_fields(fields: &BTreeMap<Symbol, Value>) -> Option<Self> {
+    fn load(thing: &GraphThing) -> Option<Self> {
+        if thing.kind != canon::WINDOW {
+            return None;
+        }
         Some(Window {
-            title: fields.get(&canon::TITLE)?.as_text()?.to_string(),
-            x: fields.get(&canon::X)?.as_u64()?,
-            y: fields.get(&canon::Y)?.as_u64()?,
-            width: fields.get(&canon::WIDTH)?.as_u64()?,
-            height: fields.get(&canon::HEIGHT)?.as_u64()?,
+            title: thing.fields.get(&canon::TITLE)?.as_text()?.to_string(),
+            x: thing.fields.get(&canon::X)?.as_u64()?,
+            y: thing.fields.get(&canon::Y)?.as_u64()?,
+            width: thing.fields.get(&canon::WIDTH)?.as_u64()?,
+            height: thing.fields.get(&canon::HEIGHT)?.as_u64()?,
         })
     }
 }
@@ -159,7 +148,7 @@ update_thing(id, &updated);
 1. **Journal is the source of truth**: All state changes are expressed as events in the append-only journal.
 2. **Graph is derived**: The kernel graph is built by replaying journal events; it can be reconstructed at any time.
 3. **No kernel-side pointers**: Only `Value` trees and UUIDs cross the kernel-userland boundary.
-4. **Userland caching is optional**: Applications can query via `graph_snapshot()` or maintain their own process-local caches.
+4. **Userland caching is optional**: Applications can query via `find_by_kind()` or maintain their own process-local caches.
 5. **Revisions enable conflict detection**: Each Thing and Edge has a revision number for tracking updates.
 
 ## Example Application

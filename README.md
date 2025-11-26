@@ -62,8 +62,8 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/thingos -ex "target remote
 - `journal_snapshot(out_ptr, out_len)`: copy the postcard-serialized journal
   into a user buffer. The return value is the required size; if the provided
   buffer is too small no data is written.
-- `graph_snapshot(out_ptr, out_len)`: export the current Thing graph snapshot
-  with the same size-reporting convention as `journal_snapshot`.
+- `graph_find_by_kind(kind_ptr, kind_len, cursor)`: query the graph for things
+  of a specific kind. Returns a paginated list of things.
 
 ## Current status
 

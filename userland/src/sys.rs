@@ -38,7 +38,7 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
 
 pub const SYSCALL_GRAPH_FIAT: u64 = 0x01;
 pub const SYSCALL_GRAPH_LINK: u64 = 0x02;
-pub const SYSCALL_GRAPH_QUERY: u64 = 0x03;
+// pub const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 // pub const SYSCALL_GRAPH_WATCH: u64 = 0x04;
 pub const SYSCALL_GRAPH_GET: u64 = 0x05;
 pub const SYSCALL_WATCH_REGISTER: u64 = 0x06;
@@ -107,17 +107,6 @@ pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
             SYSCALL_GRAPH_FIAT,
             payload.as_ptr() as u64,
             payload.len() as u64,
-            0,
-        )
-    }
-}
-
-pub fn graph_snapshot_raw(out: &mut [u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_QUERY,
-            out.as_mut_ptr() as u64,
-            out.len() as u64,
             0,
         )
     }
