@@ -14,8 +14,8 @@ use app_hello::app_entry as hello_app;
 use compositor::Compositor;
 use userland::app::DynApp;
 use userland::{
-    canon, drivers, emit_frame_ready, fiat, map, println, that, DriverContext, FramebufferDriver,
-    KeyboardDriver, MouseDriver, SerialDriver, Value,
+    canon, drivers, emit_frame_ready, fiat, map, println, start_builtin_drivers, that,
+    DriverContext, Value,
 };
 use uuid::Uuid;
 
@@ -26,27 +26,17 @@ pub extern "C" fn _start() -> ! {
     heap::init_heap();
 
     drivers::register_builtin_drivers();
-    drivers::connect_stream("ps2-keyboard", compositor_id(), 0);
-    drivers::connect_stream("ps2-mouse", compositor_id(), 0);
-    drivers::connect_stream("limine-framebuffer", framebuffer_id(), 0);
     register_compositor_things();
     let mut apps = register_apps();
 
     let mut driver_ctx = DriverContext::new();
-    let mut keyboard = KeyboardDriver::init(&mut driver_ctx);
-    let mut mouse = MouseDriver::init(&mut driver_ctx);
-    let mut _framebuffer_driver = FramebufferDriver::init(&mut driver_ctx);
-    let _serial_driver = SerialDriver::init(&mut driver_ctx);
+    let mut running_drivers =
+        start_builtin_drivers(&mut driver_ctx, compositor_id(), framebuffer_id());
 
     let mut compositor = Compositor::new();
     let mut tick: u64 = 0;
     loop {
-        if let Some(kb) = keyboard.as_mut() {
-            kb.poll(&mut driver_ctx);
-        }
-        if let Some(ms) = mouse.as_mut() {
-            ms.poll(&mut driver_ctx);
-        }
+        running_drivers.poll_all(&mut driver_ctx);
         tick_apps(&mut apps, tick);
         let frame = compositor.tick();
         emit_frame_ready(

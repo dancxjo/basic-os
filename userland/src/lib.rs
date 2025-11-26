@@ -114,8 +114,9 @@ pub mod prelude {
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use driver_runtime::{
-    default_drivers, DeviceHandle as DriverDeviceHandle, DeviceKind as DriverDeviceKind, Driver,
-    DriverContext, FramebufferDriver, KeyboardDriver, MouseDriver, SerialDriver,
+    start_builtin_drivers, DeviceHandle as DriverDeviceHandle, DeviceKind as DriverDeviceKind,
+    Driver, DriverContext, FramebufferDriver, KeyboardDriver, MouseDriver, RunningDrivers,
+    SerialDriver,
 };
 pub use graph::{
     extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,

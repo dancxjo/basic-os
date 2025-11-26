@@ -4,9 +4,11 @@
 use alloc::vec::Vec;
 
 use crate::canon;
+use crate::drivers::{self, DriverDescriptor};
 use crate::graph::{map, Value};
 use crate::sys;
 use crate::Symbol;
+use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -57,6 +59,113 @@ impl DriverContext {
     pub fn emit_event(&self, kind: Symbol, data: Value) {
         if let Ok(buf) = postcard::to_allocvec(&data) {
             let _ = sys::journal_emit_raw(kind.0, &buf);
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct RunningDrivers {
+    pub keyboard: Option<KeyboardDriver>,
+    pub mouse: Option<MouseDriver>,
+    pub framebuffer: Option<FramebufferDriver>,
+    pub serial: Option<SerialDriver>,
+}
+
+impl RunningDrivers {
+    pub fn poll_all(&mut self, ctx: &mut DriverContext) {
+        if let Some(driver) = self.keyboard.as_mut() {
+            driver.poll(ctx);
+        }
+        if let Some(driver) = self.mouse.as_mut() {
+            driver.poll(ctx);
+        }
+        if let Some(driver) = self.framebuffer.as_mut() {
+            driver.poll(ctx);
+        }
+        if let Some(driver) = self.serial.as_mut() {
+            driver.poll(ctx);
+        }
+    }
+}
+
+struct DeviceSelector {
+    kind: DeviceKind,
+    index: u32,
+}
+
+fn device_kind_for(desc: &DriverDescriptor) -> Option<DeviceKind> {
+    match desc.name {
+        "ps2-keyboard" => Some(DeviceKind::Keyboard),
+        "ps2-mouse" => Some(DeviceKind::Mouse),
+        "limine-framebuffer" => Some(DeviceKind::Framebuffer),
+        _ => None,
+    }
+}
+
+fn device_selector_for(desc: &DriverDescriptor) -> Option<DeviceSelector> {
+    let kind = device_kind_for(desc)?;
+    Some(DeviceSelector { kind, index: 0 })
+}
+
+fn default_stream_target(
+    desc: &DriverDescriptor,
+    compositor_id: Uuid,
+    framebuffer_id: Uuid,
+) -> Option<(Uuid, u64)> {
+    match desc.name {
+        "ps2-keyboard" | "ps2-mouse" => Some((compositor_id, 0)),
+        "limine-framebuffer" => Some((framebuffer_id, 0)),
+        _ => None,
+    }
+}
+
+pub fn start_builtin_drivers(
+    ctx: &mut DriverContext,
+    compositor_id: Uuid,
+    framebuffer_id: Uuid,
+) -> RunningDrivers {
+    let mut running = RunningDrivers::default();
+    for desc in drivers::BUILTIN_DRIVERS {
+        drivers::register_drivers(core::slice::from_ref(desc));
+
+        if let Some((target, revision)) = default_stream_target(desc, compositor_id, framebuffer_id)
+        {
+            drivers::connect_stream(desc.name, target, revision);
+        }
+
+        let Some(selector) = device_selector_for(desc) else {
+            continue;
+        };
+        let Some(handle) = ctx.open_device(selector.kind, selector.index) else {
+            continue;
+        };
+        attach_driver(selector.kind, handle, ctx, &mut running);
+    }
+    running
+}
+
+fn attach_driver(
+    kind: DeviceKind,
+    handle: DeviceHandle,
+    ctx: &mut DriverContext,
+    running: &mut RunningDrivers,
+) {
+    match kind {
+        DeviceKind::Keyboard => {
+            let driver = KeyboardDriver::from_handle(handle);
+            running.keyboard = Some(driver);
+        }
+        DeviceKind::Mouse => {
+            let driver = MouseDriver::from_handle(handle);
+            running.mouse = Some(driver);
+        }
+        DeviceKind::Framebuffer => {
+            let driver = FramebufferDriver::from_handle(ctx, handle);
+            running.framebuffer = Some(driver);
+        }
+        DeviceKind::Serial => {
+            let driver = SerialDriver::from_handle(handle);
+            running.serial = Some(driver);
         }
     }
 }
@@ -115,14 +224,18 @@ pub struct KeyboardDriver {
 impl KeyboardDriver {
     pub fn init(ctx: &mut DriverContext) -> Option<Self> {
         let dev = ctx.open_device(DeviceKind::Keyboard, 0)?;
-        Some(Self {
+        Some(Self::from_handle(dev))
+    }
+
+    fn from_handle(dev: DeviceHandle) -> Self {
+        Self {
             dev,
             shift: false,
             caps_lock: false,
             altgr: false,
             deadkey: DeadKey::None,
             prefix: 0,
-        })
+        }
     }
 
     pub fn poll(&mut self, ctx: &mut DriverContext) {
@@ -510,6 +623,12 @@ fn key_symbol(code: KeyCode) -> Option<Symbol> {
     })
 }
 
+impl Driver for KeyboardDriver {
+    fn poll(&mut self, ctx: &mut DriverContext) {
+        KeyboardDriver::poll(self, ctx);
+    }
+}
+
 // ------------------ Mouse driver ------------------
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -572,10 +691,14 @@ pub struct MouseDriver {
 impl MouseDriver {
     pub fn init(ctx: &mut DriverContext) -> Option<Self> {
         let dev = ctx.open_device(DeviceKind::Mouse, 0)?;
-        Some(Self {
+        Some(Self::from_handle(dev))
+    }
+
+    fn from_handle(dev: DeviceHandle) -> Self {
+        Self {
             dev,
             decoder: PacketDecoder::new(),
-        })
+        }
     }
 
     pub fn poll(&mut self, ctx: &mut DriverContext) {
@@ -599,6 +722,12 @@ impl MouseDriver {
     }
 }
 
+impl Driver for MouseDriver {
+    fn poll(&mut self, ctx: &mut DriverContext) {
+        MouseDriver::poll(self, ctx);
+    }
+}
+
 // ------------------ Framebuffer driver ------------------
 
 pub struct FramebufferDriver {
@@ -609,8 +738,12 @@ pub struct FramebufferDriver {
 impl FramebufferDriver {
     pub fn init(ctx: &mut DriverContext) -> Option<Self> {
         let dev = ctx.open_device(DeviceKind::Framebuffer, 0)?;
+        Some(Self::from_handle(ctx, dev))
+    }
+
+    fn from_handle(ctx: &DriverContext, dev: DeviceHandle) -> Self {
         let mapping = ctx.map_device(dev);
-        Some(Self { dev, mapping })
+        Self { dev, mapping }
     }
 
     pub fn blit(&self, ctx: &DriverContext, data: &[u8]) -> usize {
@@ -631,7 +764,11 @@ pub struct SerialDriver {
 impl SerialDriver {
     pub fn init(ctx: &mut DriverContext) -> Option<Self> {
         let dev = ctx.open_device(DeviceKind::Serial, 0)?;
-        Some(Self { dev })
+        Some(Self::from_handle(dev))
+    }
+
+    fn from_handle(dev: DeviceHandle) -> Self {
+        Self { dev }
     }
 
     pub fn write(&self, ctx: &DriverContext, data: &[u8]) -> usize {
@@ -641,10 +778,4 @@ impl SerialDriver {
 
 impl Driver for SerialDriver {
     fn poll(&mut self, _ctx: &mut DriverContext) {}
-}
-
-pub fn default_drivers(ctx: &mut DriverContext) -> (Option<KeyboardDriver>, Option<MouseDriver>) {
-    let keyboard = KeyboardDriver::init(ctx);
-    let mouse = MouseDriver::init(ctx);
-    (keyboard, mouse)
 }
