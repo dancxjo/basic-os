@@ -3,16 +3,7 @@
 
 extern crate alloc;
 
-mod heap;
-
-use alloc::vec;
-use alloc::vec::Vec;
-use app_clouds::app_entry as clouds_app;
-use app_framebuffer_driver::app_entry as framebuffer_driver_app;
-use app_keyboard_driver::app_entry as keyboard_driver_app;
-use app_mouse_driver::app_entry as mouse_driver_app;
 use compositor::{Compositor, FramebufferInfo, FramebufferTarget};
-use userland::app::DynApp;
 use userland::{canon, drivers, fiat, map, println, that, Value, WatchManager};
 use uuid::Uuid;
 
@@ -20,13 +11,14 @@ const FRAME_INTERVAL_SPINS: usize = 10_000_000;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    heap::init_heap();
+    userland::init_heap();
 
-    drivers::register_builtin_drivers();
+    // drivers::register_builtin_drivers(); // Drivers are now separate processes
     // register_compositor_things();
     let mut watch_manager = WatchManager::new();
     let compositor_app_id = watch_manager.register_app();
-    let mut apps = register_apps(&mut watch_manager);
+    
+    // No more register_apps() - they are separate processes
 
     let fb_target = discover_framebuffer().unwrap_or_else(fallback_framebuffer);
     println!(
@@ -39,15 +31,14 @@ pub extern "C" fn _start() -> ! {
     let mut tick: u64 = 0;
     loop {
         let mut all_ids = vec![compositor_app_id];
-        all_ids.extend(app_ids(&apps));
-
+        
         watch_manager.process_graph(&all_ids);
 
         for ev in watch_manager.drain_inbox(compositor_app_id) {
             compositor.on_event(&ev);
         }
 
-        tick_apps(&mut apps, &mut watch_manager, tick);
+        // No more tick_apps()
         compositor.tick();
         tick = tick.wrapping_add(1);
         busy_wait();
@@ -69,27 +60,9 @@ fn register_compositor_things() {
     fiat(Some(surface_id), canon::PIXMAP, surface_fields);
 }
 
-fn register_apps(watch_manager: &mut WatchManager) -> Vec<DynApp> {
-    vec![
-        clouds_app(compositor_id(), watch_manager),
-        keyboard_driver_app(compositor_id(), watch_manager),
-        mouse_driver_app(compositor_id(), watch_manager),
-        framebuffer_driver_app(compositor_id(), watch_manager),
-    ]
-}
-
-fn tick_apps(apps: &mut [DynApp], watch_manager: &mut WatchManager, tick: u64) {
-    for app in apps.iter_mut() {
-        app.tick(watch_manager, tick);
-    }
-}
-
-fn app_ids(apps: &[DynApp]) -> Vec<usize> {
-    apps.iter().map(|app| app.app_id()).collect()
-}
-
 fn discover_framebuffer() -> Option<FramebufferTarget> {
     let info = userland::sys::fb_info()?;
+    let addr = userland::sys::fb_map() as *mut u32;
     Some(FramebufferTarget {
         info: FramebufferInfo {
             width: info.width as usize,
@@ -97,8 +70,8 @@ fn discover_framebuffer() -> Option<FramebufferTarget> {
             pitch: info.pitch as usize,
             bpp: info.bpp as u16,
         },
-        addr: core::ptr::null_mut(), // Not used by compositor anymore
-        len_bytes: 0,
+        addr,
+        len_bytes: (info.pitch as usize) * (info.height as usize),
     })
 }
 

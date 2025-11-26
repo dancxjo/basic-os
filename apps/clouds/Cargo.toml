@@ -7,11 +7,12 @@ edition = "2021"
 userland = { path = "../../userland" }
 uuid = { version = "1.10", default-features = false, features = ["v5", "serde"] }
 
+[[bin]]
+name = "clouds"
+path = "src/lib.rs"
+
 [profile.release]
 panic = "abort"
-
-[build]
-target = "x86_64-unknown-none"
 
 [lib]
 path = "src/lib.rs"

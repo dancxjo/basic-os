@@ -259,11 +259,34 @@ pub fn create_app<A: App + 'static>(compositor: Uuid, watch_manager: &mut WatchM
 #[macro_export]
 macro_rules! app_main {
     ($app_ty:ty) => {
-        pub fn app_entry(
-            compositor: uuid::Uuid,
-            watch_manager: &mut userland::watch::WatchManager,
-        ) -> alloc::boxed::Box<dyn userland::app::AppRunner> {
-            userland::app::create_app::<$app_ty>(compositor, watch_manager)
+        #[no_mangle]
+        pub extern "C" fn _start() -> ! {
+            $crate::init_heap();
+            
+            let mut watch_manager = $crate::WatchManager::new();
+            let compositor_id = $crate::uuid::Uuid::nil();
+            
+            let mut app_runner = $crate::app::create_app::<$app_ty>(compositor_id, &mut watch_manager);
+            
+            let mut tick = 0;
+            loop {
+                let app_id = app_runner.app_id();
+                watch_manager.process_graph(&[app_id]);
+                app_runner.tick(&mut watch_manager, tick);
+                tick = tick.wrapping_add(1);
+                
+                // Simple busy wait for now to avoid burning CPU too hard if idle
+                // Ideally we would sleep until an event arrives
+                for _ in 0..1000 {
+                    core::hint::spin_loop();
+                }
+            }
+        }
+
+        #[panic_handler]
+        fn panic(info: &core::panic::PanicInfo) -> ! {
+            $crate::println!("App Panic: {}", info);
+            loop {}
         }
     };
 }

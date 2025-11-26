@@ -6,15 +6,15 @@ edition = "2021"
 [dependencies]
 userland = { path = "../../userland" }
 uuid = { version = "1.10", default-features = false, features = [
-    "v5",
-    "serde",
+  "v5",
+  "serde",
 ] }
 
+[[bin]]
+name = "mouse_driver"
+path = "src/lib.rs"
 [profile.release]
 panic = "abort"
-
-[build]
-target = "x86_64-unknown-none"
 
 [lib]
 path = "src/lib.rs"

@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "app-framebuffer-driver"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "cobs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

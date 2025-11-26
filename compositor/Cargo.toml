@@ -10,11 +10,6 @@ uuid = { version = "1.10", default-features = false, features = [
   "v5",
   "serde",
 ] }
-linked_list_allocator = { version = "0.10", optional = true }
-app-clouds = { path = "../apps/clouds", optional = true }
-app-keyboard-driver = { path = "../apps/keyboard_driver", optional = true }
-app-mouse-driver = { path = "../apps/mouse_driver", optional = true }
-app-framebuffer-driver = { path = "../apps/framebuffer_driver", optional = true }
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 
 [profile.release]
@@ -22,13 +17,7 @@ panic = "abort"
 
 [features]
 default = []
-demo-apps = [
-  "linked_list_allocator",
-  "app-clouds",
-  "app-keyboard-driver",
-  "app-mouse-driver",
-  "app-framebuffer-driver",
-]
+demo-apps = []
 
 [build]
 target = "x86_64-unknown-none"

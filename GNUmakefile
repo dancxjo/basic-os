@@ -236,8 +236,12 @@ limine/limine:
 
 .PHONY: userland
 userland:
-	cd compositor && RUSTFLAGS="-C link-arg=-Tlink.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none --features demo-apps
+	cd compositor && RUSTFLAGS="-C link-arg=-Tlink.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 	cp -v compositor/target/x86_64-unknown-none/release/compositor userland.bin
+	cd apps/clouds && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/keyboard_driver && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/mouse_driver && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/framebuffer_driver && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 
 .PHONY: kernel
 kernel:
@@ -249,6 +253,10 @@ $(IMAGE_NAME).iso: limine/limine kernel userland
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
 	cp -v userland.bin iso_root/boot/
+	cp -v apps/clouds/target/x86_64-unknown-none/release/clouds iso_root/boot/
+	cp -v apps/keyboard_driver/target/x86_64-unknown-none/release/keyboard_driver iso_root/boot/
+	cp -v apps/mouse_driver/target/x86_64-unknown-none/release/mouse_driver iso_root/boot/
+	cp -v apps/framebuffer_driver/target/x86_64-unknown-none/release/framebuffer_driver iso_root/boot/
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT

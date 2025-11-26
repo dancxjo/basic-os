@@ -9,40 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "app-clouds"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
-name = "app-framebuffer-driver"
-version = "0.1.0"
-dependencies = [
- "postcard",
- "serde",
- "userland",
- "uuid",
-]
-
-[[package]]
-name = "app-keyboard-driver"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
-name = "app-mouse-driver"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -61,12 +27,7 @@ dependencies = [
 name = "compositor"
 version = "0.1.0"
 dependencies = [
- "app-clouds",
- "app-framebuffer-driver",
- "app-keyboard-driver",
- "app-mouse-driver",
  "flate2",
- "linked_list_allocator",
  "unifont",
  "userland",
  "uuid",
@@ -265,6 +226,7 @@ checksum = "8eb5abf597aaa6fff19801d6747672f56e618d60002e7191ea92773a5bcae156"
 name = "userland"
 version = "0.1.0"
 dependencies = [
+ "linked_list_allocator",
  "postcard",
  "serde",
  "uuid",

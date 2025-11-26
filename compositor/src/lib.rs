@@ -69,6 +69,7 @@ struct FramebufferSurface {
     width: usize,
     height: usize,
     stride: usize,
+    addr: *mut u32,
 }
 
 #[derive(Clone)]
@@ -162,6 +163,7 @@ impl Compositor {
                 width,
                 height,
                 stride,
+                addr: target.addr,
             },
             backbuffer: vec![0u32; stride * height],
             windows: BTreeMap::new(),
@@ -600,6 +602,16 @@ impl Compositor {
     }
 
     fn present(&self) {
+        if !self.framebuffer.addr.is_null() {
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    self.backbuffer.as_ptr(),
+                    self.framebuffer.addr,
+                    self.backbuffer.len(),
+                );
+            }
+        }
+
         if let Some(fb_id) = self.fb_id {
             let mut fields = BTreeMap::new();
             fields.insert(canon::KIND, Value::Symbol(canon::DISPLAY_FRAME));

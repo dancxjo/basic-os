@@ -1,4 +1,5 @@
 #![no_std]
+#![no_main]
 
 extern crate alloc;
 
@@ -49,11 +50,9 @@ impl App for FramebufferDriver {
     }
 
     fn on_event(&mut self, _ctx: &mut AppContext<'_>, ev: AppEvent) {
-        if let AppEvent::Thing { watch, thing } = ev {
+        if let AppEvent::Thing { watch, thing: _ } = ev {
             if Some(watch) == self.frame_watch {
-                 if let Some(addr) = thing.fields.get(&canon::ADDR).and_then(|v| v.as_u64()) {
-                    self.blit(addr as *const u32);
-                }
+                 // Blitting is now handled by the compositor directly
             }
         }
     }

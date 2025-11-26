@@ -7,6 +7,10 @@ pub mod drivers;
 pub mod graph;
 pub mod sys;
 pub mod watch;
+pub mod heap;
+
+pub use heap::init_heap;
+pub use uuid;
 
 #[macro_export]
 macro_rules! print {
