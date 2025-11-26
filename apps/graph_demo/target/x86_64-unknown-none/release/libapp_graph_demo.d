@@ -1,0 +1,1 @@
+/home/dancxjo/src/basic-os/apps/graph_demo/target/x86_64-unknown-none/release/libapp_graph_demo.rlib: /home/dancxjo/src/basic-os/apps/graph_demo/src/lib.rs /home/dancxjo/src/basic-os/userland/src/drivers.rs /home/dancxjo/src/basic-os/userland/src/lib.rs

@@ -1,0 +1,1 @@
+/home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/libapp_hello.rlib: /home/dancxjo/src/basic-os/apps/hello/src/lib.rs /home/dancxjo/src/basic-os/userland/src/drivers.rs /home/dancxjo/src/basic-os/userland/src/lib.rs

@@ -69,6 +69,17 @@ pub fn journal_snapshot_raw(out: &mut [u8]) -> u64 {
     }
 }
 
+pub fn graph_snapshot_raw(out: &mut [u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_GRAPH_SNAPSHOT,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+            0,
+        )
+    }
+}
+
 pub struct Console;
 
 fn emit_write_event(s: &str) -> bool {
@@ -173,6 +184,11 @@ pub mod canon {
     pub const DRIVER_STORAGE: Symbol = canon(b'S', b'T', b'R');
     pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
     pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
+    pub const TITLE: Symbol = canon(b'T', b'T', b'L');
+    pub const X: Symbol = canon(b'X', b' ', b' ');
+    pub const Y: Symbol = canon(b'Y', b' ', b' ');
+    pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
+    pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -209,6 +225,34 @@ impl Value {
     pub fn as_uuid(&self) -> Option<Uuid> {
         match self {
             Value::Uuid(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<Symbol> {
+        match self {
+            Value::Symbol(s) => Some(*s),
+            _ => None,
+        }
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Value::U64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_map(&self) -> Option<&BTreeMap<Symbol, Value>> {
+        match self {
+            Value::Map(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Value::Text(s) => Some(s.as_str()),
             _ => None,
         }
     }
@@ -313,5 +357,208 @@ pub fn extract_text(value: &Value) -> Option<String> {
         Value::Bytes(b) => core::str::from_utf8(b).ok().map(ToString::to_string),
         Value::Map(m) => m.get(&canon::TEXT).and_then(extract_text),
         _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphThing {
+    pub id: Uuid,
+    pub kind: Symbol,
+    pub fields: BTreeMap<Symbol, Value>,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdge {
+    pub src: Uuid,
+    pub pred: Symbol,
+    pub dst: Uuid,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphSnapshot {
+    pub revision: u64,
+    pub thing_count: usize,
+    pub edge_count: usize,
+    pub things: Vec<GraphThing>,
+    pub edges: Vec<GraphEdge>,
+}
+
+pub fn graph_snapshot() -> Option<GraphSnapshot> {
+    let mut buf = vec![0u8; 4096];
+    let needed = graph_snapshot_raw(&mut buf) as usize;
+    if needed == 0 {
+        return Some(GraphSnapshot {
+            revision: 0,
+            thing_count: 0,
+            edge_count: 0,
+            things: Vec::new(),
+            edges: Vec::new(),
+        });
+    }
+    if needed > buf.len() {
+        buf.resize(needed, 0);
+    }
+    let written = graph_snapshot_raw(&mut buf) as usize;
+    if written == 0 || written > buf.len() {
+        return None;
+    }
+    postcard::from_bytes::<GraphSnapshot>(&buf[..written]).ok()
+}
+
+pub trait Thingable: Sized {
+    fn kind() -> Symbol;
+    fn to_fields(&self) -> BTreeMap<Symbol, Value>;
+    fn from_fields(fields: &BTreeMap<Symbol, Value>) -> Option<Self>;
+}
+
+pub fn fiat_thing<T: Thingable>(value: &T) -> Uuid {
+    let fields = value.to_fields();
+    fiat(None, T::kind(), fields)
+}
+
+pub fn load_thing<T: Thingable>(id: Uuid) -> Option<T> {
+    let snapshot = graph_snapshot()?;
+    let thing = snapshot
+        .things
+        .iter()
+        .filter(|t| t.id == id)
+        .max_by_key(|t| t.revision)?;
+    T::from_fields(&thing.fields)
+}
+
+pub fn load_things_of_kind<T: Thingable>() -> Vec<(Uuid, T)> {
+    let snapshot = match graph_snapshot() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    let mut latest: BTreeMap<Uuid, &GraphThing> = BTreeMap::new();
+    for thing in &snapshot.things {
+        if thing.kind == T::kind() {
+            latest
+                .entry(thing.id)
+                .and_modify(|e| {
+                    if thing.revision > e.revision {
+                        *e = thing;
+                    }
+                })
+                .or_insert(thing);
+        }
+    }
+
+    latest
+        .into_iter()
+        .filter_map(|(id, thing)| T::from_fields(&thing.fields).map(|t| (id, t)))
+        .collect()
+}
+
+pub fn update_thing<T: Thingable>(id: Uuid, new_value: &T) {
+    let snapshot = match graph_snapshot() {
+        Some(s) => s,
+        None => {
+            fiat_thing(new_value);
+            return;
+        }
+    };
+
+    let current_revision = snapshot
+        .things
+        .iter()
+        .filter(|t| t.id == id)
+        .map(|t| t.revision)
+        .max()
+        .unwrap_or(0);
+
+    let mut fields = new_value.to_fields();
+    fields.insert(canon::REVISION, Value::U64(current_revision + 1));
+    fiat(Some(id), T::kind(), fields);
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Window {
+    pub title: String,
+    pub x: u64,
+    pub y: u64,
+    pub width: u64,
+    pub height: u64,
+}
+
+impl Thingable for Window {
+    fn kind() -> Symbol {
+        canon::WINDOW
+    }
+
+    fn to_fields(&self) -> BTreeMap<Symbol, Value> {
+        let mut m = BTreeMap::new();
+        m.insert(canon::TITLE, Value::Text(self.title.clone()));
+        m.insert(canon::X, Value::U64(self.x));
+        m.insert(canon::Y, Value::U64(self.y));
+        m.insert(canon::WIDTH, Value::U64(self.width));
+        m.insert(canon::HEIGHT, Value::U64(self.height));
+        m
+    }
+
+    fn from_fields(fields: &BTreeMap<Symbol, Value>) -> Option<Self> {
+        Some(Window {
+            title: fields.get(&canon::TITLE)?.as_text()?.to_string(),
+            x: fields.get(&canon::X)?.as_u64()?,
+            y: fields.get(&canon::Y)?.as_u64()?,
+            width: fields.get(&canon::WIDTH)?.as_u64()?,
+            height: fields.get(&canon::HEIGHT)?.as_u64()?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_window_round_trip() {
+        let window = Window {
+            title: "Test Window".to_string(),
+            x: 100,
+            y: 200,
+            width: 800,
+            height: 600,
+        };
+
+        let fields = window.to_fields();
+        let decoded = Window::from_fields(&fields).expect("decode failed");
+
+        assert_eq!(window, decoded);
+    }
+
+    #[test]
+    fn test_graph_snapshot_decode() {
+        let snapshot = GraphSnapshot {
+            revision: 42,
+            thing_count: 1,
+            edge_count: 0,
+            things: vec![GraphThing {
+                id: Uuid::nil(),
+                kind: canon::WINDOW,
+                fields: {
+                    let mut m = BTreeMap::new();
+                    m.insert(canon::TITLE, Value::Text("Test".to_string()));
+                    m.insert(canon::X, Value::U64(0));
+                    m.insert(canon::Y, Value::U64(0));
+                    m.insert(canon::WIDTH, Value::U64(100));
+                    m.insert(canon::HEIGHT, Value::U64(100));
+                    m
+                },
+                revision: 0,
+            }],
+            edges: vec![],
+        };
+
+        let encoded = postcard::to_allocvec(&snapshot).expect("encode failed");
+        let decoded = postcard::from_bytes::<GraphSnapshot>(&encoded).expect("decode failed");
+
+        assert_eq!(snapshot.revision, decoded.revision);
+        assert_eq!(snapshot.things.len(), decoded.things.len());
+        assert_eq!(snapshot.edges.len(), decoded.edges.len());
     }
 }

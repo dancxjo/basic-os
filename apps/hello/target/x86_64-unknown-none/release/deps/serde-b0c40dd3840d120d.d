@@ -1,0 +1,14 @@
+/home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/deps/serde-b0c40dd3840d120d.d: /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/build/serde-fa3f10cf99598776/out/private.rs
+
+/home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/deps/libserde-b0c40dd3840d120d.rlib: /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/build/serde-fa3f10cf99598776/out/private.rs
+
+/home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/deps/libserde-b0c40dd3840d120d.rmeta: /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/build/serde-fa3f10cf99598776/out/private.rs
+
+/home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/dancxjo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/build/serde-fa3f10cf99598776/out/private.rs:
+
+# env-dep:OUT_DIR=/home/dancxjo/src/basic-os/apps/hello/target/x86_64-unknown-none/release/build/serde-fa3f10cf99598776/out
