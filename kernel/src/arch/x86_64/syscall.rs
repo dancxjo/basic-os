@@ -1,3 +1,4 @@
+use uuid::Uuid;
 use x86_64::VirtAddr;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
@@ -22,6 +23,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
         SYSCALL_GRAPH_QUERY => graph_query(rdi, rsi),
         SYSCALL_GRAPH_WATCH => graph_watch(rdi, rsi, rdx),
+        SYSCALL_GRAPH_GET => graph_get(rdi, rsi, rdx),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -34,6 +36,7 @@ const SYSCALL_GRAPH_FIAT: u64 = 0x01;
 const SYSCALL_GRAPH_LINK: u64 = 0x02;
 const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 const SYSCALL_GRAPH_WATCH: u64 = 0x04;
+const SYSCALL_GRAPH_GET: u64 = 0x05;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -72,6 +75,23 @@ fn graph_watch(since_rev: u64, out_ptr: u64, out_len: u64) -> u64 {
         Some(buf) => buf,
         None => return !0,
     };
+    copy_out_slice(&bytes, out_ptr, out_len)
+}
+
+fn graph_get(id_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
+    if id_ptr == 0 {
+        return !0;
+    }
+    let id_bytes = unsafe { core::slice::from_raw_parts(id_ptr as *const u8, 16) };
+    let Ok(id) = Uuid::from_slice(id_bytes) else {
+        return !0;
+    };
+
+    let bytes = match crate::telemetry::graph::export_thing_bytes(id) {
+        Some(buf) => buf,
+        None => return !0,
+    };
+
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 

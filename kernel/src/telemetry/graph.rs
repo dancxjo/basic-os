@@ -297,6 +297,11 @@ pub fn export_changes_since(revision: u64) -> Option<Vec<u8>> {
     postcard::to_allocvec(&batch).ok()
 }
 
+pub fn export_thing_bytes(id: Uuid) -> Option<Vec<u8>> {
+    let thing = get_thing(&id)?;
+    postcard::to_allocvec(&thing).ok()
+}
+
 fn emit_thing_event(thing: &GraphThing) {
     let mut payload = BTreeMap::new();
     payload.insert(canon::ID, Value::Uuid(thing.id));

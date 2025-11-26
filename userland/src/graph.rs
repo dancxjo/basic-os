@@ -252,6 +252,26 @@ pub fn graph_watch(since: u64) -> Option<GraphWatchBatch> {
     postcard::from_bytes::<GraphWatchBatch>(&buf[..written]).ok()
 }
 
+pub fn graph_get(id: Uuid) -> Option<GraphThing> {
+    let mut buf = vec![0u8; 4096];
+    let id_bytes = id.into_bytes();
+    let needed = sys::graph_get_raw(&id_bytes, &mut buf) as usize;
+    if needed == 0 {
+        return None;
+    }
+    if needed > MAX_SNAPSHOT_BYTES {
+        return None;
+    }
+    if needed > buf.len() {
+        buf.resize(needed, 0);
+    }
+    let written = sys::graph_get_raw(&id_bytes, &mut buf) as usize;
+    if written == 0 || written > buf.len() {
+        return None;
+    }
+    postcard::from_bytes::<GraphThing>(&buf[..written]).ok()
+}
+
 pub fn log_args(args: fmt::Arguments<'_>) {
     let mut buf = String::new();
     let _ = fmt::write(&mut buf, args);
@@ -272,12 +292,7 @@ pub fn fiat_thing<T: Thingable>(value: &T) -> Uuid {
 }
 
 pub fn load_thing<T: Thingable>(id: Uuid) -> Option<T> {
-    let snapshot = graph_snapshot()?;
-    let thing = snapshot
-        .things
-        .iter()
-        .filter(|t| t.id == id)
-        .max_by_key(|t| t.revision)?;
+    let thing = graph_get(id)?;
     T::from_fields(&thing.fields)
 }
 
@@ -308,21 +323,13 @@ pub fn load_things_of_kind<T: Thingable>() -> Vec<(Uuid, T)> {
 }
 
 pub fn update_thing<T: Thingable>(id: Uuid, new_value: &T) {
-    let snapshot = match graph_snapshot() {
-        Some(s) => s,
+    let current_revision = match graph_get(id) {
+        Some(thing) => thing.revision,
         None => {
             fiat_thing(new_value);
             return;
         }
     };
-
-    let current_revision = snapshot
-        .things
-        .iter()
-        .filter(|t| t.id == id)
-        .map(|t| t.revision)
-        .max()
-        .unwrap_or(0);
 
     let mut fields = new_value.to_fields();
     fields.insert(canon::REVISION, Value::U64(current_revision + 1));

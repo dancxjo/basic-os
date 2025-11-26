@@ -40,6 +40,7 @@ pub const SYSCALL_GRAPH_FIAT: u64 = 0x01;
 pub const SYSCALL_GRAPH_LINK: u64 = 0x02;
 pub const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 pub const SYSCALL_GRAPH_WATCH: u64 = 0x04;
+pub const SYSCALL_GRAPH_GET: u64 = 0x05;
 
 pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
     unsafe {
@@ -84,6 +85,18 @@ pub fn graph_watch_raw(since: u64, out: &mut [u8]) -> u64 {
         )
     }
 }
+
+pub fn graph_get_raw(id_bytes: &[u8; 16], out: &mut [u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_GRAPH_GET,
+            id_bytes.as_ptr() as u64,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+        )
+    }
+}
+
 pub fn print_fmt(args: fmt::Arguments) {
     crate::graph::log_args(args);
 }
