@@ -123,8 +123,8 @@ impl<'a> AppContext<'a> {
 
         let window_name = format!("window-{title}-{index}");
         let pixmap_name = format!("pixmap-{title}-{index}");
-        let window_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, window_name.as_bytes());
-        let pixmap = Uuid::new_v5(&Uuid::NAMESPACE_OID, pixmap_name.as_bytes());
+        let window_id = crate::simple_uuid(window_name.as_bytes());
+        let pixmap = crate::simple_uuid(pixmap_name.as_bytes());
 
         let mut fields = window.to_fields();
         fields.insert(canon::NAME, graph::Value::Text(title.clone()));

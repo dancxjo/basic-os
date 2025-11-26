@@ -94,5 +94,5 @@ pub fn connect_stream(name: &str, dst: Uuid, revision: u64) {
 
 /// Stable UUID for a driver name (v5 namespace).
 pub fn driver_id(name: &str) -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes())
+    crate::simple_uuid(name.as_bytes())
 }

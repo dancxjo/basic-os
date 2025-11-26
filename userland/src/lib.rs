@@ -131,3 +131,15 @@ pub use graph::{
     update_thing, Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
+
+use uuid::Uuid;
+
+pub fn simple_uuid(name: &[u8]) -> Uuid {
+    let mut hash = 0xcbf29ce484222325u64;
+    for b in name {
+        hash = hash ^ (*b as u64);
+        hash = hash.wrapping_mul(0x1099511628211u64);
+    }
+    let u = ((hash as u128) << 64) | (hash as u128);
+    Uuid::from_u128(u)
+}

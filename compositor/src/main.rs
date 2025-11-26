@@ -118,11 +118,11 @@ fn fallback_framebuffer() -> FramebufferTarget {
 }
 
 fn compositor_id() -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_OID, b"compositor0")
+    userland::simple_uuid(b"compositor0")
 }
 
 fn compositor_surface_id() -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_OID, b"compositor-surface0")
+    userland::simple_uuid(b"compositor-surface0")
 }
 
 fn busy_wait() {

@@ -149,7 +149,7 @@ pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: Map) -> Uuid {
         if let Ok(buf) = postcard::to_allocvec(&fields) {
             name.extend_from_slice(&buf);
         }
-        Uuid::new_v5(&Uuid::NAMESPACE_OID, &name)
+        crate::simple_uuid(&name)
     });
     let req = GraphFiatRequest {
         id: Some(id),
