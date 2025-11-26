@@ -1,6 +1,9 @@
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
+use x86_64::VirtAddr;
+use x86_64::registers::control::Cr3;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
+use x86_64::structures::paging::{OffsetPageTable, Page, PageTable, Size4KiB};
 
 use crate::drivers::device;
 use crate::telemetry::{
@@ -73,6 +76,33 @@ fn journal_emit(kind_raw: u64, data_ptr: u64, len: u64) -> u64 {
     );
     if data_ptr == 0 && len > 0 {
         return !0;
+    }
+
+    // Validate that the user-provided buffer is mapped in the current
+    // page-table before dereferencing it. Creating a raw slice from an
+    // unmapped user pointer can fault in kernel context and cause a
+    // double-fault. We check page-by-page to keep this cheap.
+    if len > 0 {
+        let (frame, _) = Cr3::read();
+        let phys = frame.start_address();
+        let hhdm = crate::bootloader::get_hhdm_offset();
+        let virt = hhdm + phys.as_u64();
+        let l4_table = unsafe { &mut *(virt.as_mut_ptr() as *mut PageTable) };
+        let mapper = unsafe { OffsetPageTable::new(l4_table, hhdm) };
+
+        let start = VirtAddr::new(data_ptr);
+        let end = start + (len.saturating_sub(1) as u64);
+        let start_page = Page::<Size4KiB>::containing_address(start);
+        let end_page = Page::<Size4KiB>::containing_address(end);
+        for page in Page::<Size4KiB>::range_inclusive(start_page, end_page) {
+            if !crate::mm::allocator::is_mapped(&mapper, page.start_address()) {
+                serial_println!(
+                    "journal_emit: user buffer not mapped at page {:#x}",
+                    page.start_address().as_u64()
+                );
+                return !0;
+            }
+        }
     }
 
     // Test allocator
