@@ -5,10 +5,13 @@ extern crate alloc;
 
 mod heap;
 
-use app_clock::{register as register_clock, tick as tick_clock, AppHandle as ClockHandle};
-use app_clouds::{register as register_clouds, tick as tick_clouds, AppHandle as CloudsHandle};
-use app_hello::{register as register_hello, tick as tick_hello, AppHandle as HelloHandle};
+use alloc::vec::Vec;
+use app_clock::app_entry as clock_app;
+use app_clouds::app_entry as clouds_app;
+use app_graph_demo::app_entry as graph_demo_app;
+use app_hello::app_entry as hello_app;
 use compositor::Compositor;
+use userland::app::DynApp;
 use userland::{canon, drivers, emit_frame_ready, fiat, map, println, that, Value};
 use uuid::Uuid;
 
@@ -23,12 +26,12 @@ pub extern "C" fn _start() -> ! {
     drivers::connect_stream("ps2-mouse", compositor_id(), 0);
     drivers::connect_stream("limine-framebuffer", framebuffer_id(), 0);
     register_compositor_things();
-    let apps = register_apps();
+    let mut apps = register_apps();
 
     let mut compositor = Compositor::new();
     let mut tick: u64 = 0;
     loop {
-        tick_apps(&apps, tick);
+        tick_apps(&mut apps, tick);
         let frame = compositor.tick();
         emit_frame_ready(
             compositor_id(),
@@ -64,24 +67,19 @@ fn register_compositor_things() {
     that(compositor_id, canon::STREAMS, framebuffer_id, 0);
 }
 
-struct Apps {
-    clouds: CloudsHandle,
-    hello: HelloHandle,
-    clock: ClockHandle,
+fn register_apps() -> Vec<DynApp> {
+    vec![
+        clouds_app(compositor_id()),
+        hello_app(compositor_id()),
+        clock_app(compositor_id()),
+        graph_demo_app(compositor_id()),
+    ]
 }
 
-fn register_apps() -> Apps {
-    Apps {
-        clouds: register_clouds(compositor_id()),
-        hello: register_hello(compositor_id()),
-        clock: register_clock(compositor_id()),
+fn tick_apps(apps: &mut [DynApp], tick: u64) {
+    for app in apps.iter_mut() {
+        app.tick(tick);
     }
-}
-
-fn tick_apps(apps: &Apps, tick: u64) {
-    tick_clouds(&apps.clouds, tick);
-    tick_hello(&apps.hello, tick);
-    tick_clock(&apps.clock, tick);
 }
 
 fn compositor_id() -> Uuid {

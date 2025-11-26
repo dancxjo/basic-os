@@ -2,45 +2,38 @@
 
 extern crate alloc;
 
-use alloc::string::String;
-use core::fmt::Write;
-use userland::{canon, emit_window_buffer_updated, fiat, map, that, Value};
-use uuid::Uuid;
+use userland::prelude::*;
 
-pub struct AppHandle {
-    pub window: Uuid,
-    pub pixmap: Uuid,
+pub struct ClockApp {
+    window: WindowHandle,
 }
 
-pub fn register(compositor: Uuid) -> AppHandle {
-    let window = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"window-clock0");
-    let pixmap = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"pixmap-clock0");
-
-    let mut fields = map();
-    fields.insert(canon::NAME, Value::text("Clock"));
-    fields.insert(canon::TARGET, Value::uuid(pixmap));
-    fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    fiat(Some(window), canon::WINDOW, fields);
-    that(window, canon::COMPOSED_BY, compositor, 0);
-
-    AppHandle { window, pixmap }
-}
-
-pub fn tick(handle: &AppHandle, tick: u64) {
-    if tick % 4 != 0 {
-        return;
+impl App for ClockApp {
+    fn init(ctx: &mut AppContext) -> Self {
+        let window = ctx.create_window("Clock");
+        ClockApp { window }
     }
-    let seconds = tick / 4;
-    let minutes = seconds / 60;
-    let hours = minutes / 60;
-    let mut text = String::new();
-    let _ = write!(
-        &mut text,
-        "Clock\n{:02}:{:02}:{:02}\nframe {}",
-        hours % 24,
-        minutes % 60,
-        seconds % 60,
-        tick
-    );
-    emit_window_buffer_updated(handle.window, handle.pixmap, tick, text.as_bytes());
+
+    fn tick(&mut self, ctx: &mut AppContext, tick: u64) {
+        if tick % 4 != 0 {
+            return;
+        }
+        let seconds = tick / 4;
+        let minutes = seconds / 60;
+        let hours = minutes / 60;
+
+        ctx.clear_window(&self.window);
+        ctx.draw_text(
+            &self.window,
+            format_args!(
+                "Clock\n{:02}:{:02}:{:02}\nframe {}",
+                hours % 24,
+                minutes % 60,
+                seconds % 60,
+                tick
+            ),
+        );
+    }
 }
+
+app_main!(ClockApp);

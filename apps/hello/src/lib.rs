@@ -2,39 +2,31 @@
 
 extern crate alloc;
 
-use alloc::string::String;
-use core::fmt::Write;
-use userland::{canon, emit_window_buffer_updated, fiat, map, that, Value};
-use uuid::Uuid;
+use userland::prelude::*;
 
-pub struct AppHandle {
-    pub window: Uuid,
-    pub pixmap: Uuid,
+pub struct HelloApp {
+    window: WindowHandle,
 }
 
-pub fn register(compositor: Uuid) -> AppHandle {
-    let window = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"window-hello0");
-    let pixmap = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"pixmap-hello0");
-
-    let mut fields = map();
-    fields.insert(canon::NAME, Value::text("Hello"));
-    fields.insert(canon::TARGET, Value::uuid(pixmap));
-    fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    fiat(Some(window), canon::WINDOW, fields);
-    that(window, canon::COMPOSED_BY, compositor, 0);
-
-    AppHandle { window, pixmap }
-}
-
-pub fn tick(handle: &AppHandle, tick: u64) {
-    if tick % 8 != 0 {
-        return;
+impl App for HelloApp {
+    fn init(ctx: &mut AppContext) -> Self {
+        let window = ctx.create_window("Hello");
+        HelloApp { window }
     }
-    let mut text = String::new();
-    let _ = write!(
-        &mut text,
-        "Hello from app {}\nrev {}\nEnjoy the clouds.",
-        "hello", tick
-    );
-    emit_window_buffer_updated(handle.window, handle.pixmap, tick, text.as_bytes());
+
+    fn tick(&mut self, ctx: &mut AppContext, tick: u64) {
+        if tick % 8 != 0 {
+            return;
+        }
+        ctx.clear_window(&self.window);
+        ctx.draw_text(
+            &self.window,
+            format_args!(
+                "Hello from app {}\nrev {}\nEnjoy the clouds.",
+                "hello", tick
+            ),
+        );
+    }
 }
+
+app_main!(HelloApp);

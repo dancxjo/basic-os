@@ -1,0 +1,184 @@
+//! ThingOS apps are `no_std` libraries that behave like tiny binaries. Each app implements
+//! [`App`] with `init` and `tick` methods and is driven by the compositor runner. Apps talk
+//! to the kernel only through [`AppContext`], which wraps the syscall/graph layers.
+//!
+//! Minimal example:
+//! ```ignore
+//! use userland::prelude::*;
+//!
+//! struct MyApp {
+//!     window: WindowHandle,
+//! }
+//!
+//! impl App for MyApp {
+//!     fn init(ctx: &mut AppContext) -> Self {
+//!         let window = ctx.create_window("My App");
+//!         MyApp { window }
+//!     }
+//!
+//!     fn tick(&mut self, ctx: &mut AppContext, tick: u64) {
+//!         if tick % 4 == 0 {
+//!             ctx.clear_window(&self.window);
+//!             ctx.draw_text(&self.window, format_args!("Hello at {tick}\n"));
+//!         }
+//!     }
+//! }
+//!
+//! app_main!(MyApp);
+//! ```
+
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::String;
+use core::fmt::{self, Write};
+
+use crate::canon;
+use crate::graph::{self, load_thing, update_thing, Window};
+use crate::ipc;
+use uuid::Uuid;
+
+pub trait App {
+    fn init(ctx: &mut AppContext) -> Self;
+    fn tick(&mut self, ctx: &mut AppContext, tick: u64);
+}
+
+pub trait AppRunner {
+    fn tick(&mut self, tick: u64);
+}
+
+pub type DynApp = Box<dyn AppRunner>;
+
+#[derive(Clone)]
+pub struct WindowHandle {
+    window: Uuid,
+    pixmap: Uuid,
+}
+
+impl WindowHandle {
+    pub fn window_id(&self) -> Uuid {
+        self.window
+    }
+
+    pub fn pixmap_id(&self) -> Uuid {
+        self.pixmap
+    }
+}
+
+pub struct AppContext {
+    compositor: Uuid,
+    buffers: BTreeMap<Uuid, String>,
+    window_pixmaps: BTreeMap<Uuid, Uuid>,
+    window_counter: u64,
+}
+
+impl AppContext {
+    pub fn new(compositor: Uuid) -> Self {
+        Self {
+            compositor,
+            buffers: BTreeMap::new(),
+            window_pixmaps: BTreeMap::new(),
+            window_counter: 0,
+        }
+    }
+
+    pub fn compositor_id(&self) -> Uuid {
+        self.compositor
+    }
+
+    pub fn create_window(&mut self, title: &str) -> WindowHandle {
+        let window_fields = Window {
+            title: title.to_string(),
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+        };
+        self.create_window_with(window_fields)
+    }
+
+    pub fn create_window_with(&mut self, window: Window) -> WindowHandle {
+        let title = window.title.clone();
+        let index = self.window_counter;
+        self.window_counter = self.window_counter.wrapping_add(1);
+
+        let window_name = format!("window-{title}-{index}");
+        let pixmap_name = format!("pixmap-{title}-{index}");
+        let window_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, window_name.as_bytes());
+        let pixmap = Uuid::new_v5(&Uuid::NAMESPACE_OID, pixmap_name.as_bytes());
+
+        let mut fields = window.to_fields();
+        fields.insert(canon::NAME, graph::Value::Text(title.clone()));
+        fields.insert(canon::TARGET, graph::Value::Uuid(pixmap));
+        fields.insert(canon::STATUS, graph::Value::Symbol(canon::INIT));
+        graph::fiat(Some(window_id), canon::WINDOW, fields);
+        graph::that(window_id, canon::COMPOSED_BY, self.compositor, 0);
+
+        self.window_pixmaps.insert(window_id, pixmap);
+
+        WindowHandle {
+            window: window_id,
+            pixmap,
+        }
+    }
+
+    pub fn clear_window(&mut self, win: &WindowHandle) {
+        self.buffers.insert(win.window, String::new());
+    }
+
+    pub fn draw_text(&mut self, win: &WindowHandle, args: fmt::Arguments<'_>) {
+        let buf = self.buffers.entry(win.window).or_insert_with(String::new);
+        let _ = buf.write_fmt(args);
+    }
+
+    pub fn load_window(&self, win: &WindowHandle) -> Option<Window> {
+        load_thing::<Window>(win.window)
+    }
+
+    pub fn update_window(&mut self, win: &WindowHandle, window: &Window) {
+        update_thing(win.window, window);
+    }
+
+    pub fn begin_tick(&mut self) {
+        self.buffers.clear();
+    }
+
+    pub fn flush(&mut self, tick: u64) {
+        for (window, text) in self.buffers.iter() {
+            if let Some(pixmap) = self.window_pixmaps.get(window) {
+                ipc::emit_window_buffer_updated(*window, *pixmap, tick, text.as_bytes());
+            }
+        }
+        self.buffers.clear();
+    }
+}
+
+struct HostedApp<A: App> {
+    app: A,
+    ctx: AppContext,
+}
+
+impl<A: App> AppRunner for HostedApp<A> {
+    fn tick(&mut self, tick: u64) {
+        self.ctx.begin_tick();
+        self.app.tick(&mut self.ctx, tick);
+        self.ctx.flush(tick);
+    }
+}
+
+pub fn create_app<A: App>(compositor: Uuid) -> DynApp {
+    let mut ctx = AppContext::new(compositor);
+    let app = A::init(&mut ctx);
+    Box::new(HostedApp { app, ctx })
+}
+
+#[macro_export]
+macro_rules! app_main {
+    ($app_ty:ty) => {
+        pub fn app_entry(
+            compositor: uuid::Uuid,
+        ) -> alloc::boxed::Box<dyn userland::app::AppRunner> {
+            userland::app::create_app::<$app_ty>(compositor)
+        }
+    };
+}
