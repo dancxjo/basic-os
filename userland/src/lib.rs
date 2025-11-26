@@ -91,16 +91,20 @@ pub mod canon {
 }
 
 pub mod prelude {
-    pub use crate::app::{app_main, App, AppContext, WindowHandle};
     pub use crate::graph::{
         extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,
         update_thing, Thingable, Value, Window,
     };
     pub use crate::ipc::{emit_frame_ready, emit_window_buffer_updated};
+    pub use crate::{
+        app::{App, AppContext, WindowHandle},
+        app_main,
+    };
     pub use crate::{print, println};
 }
 
-pub use app::{app_main, App, AppContext, AppRunner, DynApp, WindowHandle};
+pub use crate::app_main;
+pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
     extract_text, fiat, fiat_thing, graph_snapshot, load_thing, load_things_of_kind, map, that,
     update_thing, Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,

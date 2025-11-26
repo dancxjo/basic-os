@@ -30,11 +30,11 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::fmt::{self, Write};
 
 use crate::canon;
-use crate::graph::{self, load_thing, update_thing, Window};
+use crate::graph::{self, load_thing, update_thing, Thingable, Window};
 use crate::ipc;
 use uuid::Uuid;
 
@@ -166,7 +166,7 @@ impl<A: App> AppRunner for HostedApp<A> {
     }
 }
 
-pub fn create_app<A: App>(compositor: Uuid) -> DynApp {
+pub fn create_app<A: App + 'static>(compositor: Uuid) -> DynApp {
     let mut ctx = AppContext::new(compositor);
     let app = A::init(&mut ctx);
     Box::new(HostedApp { app, ctx })
