@@ -116,8 +116,13 @@ const CURSOR_MASK: [u16; CURSOR_SIZE] = [
 
 impl Compositor {
     pub fn new(fb_info: FramebufferInfo) -> Self {
-        let stride = max(fb_info.pitch / 4, fb_info.width.max(1));
-        let height = fb_info.height.max(1);
+        let fb_info = sanitize_fb_info(fb_info);
+        let mut stride = max(fb_info.pitch / 4, fb_info.width.max(1));
+        let mut height = fb_info.height.max(1);
+        if stride.saturating_mul(height) > 2_000_000 {
+            stride = max(1024, fb_info.width);
+            height = max(768, fb_info.height);
+        }
         let background = load_background();
 
         Self {
@@ -192,6 +197,20 @@ impl Compositor {
     }
 
     pub fn tick(&mut self, framebuffer: &FramebufferDriver, driver_ctx: &DriverContext) {
+        if self.backbuffer.is_empty()
+            || self.framebuffer.width == 0
+            || self.framebuffer.height == 0
+            || self.background.pixels.is_empty()
+        {
+            return;
+        }
+        let needed = self
+            .framebuffer
+            .stride
+            .saturating_mul(self.framebuffer.height);
+        if self.backbuffer.len() < needed {
+            self.backbuffer.resize(needed, 0);
+        }
         self.draw_background();
         self.draw_windows();
         self.draw_cursor();
@@ -534,6 +553,31 @@ fn default_window(_id: Uuid) -> Window {
 
 fn clamp_i32(v: i32, min_v: i32, max_v: i32) -> i32 {
     max(min_v, min(v, max_v))
+}
+
+fn sanitize_fb_info(info: FramebufferInfo) -> FramebufferInfo {
+    const MAX_DIM: usize = 4096;
+    let width = info.width.clamp(1, MAX_DIM);
+    let height = info.height.clamp(1, MAX_DIM);
+    let mut pitch = if info.pitch >= width * 4 && info.pitch <= width * 8 {
+        info.pitch
+    } else {
+        width * 4
+    };
+    if pitch < width {
+        pitch = width;
+    }
+    let bpp = if info.bpp == 24 || info.bpp == 32 {
+        info.bpp
+    } else {
+        32
+    };
+    FramebufferInfo {
+        width,
+        height,
+        pitch,
+        bpp,
+    }
 }
 
 fn load_background() -> Bitmap {

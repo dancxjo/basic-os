@@ -1,3 +1,4 @@
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 

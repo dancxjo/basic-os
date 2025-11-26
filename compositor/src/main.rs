@@ -8,9 +8,6 @@ mod heap;
 use alloc::vec;
 use alloc::vec::Vec;
 use app_clock::app_entry as clock_app;
-use app_clouds::app_entry as clouds_app;
-use app_graph_demo::app_entry as graph_demo_app;
-use app_hello::app_entry as hello_app;
 use compositor::Compositor;
 use userland::app::DynApp;
 use userland::{
@@ -45,6 +42,10 @@ pub extern "C" fn _start() -> ! {
             pitch: 1024 * 4,
             bpp: 32,
         });
+    println!(
+        "Framebuffer info: {}x{} pitch={} bpp={}",
+        fb_info.width, fb_info.height, fb_info.pitch, fb_info.bpp
+    );
 
     let mut compositor =
         Compositor::init_with_watches(&mut watch_manager, compositor_app_id, fb_info);
@@ -101,12 +102,7 @@ fn register_compositor_things() {
 }
 
 fn register_apps(watch_manager: &mut WatchManager) -> Vec<DynApp> {
-    vec![
-        clouds_app(compositor_id(), watch_manager),
-        hello_app(compositor_id(), watch_manager),
-        clock_app(compositor_id(), watch_manager),
-        graph_demo_app(compositor_id(), watch_manager),
-    ]
+    vec![clock_app(compositor_id(), watch_manager)]
 }
 
 fn tick_apps(apps: &mut [DynApp], watch_manager: &mut WatchManager, tick: u64) {
