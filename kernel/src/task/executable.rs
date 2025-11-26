@@ -208,12 +208,12 @@ pub fn load_elf<'a>(
                 .allocate_frame()
                 .ok_or("Failed to allocate frame")?;
 
-            info!(
-                "Mapping page {:#x} to frame {:#x} with flags {:?}",
-                page.start_address().as_u64(),
-                frame.start_address().as_u64(),
-                flags
-            );
+            // info!(
+            //     "Mapping page {:#x} to frame {:#x} with flags {:?}",
+            //     page.start_address().as_u64(),
+            //     frame.start_address().as_u64(),
+            //     flags
+            // );
 
             unsafe {
                 mapper
