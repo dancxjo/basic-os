@@ -101,6 +101,7 @@ impl<'a> AppContext<'a> {
 
     pub fn create_window(&mut self, title: &str) -> WindowHandle {
         let window_fields = Window {
+            id: Uuid::nil(),
             title: title.to_string(),
             x: 0,
             y: 0,
@@ -159,7 +160,7 @@ impl<'a> AppContext<'a> {
     }
 
     pub fn update_window(&mut self, win: &WindowHandle, window: &Window) {
-        update_thing(win.window, window);
+        update_thing(win.window, window.clone());
     }
 
     pub fn begin_tick(&mut self) {

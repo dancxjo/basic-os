@@ -76,6 +76,21 @@ pub struct WatchQuery {
     pub dst: Option<Uuid>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(C)]
+pub struct GraphFindByKind {
+    pub kind_ptr: u64, // *const u8
+    pub kind_len: u64, // usize
+    pub cursor: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(C)]
+pub struct GraphFindResultHeader {
+    pub next_cursor: u64,
+    pub count: u32,
+}
+
 pub type WatchId = u64;
 
 pub struct Watch {
@@ -127,16 +142,59 @@ impl Store {
         id
     }
 
-    pub fn poll_watch(&mut self, id: WatchId) -> Vec<GraphChange> {
+    pub fn find_by_kind(&self, kind: &str, cursor: u64) -> (Vec<GraphThing>, u64) {
+        let symbol = if kind == "window" {
+            canon::WINDOW
+        } else {
+            return (Vec::new(), 0);
+        };
+
+        let mut results = Vec::new();
+        let mut next_cursor = 0;
+        let max_results = 100; // Limit results per call
+
+        if let Some(uuids) = self.kind_index.get(&symbol) {
+            let mut count = 0;
+            let mut skipped = 0;
+
+            // Simple cursor implementation: skip 'cursor' items
+            // This is O(N) scan which is fine for now as per requirements
+            for uuid in uuids {
+                if (skipped as u64) < cursor {
+                    skipped += 1;
+                    continue;
+                }
+
+                if count >= max_results {
+                    next_cursor = cursor + count as u64;
+                    break;
+                }
+
+                if let Some(things) = self.things.get(uuid) {
+                    if let Some(thing) = things.last() {
+                        results.push(thing.clone());
+                        count += 1;
+                    }
+                }
+            }
+        }
+
+        (results, next_cursor)
+    }
+
+    pub fn poll_watch(&mut self, id: WatchId) -> Option<GraphWatchBatch> {
         if let Some(watch) = self.watches.get_mut(&id) {
             let events = watch.queue.clone();
             watch.queue.clear();
-            events
+            Some(GraphWatchBatch {
+                from_revision: events.first().map_or(0, |e| e.revision()),
+                latest_revision: events.last().map_or(0, |e| e.revision()),
+                changes: events,
+            })
         } else {
-            Vec::new()
+            None
         }
     }
-
     pub fn fiat(&mut self, request: GraphFiatRequest) -> GraphThing {
         let id = request
             .id
@@ -404,12 +462,26 @@ pub fn register_watch(query: WatchQuery) -> WatchId {
     with_store(|store| store.register_watch(query))
 }
 
-pub fn poll_watch(id: WatchId) -> Vec<GraphChange> {
-    with_store(|store| store.poll_watch(id))
+pub fn export_find_by_kind_bytes(kind: &str, cursor: u64) -> Option<Vec<u8>> {
+    let (things, next_cursor) = with_store(|store| store.find_by_kind(kind, cursor));
+
+    let header = GraphFindResultHeader {
+        next_cursor,
+        count: things.len() as u32,
+    };
+
+    let mut buf = postcard::to_allocvec(&header).ok()?;
+
+    for thing in things {
+        let mut thing_bytes = postcard::to_allocvec(&thing).ok()?;
+        buf.append(&mut thing_bytes);
+    }
+
+    Some(buf)
 }
 
 pub fn export_watch_events(id: WatchId) -> Option<Vec<u8>> {
-    let events = poll_watch(id);
+    let events = with_store(|store| store.poll_watch(id));
     postcard::to_allocvec(&events).ok()
 }
 

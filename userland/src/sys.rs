@@ -46,6 +46,22 @@ pub const SYSCALL_WATCH_POLL: u64 = 0x07;
 pub const SYSCALL_KBD_READ: u64 = 0x08;
 pub const SYSCALL_FB_INFO: u64 = 0x09;
 pub const SYSCALL_FB_MAP: u64 = 0x0A;
+pub const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[repr(C)]
+pub struct GraphFindByKind {
+    pub kind_ptr: u64,
+    pub kind_len: u64,
+    pub cursor: u64,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[repr(C)]
+pub struct GraphFindResultHeader {
+    pub next_cursor: u64,
+    pub count: u32,
+}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -102,6 +118,18 @@ pub fn graph_snapshot_raw(out: &mut [u8]) -> u64 {
             out.as_mut_ptr() as u64,
             out.len() as u64,
             0,
+        )
+    }
+}
+
+pub fn graph_find_by_kind_raw(req: &GraphFindByKind, out: &mut [u8]) -> u64 {
+    let req_ptr = req as *const _ as u64;
+    unsafe {
+        syscall(
+            SYSCALL_GRAPH_FIND_BY_KIND,
+            req_ptr,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
         )
     }
 }

@@ -5,6 +5,7 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use core::fmt::Write;
 use userland::prelude::*;
+use uuid::Uuid;
 
 pub struct GraphDemoApp {
     pub window: WindowHandle,
@@ -13,6 +14,7 @@ pub struct GraphDemoApp {
 impl App for GraphDemoApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
         let window_data = Window {
+            id: Uuid::nil(),
             title: "Graph Demo".to_string(),
             x: 50,
             y: 50,

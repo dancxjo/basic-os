@@ -3,7 +3,9 @@ use x86_64::VirtAddr;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
 use crate::serial_println;
-use crate::telemetry::graph::{self, GraphFiatRequest, GraphThatRequest, WatchQuery};
+use crate::telemetry::graph::{
+    self, GraphFiatRequest, GraphFindByKind, GraphThatRequest, WatchQuery,
+};
 
 #[unsafe(no_mangle)]
 static mut USER_RSP: u64 = 0;
@@ -28,6 +30,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_KBD_READ => kbd_read(rdi, rsi),
         SYSCALL_FB_INFO => fb_info(rdi, rsi),
         SYSCALL_FB_MAP => fb_map(),
+        SYSCALL_GRAPH_FIND_BY_KIND => graph_find_by_kind(rdi, rsi, rdx),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -46,6 +49,7 @@ const SYSCALL_WATCH_POLL: u64 = 0x07;
 const SYSCALL_KBD_READ: u64 = 0x08;
 const SYSCALL_FB_INFO: u64 = 0x09;
 const SYSCALL_FB_MAP: u64 = 0x0A;
+const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -163,6 +167,35 @@ fn fb_map() -> u64 {
         Some(info) => info.addr,
         None => 0,
     }
+}
+
+fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
+    if req_ptr == 0 || out_ptr == 0 || out_len == 0 {
+        return !0;
+    }
+
+    let req_buf = unsafe {
+        core::slice::from_raw_parts(
+            req_ptr as *const u8,
+            core::mem::size_of::<GraphFindByKind>(),
+        )
+    };
+    let Ok(request) = postcard::from_bytes::<GraphFindByKind>(req_buf) else {
+        return !0;
+    };
+
+    let kind_str = unsafe {
+        let slice =
+            core::slice::from_raw_parts(request.kind_ptr as *const u8, request.kind_len as usize);
+        core::str::from_utf8_unchecked(slice)
+    };
+
+    let bytes = match crate::telemetry::graph::export_find_by_kind_bytes(kind_str, request.cursor) {
+        Some(buf) => buf,
+        None => return !0,
+    };
+
+    copy_out_slice(&bytes, out_ptr, out_len)
 }
 
 unsafe extern "C" {
