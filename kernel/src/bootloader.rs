@@ -32,7 +32,21 @@ pub fn get_module(name: &str) -> Option<&'static [u8]> {
             if let Some(response) = MODULE_REQUEST.get_response() {
                 for module in response.modules() {
                     if let Ok(path_str) = module.path().to_str() {
-                        let ptr = module.addr() as *const u8;
+                        let raw_addr = module.addr() as u64;
+                        let hhdm = get_hhdm_offset().as_u64();
+                        let base = if raw_addr >= hhdm {
+                            raw_addr
+                        } else {
+                            raw_addr + hhdm
+                        };
+                        log::info!(
+                            "Module {}: addr={:#x} size={:#x} base={:#x}",
+                            path_str,
+                            raw_addr,
+                            module.size(),
+                            base
+                        );
+                        let ptr = base as *const u8;
                         let len = module.size().try_into().unwrap();
                         let data = core::slice::from_raw_parts(ptr, len);
                         map.insert(

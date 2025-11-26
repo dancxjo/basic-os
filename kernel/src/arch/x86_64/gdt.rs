@@ -33,8 +33,9 @@ pub static mut SELECTORS: Option<Selectors> = None;
 
 pub const KERNEL_CODE_SEG: u16 = 0x08;
 pub const KERNEL_DATA_SEG: u16 = 0x10;
-pub const USER_DATA_SEG: u16 = 0x20;
-pub const USER_CODE_SEG: u16 = 0x28;
+// Note: the TSS descriptor occupies two entries, so user segments start after it.
+pub const USER_DATA_SEG: u16 = 0x28;
+pub const USER_CODE_SEG: u16 = 0x30;
 
 pub fn init_gdt() {
     unsafe {
@@ -64,8 +65,8 @@ pub fn init_gdt() {
         let code_sel = gdt.add_entry(Descriptor::kernel_code_segment());
         let data_sel = gdt.add_entry(Descriptor::kernel_data_segment());
         let tss_sel = gdt.add_entry(Descriptor::tss_segment(tss));
-        let user_data_sel = gdt.add_entry(Descriptor::UserSegment(0x00af_9200_0000_0000));
-        let user_code_sel = gdt.add_entry(Descriptor::UserSegment(0x00af_9a00_0000_0000));
+        let user_data_sel = gdt.add_entry(Descriptor::user_data_segment());
+        let user_code_sel = gdt.add_entry(Descriptor::user_code_segment());
 
         // Store it globally
         GDT = Some(gdt);
@@ -90,5 +91,14 @@ pub fn init_gdt() {
 
         // --- Load TSS ---
         load_tss(tss_sel);
+
+        log::info!(
+            "GDT selectors: code={:#x} data={:#x} tss={:#x} user_data={:#x} user_code={:#x}",
+            code_sel.0,
+            data_sel.0,
+            tss_sel.0,
+            user_data_sel.0,
+            user_code_sel.0
+        );
     }
 }

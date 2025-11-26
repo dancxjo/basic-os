@@ -68,20 +68,26 @@ pub struct FullContext {
 /// Creates a context that, when restored, will start executing at `entry`
 /// with the stack pointer set to `stack_top`.
 pub fn prepare_context(entry: extern "C" fn(), stack_top: u64, mode: TaskMode) -> FullContext {
-    use crate::arch::x86_64::gdt::{
-        KERNEL_CODE_SEG, KERNEL_DATA_SEG, USER_CODE_SEG, USER_DATA_SEG,
-    };
+    use crate::arch::x86_64::gdt::SELECTORS;
+    #[allow(static_mut_refs)]
+    let selectors = unsafe { SELECTORS.as_ref().expect("GDT not initialized") };
     let (cs, ss) = match mode {
-        TaskMode::Kernel => (KERNEL_CODE_SEG as u64, KERNEL_DATA_SEG as u64),
-        TaskMode::User => ((USER_CODE_SEG | 0x3) as u64, (USER_DATA_SEG | 0x3) as u64),
+        TaskMode::Kernel => (selectors.code.0 as u64, selectors.data.0 as u64),
+        TaskMode::User => (
+            (selectors.user_code.0 | 0x3) as u64,
+            (selectors.user_data.0 | 0x3) as u64,
+        ),
+    };
+    let rflags = match mode {
+        TaskMode::Kernel => 0x2, // leave IF cleared during kernel-mode tasks
+        TaskMode::User => 0x202, // enable interrupts for user-mode execution
     };
     FullContext {
         regs: unsafe { core::mem::zeroed() },
         frame: IretFrame {
             rip: entry as u64,
             cs,
-            // 0x202 = interrupts enabled (IF flag set)
-            rflags: 0x202,
+            rflags,
             rsp: stack_top,
             ss,
         },

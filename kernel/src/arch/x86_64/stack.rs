@@ -5,14 +5,16 @@ use x86_64::{
 
 use crate::mm::allocator::BootFrameAllocator;
 
-/// A 20 KB stack (5 pages)
-#[repr(C, align(16))]
-pub struct KernelStack([u8; 4096 * 5]);
+pub const KERNEL_STACK_PAGES: usize = 16;
+const KERNEL_STACK_SIZE: usize = 4096 * KERNEL_STACK_PAGES;
 
-pub static mut KERNEL_STACK: KernelStack = KernelStack([0; 4096 * 5]);
+/// Kernel stack storage.
+#[repr(C, align(16))]
+pub struct KernelStack([u8; KERNEL_STACK_SIZE]);
+
+pub static mut KERNEL_STACK: KernelStack = KernelStack([0; KERNEL_STACK_SIZE]);
 
 pub const KERNEL_STACK_VIRT_BASE: u64 = 0xffff_8800_0000_0000;
-pub const KERNEL_STACK_PAGES: usize = 5;
 
 pub static mut KERNEL_STACK_TOP: VirtAddr = VirtAddr::zero();
 /// Allocate and map a kernel stack at a fresh virtual address

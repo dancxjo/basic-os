@@ -42,6 +42,9 @@ pub struct Task {
 }
 
 impl Task {
+    const STACK_PAGES: u64 = 16;
+    const STACK_SIZE: u64 = 4096 * Self::STACK_PAGES;
+
     pub fn new(
         entry: extern "C" fn(),
         index: usize,
@@ -72,8 +75,11 @@ impl Task {
 
     pub fn stack_base_for_task(index: usize) -> u64 {
         const STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
-        const STACK_SIZE: u64 = 4096 * 5;
-        STACK_REGION_BASE + index as u64 * STACK_SIZE
+        STACK_REGION_BASE + index as u64 * Self::STACK_SIZE
+    }
+
+    pub const fn stack_size() -> u64 {
+        Self::STACK_SIZE
     }
 
     pub fn allocate_stack_if_needed(
@@ -90,7 +96,7 @@ impl Task {
             let start = VirtAddr::new(base_virt);
             let mut page = Page::containing_address(start);
 
-            for _ in 0..5 {
+            for _ in 0..Self::STACK_PAGES {
                 let frame = frame_allocator
                     .allocate_frame()
                     .expect("Out of physical frames for task stack");
@@ -110,7 +116,7 @@ impl Task {
                 page = page + 1;
             }
 
-            self.stack_top = base_virt + 5 * 4096;
+            self.stack_top = base_virt + Self::STACK_SIZE;
         }
         info!("Stack allocated for task {}", index);
     }

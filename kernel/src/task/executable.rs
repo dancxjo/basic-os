@@ -1,5 +1,6 @@
 use crate::arch::x86_64::memory::{kernel_base, kernel_end};
 use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
+use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, TaskMode, prepare_context};
@@ -9,7 +10,7 @@ use core::ptr;
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
-    VirtAddr,
+    PhysAddr, VirtAddr,
     registers::control::Cr3,
     structures::paging::{
         FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
@@ -38,7 +39,9 @@ pub fn create_user_page_table(
         let ptr: *mut PageTable = virt.as_mut_ptr();
         // Zero the page table in place to avoid a 4 KiB stack allocation from PageTable::new()
         ptr::write_bytes(ptr, 0, 1);
-        &mut *ptr
+        let table = &mut *ptr;
+        table.zero();
+        table
     };
     let l4_table_ptr: *mut PageTable = l4_table;
     let mut offset_page_table = unsafe {
@@ -63,6 +66,46 @@ pub fn create_user_page_table(
             ..VirtAddr::new(KERNEL_STACK_VIRT_BASE + (KERNEL_STACK_PAGES as u64 * 4096)))
             .into(),
     );
+    // Ensure MMIO regions like the local APIC remain accessible.
+    const APIC_BASE: u64 = 0xfee0_0000;
+    mirror_kernel_region(
+        &mut offset_page_table,
+        frame_allocator,
+        (VirtAddr::new(APIC_BASE)..VirtAddr::new(APIC_BASE + 0x1000)).into(),
+    );
+    // Explicitly map the local APIC MMIO page in case the mirror skipped it.
+    let apic_page = Page::<Size4KiB>::containing_address(VirtAddr::new(APIC_BASE));
+    let apic_frame = PhysFrame::containing_address(PhysAddr::new(APIC_BASE));
+    unsafe {
+        offset_page_table
+            .map_to(
+                apic_page,
+                apic_frame,
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+                frame_allocator,
+            )
+            .expect("map_to failed (APIC)")
+            .flush();
+    }
+    const HPET_BASE: u64 = 0xfed0_0000;
+    mirror_kernel_region(
+        &mut offset_page_table,
+        frame_allocator,
+        (VirtAddr::new(HPET_BASE)..VirtAddr::new(HPET_BASE + 0x1000)).into(),
+    );
+    let hpet_page = Page::<Size4KiB>::containing_address(VirtAddr::new(HPET_BASE));
+    let hpet_frame = PhysFrame::containing_address(PhysAddr::new(HPET_BASE));
+    unsafe {
+        offset_page_table
+            .map_to(
+                hpet_page,
+                hpet_frame,
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+                frame_allocator,
+            )
+            .expect("map_to failed (HPET)")
+            .flush();
+    }
 
     // Mirror each kernel task stack so kernel tasks remain runnable while the user page table is active.
     let task_count = runtime::task_count();
@@ -71,7 +114,7 @@ pub fn create_user_page_table(
         mirror_kernel_region(
             &mut offset_page_table,
             frame_allocator,
-            (VirtAddr::new(base)..VirtAddr::new(base + (4096 * 5) as u64)).into(),
+            (VirtAddr::new(base)..VirtAddr::new(base + Task::stack_size())).into(),
         );
     }
     (l4_table, offset_page_table)
@@ -135,6 +178,41 @@ pub fn load_elf<'a>(
         }
 
         for page in Page::range_inclusive(start_page, end_page) {
+            let p4_index = page.p4_index();
+            unsafe {
+                let entry = &_page_table[p4_index];
+                log::debug!(
+                    "P4[{:#x}] flags={:?} addr={:#x}",
+                    u64::from(p4_index),
+                    entry.flags(),
+                    entry.addr().as_u64()
+                );
+                if !entry.is_unused() {
+                    let hhdm = get_hhdm_offset().as_u64();
+                    let p3_ptr = (hhdm + entry.addr().as_u64()) as *const PageTable;
+                    let p3 = &*p3_ptr;
+                    let p3_entry = &p3[page.p3_index()];
+                    log::debug!(
+                        "  P3[{:#x}] flags={:?} addr={:#x}",
+                        u64::from(page.p3_index()),
+                        p3_entry.flags(),
+                        p3_entry.addr().as_u64()
+                    );
+                    if !p3_entry.is_unused()
+                        && !p3_entry.flags().contains(PageTableFlags::HUGE_PAGE)
+                    {
+                        let p2_ptr = (hhdm + p3_entry.addr().as_u64()) as *const PageTable;
+                        let p2 = &*p2_ptr;
+                        let p2_entry = &p2[page.p2_index()];
+                        log::debug!(
+                            "    P2[{:#x}] flags={:?} addr={:#x}",
+                            u64::from(page.p2_index()),
+                            p2_entry.flags(),
+                            p2_entry.addr().as_u64()
+                        );
+                    }
+                }
+            }
             let frame = frame_allocator
                 .allocate_frame()
                 .ok_or("Failed to allocate frame")?;
@@ -162,22 +240,46 @@ pub fn load_elf<'a>(
             }
         }
 
-        let src = &data[file_offset..file_offset + file_size];
+        let seg_start = vaddr.as_u64();
+        let file_end = seg_start + file_size as u64;
+        let mem_end = seg_start + mem_size as u64;
+        let hhdm = get_hhdm_offset().as_u64();
 
-        if let Some(frame) = mapper.translate_page(Page::containing_address(vaddr)).ok() {
-            let phys = frame.start_address();
-            let dst_ptr = (phys.as_u64() + 0xffff_8000_0000_0000) as *mut u8;
-            let offset = (vaddr.as_u64() & 0xfff) as usize;
-            info!(
-                "Copying segment: dst={:#x}, offset_in_page={:#x}, file_size={}, mem_size={}",
-                dst_ptr as u64, offset, file_size, mem_size
-            );
-            unsafe {
-                core::ptr::copy_nonoverlapping(src.as_ptr(), dst_ptr.add(offset), file_size);
-                core::ptr::write_bytes(dst_ptr.add(offset + file_size), 0, mem_size - file_size);
+        for page in Page::range_inclusive(start_page, end_page) {
+            let page_start = page.start_address().as_u64();
+            let page_end = page_start + 0x1000;
+            let frame = mapper
+                .translate_page(page)
+                .map_err(|_| "Failed to translate page for copy")?;
+            let dst_base = hhdm + frame.start_address().as_u64();
+
+            // Copy the portion of the file that falls into this page.
+            if page_start < file_end {
+                let copy_start = core::cmp::max(page_start, seg_start);
+                let copy_end = core::cmp::min(page_end, file_end);
+                if copy_start < copy_end {
+                    let src_off = (copy_start - seg_start) as usize;
+                    let len = (copy_end - copy_start) as usize;
+                    let dst_ptr = (dst_base + (copy_start - page_start)) as *mut u8;
+                    let src_slice =
+                        &data[file_offset as usize + src_off..file_offset as usize + src_off + len];
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(src_slice.as_ptr(), dst_ptr, len);
+                    }
+                }
             }
-        } else {
-            return Err("Failed to translate page for copy");
+
+            // Zero any remaining BSS in this page.
+            if page_start < mem_end {
+                let zero_start = core::cmp::max(page_start, seg_start + file_size as u64);
+                let zero_end = core::cmp::min(page_end, mem_end);
+                if zero_start < zero_end {
+                    let dst_ptr = (dst_base + (zero_start - page_start)) as *mut u8;
+                    unsafe {
+                        core::ptr::write_bytes(dst_ptr, 0, (zero_end - zero_start) as usize);
+                    }
+                }
+            }
         }
 
         info!(
@@ -194,8 +296,12 @@ pub fn load_elf<'a>(
 
 pub unsafe fn jump_to_context(ctx: &FullContext, new_table: PhysFrame) -> ! {
     info!(
-        "Jumping to task with new page table {:#x}",
-        new_table.start_address().as_u64()
+        "Jumping to task with new page table {:#x} (rip={:#x}, rsp={:#x}, cs={:#x}, ss={:#x})",
+        new_table.start_address().as_u64(),
+        ctx.frame.rip,
+        ctx.frame.rsp,
+        ctx.frame.cs,
+        ctx.frame.ss
     );
     unsafe {
         Cr3::write(new_table, Cr3::read().1);
