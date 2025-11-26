@@ -142,6 +142,11 @@ pub extern "C" fn start_user_task() {
     let (new_l4, mut new_mapper) = create_user_page_table(frame_allocator, get_hhdm_offset());
     let loaded =
         load_elf(module, new_l4, &mut new_mapper, frame_allocator).expect("Failed to load ELF");
+    info!(
+        "User entry prepared: rip={:#x} stack_top={:#x}",
+        loaded.entry.as_u64(),
+        loaded.stack_top.as_u64()
+    );
     let new_table_frame = PhysFrame::containing_address(PhysAddr::new(
         new_l4 as *const _ as u64 - get_hhdm_offset().as_u64(),
     ));

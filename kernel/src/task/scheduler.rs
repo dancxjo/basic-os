@@ -171,6 +171,13 @@ impl Scheduler {
             unsafe {
                 CURRENT_TASK = self.tasks[0].as_ref().unwrap() as *const Task as *mut Task;
             }
+            info!(
+                "First task context: rip={:#x} cs={:#x} rsp={:#x} ss={:#x}",
+                task.context.frame.rip,
+                task.context.frame.cs,
+                task.context.frame.rsp,
+                task.context.frame.ss
+            );
             serial_print!("]");
             task.context_ptr()
         } else {
@@ -208,11 +215,29 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
         if !CURRENT_TASK.is_null() {
             let task = &mut *CURRENT_TASK;
 
-            let context_size = core::mem::size_of::<FullContext>();
+            let saved_cs_offset = (15 + 1) * core::mem::size_of::<u64>(); // index 16: after regs + RIP
+            let saved_cs = *(current_rsp.add(saved_cs_offset) as *const u64);
+            let words_pushed = if saved_cs & 0x3 == 0 {
+                // Kernel: CPU pushed RIP/CS/RFLAGS (no SS/RSP)
+                15 + 3
+            } else {
+                // User: CPU pushed RIP/CS/RFLAGS/RSP/SS
+                15 + 5
+            };
+            let context_size = words_pushed * core::mem::size_of::<u64>();
             let dst = task.context_mut_ptr();
 
             if current_rsp != dst {
                 ptr::copy_nonoverlapping(current_rsp, dst, context_size);
+            }
+
+            // For kernel-mode contexts, the CPU doesn't push SS/RSP on interrupt entry.
+            // Reconstruct them so the saved context can restore the proper stack pointer.
+            let saved = dst as *mut FullContext;
+            if (*saved).frame.cs & 0x3 == 0 {
+                (*saved).frame.ss = crate::arch::x86_64::gdt::KERNEL_DATA_SEG as u64;
+                // Original RSP before the interrupt: 15 registers + RIP/CS/RFLAGS.
+                (*saved).frame.rsp = current_rsp.add((15 + 3) * core::mem::size_of::<u64>()) as u64;
             }
         }
 

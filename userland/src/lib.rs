@@ -231,6 +231,19 @@ fn emit(kind: Symbol, data: Value) {
     }
 }
 
+/// Bring a Thing into existence in the graph. Returns the Thing ID that was declared.
+pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: BTreeMap<Symbol, Value>) -> Uuid {
+    let id = id.unwrap_or_else(Uuid::new_v4);
+    emit_thing_created(id, kind, 0, fields);
+    id
+}
+
+/// Add an edge between two Things in the graph.
+pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
+    emit_edge_added(src, pred, dst, revision);
+}
+
+#[deprecated(note = "use fiat instead")]
 pub fn emit_thing_created(id: Uuid, kind: Symbol, revision: u64, fields: BTreeMap<Symbol, Value>) {
     let mut data = map();
     data.insert(canon::ID, Value::Uuid(id));
@@ -240,6 +253,7 @@ pub fn emit_thing_created(id: Uuid, kind: Symbol, revision: u64, fields: BTreeMa
     emit(canon::THING_CREATED, Value::Map(data));
 }
 
+#[deprecated(note = "use that instead")]
 pub fn emit_edge_added(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
     let mut data = map();
     data.insert(canon::SRC, Value::Uuid(src));

@@ -1,7 +1,7 @@
 //! Userland driver registry that announces hardware capabilities through the graph.
 //! Add descriptors and edges here to keep driver state outside the kernel.
 
-use crate::{canon, emit_edge_added, emit_thing_created, map, Value};
+use crate::{canon, fiat, map, that, Value};
 use alloc::string::ToString;
 use uuid::Uuid;
 
@@ -72,7 +72,7 @@ fn emit_driver_thing(driver: &DriverDescriptor, status: crate::Symbol) {
     fields.insert(canon::KIND, Value::symbol(driver_kind_symbol(driver.kind)));
     fields.insert(canon::TEXT, Value::text(driver.description.to_string()));
 
-    emit_thing_created(driver.id(), canon::DRIVER, 0, fields);
+    fiat(Some(driver.id()), canon::DRIVER, fields);
 }
 
 /// Register the provided drivers as Things. Extend this helper with new
@@ -89,7 +89,7 @@ pub fn register_builtin_drivers() {
 
 /// Add a `STREAMS` edge from the named driver to a destination Thing.
 pub fn connect_stream(name: &str, dst: Uuid, revision: u64) {
-    emit_edge_added(driver_id(name), canon::STREAMS, dst, revision);
+    that(driver_id(name), canon::STREAMS, dst, revision);
 }
 
 /// Stable UUID for a driver name (v5 namespace).

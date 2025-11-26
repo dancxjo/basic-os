@@ -9,9 +9,7 @@ use app_clock::{register as register_clock, tick as tick_clock, AppHandle as Clo
 use app_clouds::{register as register_clouds, tick as tick_clouds, AppHandle as CloudsHandle};
 use app_hello::{register as register_hello, tick as tick_hello, AppHandle as HelloHandle};
 use compositor::Compositor;
-use userland::{
-    canon, drivers, emit_edge_added, emit_frame_ready, emit_thing_created, map, println, Value,
-};
+use userland::{canon, drivers, emit_frame_ready, fiat, map, println, that, Value};
 use uuid::Uuid;
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
@@ -51,19 +49,19 @@ fn register_compositor_things() {
     let mut compositor_fields = map();
     compositor_fields.insert(canon::NAME, Value::text("compositor0"));
     compositor_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    emit_thing_created(compositor_id, canon::COMPOSITOR, 0, compositor_fields);
+    fiat(Some(compositor_id), canon::COMPOSITOR, compositor_fields);
 
     let mut fb_fields = map();
     fb_fields.insert(canon::NAME, Value::text("framebuffer0"));
     fb_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    emit_thing_created(framebuffer_id, canon::PIXMAP, 0, fb_fields);
+    fiat(Some(framebuffer_id), canon::PIXMAP, fb_fields);
 
     let mut surface_fields = map();
     surface_fields.insert(canon::NAME, Value::text("compositor-surface"));
     surface_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    emit_thing_created(surface_id, canon::PIXMAP, 0, surface_fields);
+    fiat(Some(surface_id), canon::PIXMAP, surface_fields);
 
-    emit_edge_added(compositor_id, canon::STREAMS, framebuffer_id, 0);
+    that(compositor_id, canon::STREAMS, framebuffer_id, 0);
 }
 
 struct Apps {

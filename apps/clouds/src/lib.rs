@@ -1,9 +1,7 @@
 #![no_std]
 
 extern crate alloc;
-use userland::{
-    canon, emit_edge_added, emit_thing_created, emit_window_buffer_updated, map, Value,
-};
+use userland::{canon, emit_window_buffer_updated, fiat, map, that, Value};
 use uuid::Uuid;
 
 pub struct AppHandle {
@@ -19,8 +17,8 @@ pub fn register(compositor: Uuid) -> AppHandle {
     fields.insert(canon::NAME, Value::text("Clouds"));
     fields.insert(canon::TARGET, Value::uuid(pixmap));
     fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    emit_thing_created(window, canon::WINDOW, 0, fields);
-    emit_edge_added(window, canon::COMPOSED_BY, compositor, 0);
+    fiat(Some(window), canon::WINDOW, fields);
+    that(window, canon::COMPOSED_BY, compositor, 0);
 
     AppHandle { window, pixmap }
 }

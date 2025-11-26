@@ -73,6 +73,24 @@ restore_context:
     movb $'>', %al
     call print_al
 
+    # RSP now points to the saved IretFrame: [rip][cs][rflags][rsp][ss]
+    # If returning to ring 0, the CPU won't pop rsp/ss, so move to the
+    # recorded kernel stack pointer and rebuild a minimal frame.
+    movq 8(%rsp), %rax        # saved CS
+    testb $0x3, %al
+    jnz 1f                    # non-zero CPL -> user return, fall through
+
+    movq 0(%rsp), %rcx        # saved RIP
+    movq 16(%rsp), %rsi       # saved RFLAGS
+    movq 24(%rsp), %rdi       # saved RSP
+    movq %rdi, %rsp           # switch to the saved kernel stack
+
+    pushq %rsi                # rflags
+    pushq %rax                # cs
+    pushq %rcx                # rip
+    iretq
+
+1:
     iretq
 
 .halt:
