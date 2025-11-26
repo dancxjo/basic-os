@@ -110,7 +110,9 @@ pub mod prelude {
         update_thing, Thingable, Value, Window,
     };
     pub use crate::ipc::{emit_frame_ready, emit_window_buffer_updated};
-    pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchSource};
+    pub use crate::watch::{
+        AppEvent, EventFilter, ThingFilter, WatchId, WatchManager, WatchSource,
+    };
     pub use crate::{print, println};
 }
 
@@ -125,8 +127,4 @@ pub use graph::{
     update_thing, Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,
 };
 pub use ipc::{emit_frame_ready, emit_window_buffer_updated, fetch_journal_events};
-pub use watch::{
-    drain_app as drain_watch_events, ingest_journal as ingest_watch_journal,
-    poll_watch as poll_watch_event, process_graph, watch_graph, watch_journal, AppEvent,
-    EventFilter, ThingFilter, WatchId, WatchSource,
-};
+pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager, WatchSource};

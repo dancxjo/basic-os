@@ -11,7 +11,7 @@ pub struct GraphDemoApp {
 }
 
 impl App for GraphDemoApp {
-    fn init(ctx: &mut AppContext) -> Self {
+    fn init(ctx: &mut AppContext<'_>) -> Self {
         let window_data = Window {
             title: "Graph Demo".to_string(),
             x: 50,
@@ -23,7 +23,7 @@ impl App for GraphDemoApp {
         GraphDemoApp { window }
     }
 
-    fn tick(&mut self, ctx: &mut AppContext, tick: u64) {
+    fn tick(&mut self, ctx: &mut AppContext<'_>, tick: u64) {
         if tick % 16 != 0 {
             return;
         }

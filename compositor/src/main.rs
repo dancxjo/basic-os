@@ -14,8 +14,8 @@ use app_hello::app_entry as hello_app;
 use compositor::Compositor;
 use userland::app::DynApp;
 use userland::{
-    canon, drivers, emit_frame_ready, fetch_journal_events, fiat, ingest_watch_journal, map,
-    println, process_graph, start_builtin_drivers, that, DriverContext, Value,
+    canon, drivers, emit_frame_ready, fetch_journal_events, fiat, map, println,
+    start_builtin_drivers, that, DriverContext, Value, WatchManager,
 };
 use uuid::Uuid;
 
@@ -27,21 +27,32 @@ pub extern "C" fn _start() -> ! {
 
     drivers::register_builtin_drivers();
     register_compositor_things();
-    let mut apps = register_apps();
+    let mut watch_manager = WatchManager::new();
+    let compositor_app_id = watch_manager.register_app();
+    let mut apps = register_apps(&mut watch_manager);
 
     let mut driver_ctx = DriverContext::new();
     let mut running_drivers =
         start_builtin_drivers(&mut driver_ctx, compositor_id(), framebuffer_id());
 
-    let mut compositor = Compositor::new();
+    let mut compositor = Compositor::init_with_watches(&mut watch_manager, compositor_app_id);
     let mut tick: u64 = 0;
     loop {
         running_drivers.poll_all(&mut driver_ctx);
         let journal_events = fetch_journal_events().unwrap_or_default();
-        ingest_watch_journal(&journal_events);
-        process_graph();
-        tick_apps(&mut apps, tick);
-        let frame = compositor.tick(&journal_events);
+
+        let mut all_ids = vec![compositor_app_id];
+        all_ids.extend(app_ids(&apps));
+
+        watch_manager.process_journal_batch(&all_ids, &journal_events);
+        watch_manager.process_graph(&all_ids);
+
+        for ev in watch_manager.drain_inbox(compositor_app_id) {
+            compositor.on_event(&ev);
+        }
+
+        tick_apps(&mut apps, &mut watch_manager, tick);
+        let frame = compositor.tick();
         emit_frame_ready(
             compositor_id(),
             framebuffer_id(),
@@ -76,19 +87,23 @@ fn register_compositor_things() {
     that(compositor_id, canon::STREAMS, framebuffer_id, 0);
 }
 
-fn register_apps() -> Vec<DynApp> {
+fn register_apps(watch_manager: &mut WatchManager) -> Vec<DynApp> {
     vec![
-        clouds_app(compositor_id()),
-        hello_app(compositor_id()),
-        clock_app(compositor_id()),
-        graph_demo_app(compositor_id()),
+        clouds_app(compositor_id(), watch_manager),
+        hello_app(compositor_id(), watch_manager),
+        clock_app(compositor_id(), watch_manager),
+        graph_demo_app(compositor_id(), watch_manager),
     ]
 }
 
-fn tick_apps(apps: &mut [DynApp], tick: u64) {
+fn tick_apps(apps: &mut [DynApp], watch_manager: &mut WatchManager, tick: u64) {
     for app in apps.iter_mut() {
-        app.tick(tick);
+        app.tick(watch_manager, tick);
     }
+}
+
+fn app_ids(apps: &[DynApp]) -> Vec<usize> {
+    apps.iter().map(|app| app.app_id()).collect()
 }
 
 fn compositor_id() -> Uuid {

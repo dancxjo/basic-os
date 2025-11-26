@@ -5,43 +5,56 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::fmt::Write;
 use alloc::string::{String, ToString};
-use userland::Event;
-use userland::{canon, extract_text, Value};
+use userland::{canon, extract_text, AppEvent, EventFilter, Value, WatchId, WatchManager};
 use uuid::Uuid;
 
 pub struct Compositor {
-    last_seen: u64,
     frame_no: u64,
     windows: BTreeMap<Uuid, String>,
+    watch_window_buffers: Option<WatchId>,
 }
 
 impl Compositor {
     pub const fn new() -> Self {
         Self {
-            last_seen: 0,
             frame_no: 0,
             windows: BTreeMap::new(),
+            watch_window_buffers: None,
         }
     }
 
-    /// Ingest new journal events and produce a composed frame string.
-    pub fn tick(&mut self, events: &[Event]) -> String {
-        self.ingest_events(events);
+    pub fn init_with_watches(watch_manager: &mut WatchManager, app_id: usize) -> Self {
+        let filter = EventFilter {
+            kind: Some(canon::WINDOW_BUFFER_UPDATED),
+            src: None,
+            dst: None,
+        };
+        let watch_id = watch_manager.register_journal(app_id, filter);
+
+        Self {
+            frame_no: 0,
+            windows: BTreeMap::new(),
+            watch_window_buffers: Some(watch_id),
+        }
+    }
+
+    pub fn on_event(&mut self, ev: &AppEvent) {
+        if let AppEvent::Journal { watch, event } = ev {
+            if Some(*watch) != self.watch_window_buffers {
+                return;
+            }
+            if event.kind != canon::WINDOW_BUFFER_UPDATED {
+                return;
+            }
+            self.ingest_window_buffer(event.data.clone());
+        }
+    }
+
+    /// Produce a composed frame string and increment the frame counter.
+    pub fn tick(&mut self) -> String {
         let frame = self.compose_frame();
         self.frame_no = self.frame_no.wrapping_add(1);
         frame
-    }
-
-    fn ingest_events(&mut self, events: &[Event]) {
-        for evt in events {
-            if evt.timestamp <= self.last_seen {
-                continue;
-            }
-            self.last_seen = evt.timestamp;
-            if evt.kind == canon::WINDOW_BUFFER_UPDATED {
-                self.ingest_window_buffer(evt.data);
-            }
-        }
     }
 
     fn ingest_window_buffer(&mut self, data: Value) {

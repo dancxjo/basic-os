@@ -8,12 +8,12 @@ pub struct CloudsApp {
 }
 
 impl App for CloudsApp {
-    fn init(ctx: &mut AppContext) -> Self {
+    fn init(ctx: &mut AppContext<'_>) -> Self {
         let window = ctx.create_window("Clouds");
         CloudsApp { window }
     }
 
-    fn tick(&mut self, ctx: &mut AppContext, tick: u64) {
+    fn tick(&mut self, ctx: &mut AppContext<'_>, tick: u64) {
         static CLOUD_FRAMES: [&str; 2] = [
             "~~  ~ ~~~     ~~~\n ~~~   ~~  ~~ ~~  \n   ~~~ ~   ~~   ~~",
             " ~~~ ~   ~~   ~~ \n~~  ~~~  ~~~   ~~ \n   ~~~ ~~~ ~   ~~ ",

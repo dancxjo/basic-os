@@ -9,12 +9,12 @@ pub struct ClockApp {
 }
 
 impl App for ClockApp {
-    fn init(ctx: &mut AppContext) -> Self {
+    fn init(ctx: &mut AppContext<'_>) -> Self {
         let window = ctx.create_window("Clock");
         ClockApp { window }
     }
 
-    fn tick(&mut self, ctx: &mut AppContext, tick: u64) {
+    fn tick(&mut self, ctx: &mut AppContext<'_>, tick: u64) {
         if tick % 4 != 0 {
             return;
         }

@@ -1,15 +1,17 @@
-//! Simple watch/subscribe manager for userland apps and drivers.
-//! Apps register filters over journal or graph data, and the manager fans out
-//! matches into per-app inboxes that can be drained before each tick.
+//! Central watch/subscribe manager shared by the compositor and apps.
+//! The manager pulls batches of journal or graph events and fans them out
+//! into per-app inboxes based on simple filters.
 
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use crate::canon;
 use crate::graph::{graph_snapshot, Event, GraphSnapshot};
 use crate::{Symbol, Value};
-use spin::Mutex;
 use uuid::Uuid;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct WatchId(u32);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum WatchSource {
@@ -17,22 +19,17 @@ pub enum WatchSource {
     Graph,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct WatchId(u32);
-
 #[derive(Clone, Debug)]
 pub struct EventFilter {
     pub kind: Option<Symbol>,
     pub src: Option<Uuid>,
     pub dst: Option<Uuid>,
-    pub field_eq: &'static [(Symbol, Value)],
 }
 
 #[derive(Clone, Debug)]
 pub struct ThingFilter {
     pub kind: Option<Symbol>,
     pub id: Option<Uuid>,
-    pub predicate: Option<Symbol>,
 }
 
 #[derive(Clone, Debug)]
@@ -41,106 +38,99 @@ pub enum AppEvent {
     Graph { watch: WatchId, thing_id: Uuid },
 }
 
-#[derive(Default)]
-struct AppInbox {
-    queue: VecDeque<AppEvent>,
+#[derive(Clone, Debug)]
+pub struct WatchRegistration {
+    pub app_id: usize,
+    pub watch_id: WatchId,
+    pub source: WatchSource,
+    pub event_filter: Option<EventFilter>,
+    pub thing_filter: Option<ThingFilter>,
 }
 
-#[derive(Clone)]
-struct WatchRegistration {
-    app_id: usize,
-    watch_id: WatchId,
-    source: WatchSource,
-    event_filter: Option<EventFilter>,
-    thing_filter: Option<ThingFilter>,
-}
-
-#[derive(Default)]
-struct WatchManager {
+pub struct WatchManager {
     next_app: usize,
     next_watch: u32,
-    registrations: Vec<WatchRegistration>,
-    inboxes: BTreeMap<usize, AppInbox>,
-    thing_revisions: BTreeMap<Uuid, u64>,
-    edge_revisions: BTreeMap<(Uuid, Symbol, Uuid), u64>,
+    regs: Vec<WatchRegistration>,
+    inboxes: BTreeMap<usize, Vec<AppEvent>>,
     last_journal_ts: u64,
+    thing_revisions: BTreeMap<Uuid, u64>,
 }
 
 impl WatchManager {
-    fn alloc_app(&mut self) -> usize {
+    pub fn new() -> Self {
+        Self {
+            next_app: 0,
+            next_watch: 0,
+            regs: Vec::new(),
+            inboxes: BTreeMap::new(),
+            last_journal_ts: 0,
+            thing_revisions: BTreeMap::new(),
+        }
+    }
+
+    pub fn register_app(&mut self) -> usize {
         let id = self.next_app;
         self.next_app = self.next_app.wrapping_add(1);
-        self.inboxes.entry(id).or_insert_with(AppInbox::default);
+        self.inbox_for(id);
         id
     }
 
-    fn alloc_watch(&mut self) -> WatchId {
-        let id = WatchId(self.next_watch);
-        self.next_watch = self.next_watch.wrapping_add(1);
-        id
-    }
-
-    fn register_journal(&mut self, app_id: usize, filter: EventFilter) -> WatchId {
+    pub fn register_journal(&mut self, app_id: usize, filter: EventFilter) -> WatchId {
         let watch_id = self.alloc_watch();
-        self.registrations.push(WatchRegistration {
+        self.regs.push(WatchRegistration {
             app_id,
             watch_id,
             source: WatchSource::Journal,
             event_filter: Some(filter),
             thing_filter: None,
         });
+        self.inbox_for(app_id);
         watch_id
     }
 
-    fn register_graph(&mut self, app_id: usize, filter: ThingFilter) -> WatchId {
+    pub fn register_graph(&mut self, app_id: usize, filter: ThingFilter) -> WatchId {
         let watch_id = self.alloc_watch();
-        self.registrations.push(WatchRegistration {
+        self.regs.push(WatchRegistration {
             app_id,
             watch_id,
             source: WatchSource::Graph,
             event_filter: None,
             thing_filter: Some(filter),
         });
+        self.inbox_for(app_id);
         watch_id
     }
 
-    fn enqueue(&mut self, app_id: usize, event: AppEvent) {
-        let inbox = self.inboxes.entry(app_id).or_insert_with(AppInbox::default);
-        inbox.queue.push_back(event);
+    pub fn push_event(&mut self, app_id: usize, ev: AppEvent) {
+        let inbox = self.inbox_for(app_id);
+        inbox.push(ev);
     }
 
-    fn poll_watch(&mut self, app_id: usize, watch: WatchId) -> Option<AppEvent> {
-        let inbox = self.inboxes.get_mut(&app_id)?;
-        if let Some(pos) = inbox.queue.iter().position(|ev| match ev {
-            AppEvent::Journal { watch: w, .. } | AppEvent::Graph { watch: w, .. } => *w == watch,
-        }) {
-            return inbox.queue.remove(pos);
-        }
-        None
+    pub fn drain_inbox(&mut self, app_id: usize) -> Vec<AppEvent> {
+        self.inboxes.insert(app_id, Vec::new()).unwrap_or_default()
     }
 
-    fn next_event(&mut self, app_id: usize) -> Option<AppEvent> {
-        self.inboxes.get_mut(&app_id)?.queue.pop_front()
-    }
-
-    fn ingest_journal(&mut self, events: &[Event]) {
+    pub fn process_journal_batch(&mut self, app_ids: &[usize], events: &[Event]) {
         for evt in events {
             if evt.timestamp <= self.last_journal_ts {
                 continue;
             }
             self.last_journal_ts = evt.timestamp;
             for reg in self
-                .registrations
+                .regs
                 .iter()
-                .filter(|r| r.source == WatchSource::Journal)
+                .filter(|r| matches!(r.source, WatchSource::Journal))
             {
+                if !app_ids.contains(&reg.app_id) {
+                    continue;
+                }
                 let Some(filter) = &reg.event_filter else {
                     continue;
                 };
                 if !matches_event(filter, evt) {
                     continue;
                 }
-                self.enqueue(
+                self.push_event(
                     reg.app_id,
                     AppEvent::Journal {
                         watch: reg.watch_id,
@@ -151,50 +141,42 @@ impl WatchManager {
         }
     }
 
-    fn process_graph(&mut self) {
+    pub fn process_graph(&mut self, app_ids: &[usize]) {
         let snapshot = match graph_snapshot() {
             Some(s) => s,
             None => return,
         };
-        self.process_graph_snapshot(&snapshot);
+        self.process_graph_snapshot(app_ids, &snapshot);
     }
 
-    fn process_graph_snapshot(&mut self, snapshot: &GraphSnapshot) {
+    pub fn process_graph_snapshot(&mut self, app_ids: &[usize], snapshot: &GraphSnapshot) {
         for thing in snapshot.things.iter() {
             let current_rev = *self.thing_revisions.get(&thing.id).unwrap_or(&0);
             if thing.revision > current_rev {
-                self.enqueue_graph_change(thing.id, thing.kind, None);
+                self.enqueue_graph_change(app_ids, thing.id, thing.kind);
                 self.thing_revisions.insert(thing.id, thing.revision);
             } else if current_rev == 0 {
                 self.thing_revisions.insert(thing.id, thing.revision);
-            }
-        }
-
-        for edge in snapshot.edges.iter() {
-            let key = (edge.src, edge.pred, edge.dst);
-            let current_rev = *self.edge_revisions.get(&key).unwrap_or(&0);
-            if edge.revision > current_rev {
-                self.enqueue_graph_change(edge.src, edge.pred, Some(edge.pred));
-                self.edge_revisions.insert(key, edge.revision);
-            } else if current_rev == 0 {
-                self.edge_revisions.insert(key, edge.revision);
             }
         }
     }
 
-    fn enqueue_graph_change(&mut self, thing_id: Uuid, kind: Symbol, predicate: Option<Symbol>) {
+    fn enqueue_graph_change(&mut self, app_ids: &[usize], thing_id: Uuid, kind: Symbol) {
         for reg in self
-            .registrations
+            .regs
             .iter()
-            .filter(|r| r.source == WatchSource::Graph)
+            .filter(|r| matches!(r.source, WatchSource::Graph))
         {
+            if !app_ids.contains(&reg.app_id) {
+                continue;
+            }
             let Some(filter) = &reg.thing_filter else {
                 continue;
             };
-            if !matches_thing(filter, thing_id, kind, predicate) {
+            if !matches_thing(filter, thing_id, kind) {
                 continue;
             }
-            self.enqueue(
+            self.push_event(
                 reg.app_id,
                 AppEvent::Graph {
                     watch: reg.watch_id,
@@ -202,6 +184,16 @@ impl WatchManager {
                 },
             );
         }
+    }
+
+    fn alloc_watch(&mut self) -> WatchId {
+        let id = WatchId(self.next_watch);
+        self.next_watch = self.next_watch.wrapping_add(1);
+        id
+    }
+
+    fn inbox_for(&mut self, app_id: usize) -> &mut Vec<AppEvent> {
+        self.inboxes.entry(app_id).or_insert_with(Vec::new)
     }
 }
 
@@ -214,7 +206,7 @@ fn matches_event(filter: &EventFilter, evt: &Event) -> bool {
 
     let data = match evt.data.as_map() {
         Some(m) => m,
-        None => return filter.src.is_none() && filter.dst.is_none() && filter.field_eq.is_empty(),
+        None => return filter.src.is_none() && filter.dst.is_none(),
     };
 
     if let Some(src) = filter.src {
@@ -229,24 +221,10 @@ fn matches_event(filter: &EventFilter, evt: &Event) -> bool {
         }
     }
 
-    for (key, val) in filter.field_eq.iter() {
-        let Some(actual) = data.get(key) else {
-            return false;
-        };
-        if actual != val {
-            return false;
-        }
-    }
-
     true
 }
 
-fn matches_thing(
-    filter: &ThingFilter,
-    thing_id: Uuid,
-    kind: Symbol,
-    predicate: Option<Symbol>,
-) -> bool {
+fn matches_thing(filter: &ThingFilter, thing_id: Uuid, kind: Symbol) -> bool {
     if let Some(expected_kind) = filter.kind {
         if expected_kind != kind {
             return false;
@@ -259,57 +237,5 @@ fn matches_thing(
         }
     }
 
-    if let Some(pred) = filter.predicate {
-        if Some(pred) != predicate {
-            return false;
-        }
-    }
-
     true
-}
-
-static MANAGER: Mutex<WatchManager> = Mutex::new(WatchManager::default());
-
-pub fn register_app() -> usize {
-    MANAGER.lock().alloc_app()
-}
-
-pub fn watch_journal(app_id: usize, filter: EventFilter) -> WatchId {
-    MANAGER.lock().register_journal(app_id, filter)
-}
-
-pub fn watch_graph(app_id: usize, filter: ThingFilter) -> WatchId {
-    MANAGER.lock().register_graph(app_id, filter)
-}
-
-pub fn poll_watch(app_id: usize, watch: WatchId) -> Option<AppEvent> {
-    MANAGER.lock().poll_watch(app_id, watch)
-}
-
-pub fn next_event(app_id: usize) -> Option<AppEvent> {
-    MANAGER.lock().next_event(app_id)
-}
-
-pub fn ingest_journal(events: &[Event]) {
-    MANAGER.lock().ingest_journal(events);
-}
-
-pub fn process_graph() {
-    MANAGER.lock().process_graph();
-}
-
-pub struct WatchDrain {
-    app_id: usize,
-}
-
-impl Iterator for WatchDrain {
-    type Item = AppEvent;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        next_event(self.app_id)
-    }
-}
-
-pub fn drain_app(app_id: usize) -> WatchDrain {
-    WatchDrain { app_id }
 }

@@ -11,12 +11,12 @@
 //! }
 //!
 //! impl App for MyApp {
-//!     fn init(ctx: &mut AppContext) -> Self {
+//!     fn init(ctx: &mut AppContext<'_>) -> Self {
 //!         let window = ctx.create_window("My App");
 //!         MyApp { window }
 //!     }
 //!
-//!     fn tick(&mut self, ctx: &mut AppContext, tick: u64) {
+//!     fn tick(&mut self, ctx: &mut AppContext<'_>, tick: u64) {
 //!         if tick % 4 == 0 {
 //!             ctx.clear_window(&self.window);
 //!             ctx.draw_text(&self.window, format_args!("Hello at {tick}\n"));
@@ -31,26 +31,25 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::fmt::{self, Write};
 
 use crate::canon;
 use crate::graph::{self, load_thing, update_thing, Thingable, Window};
 use crate::ipc;
-use crate::watch::{
-    drain_app, poll_watch as poll_watch_event, register_app, watch_graph as watch_graph_filter,
-    watch_journal as watch_journal_filter, AppEvent, EventFilter, ThingFilter, WatchId,
-};
+use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 use uuid::Uuid;
 
 pub trait App {
-    fn init(ctx: &mut AppContext) -> Self;
-    fn tick(&mut self, ctx: &mut AppContext, tick: u64);
+    fn init(ctx: &mut AppContext<'_>) -> Self;
+    fn tick(&mut self, ctx: &mut AppContext<'_>, tick: u64);
 
-    fn on_event(&mut self, _ctx: &mut AppContext, _ev: AppEvent) {}
+    fn on_event(&mut self, _ctx: &mut AppContext<'_>, _ev: AppEvent) {}
 }
 
 pub trait AppRunner {
-    fn tick(&mut self, tick: u64);
+    fn app_id(&self) -> usize;
+    fn tick(&mut self, watch_manager: &mut WatchManager, tick: u64);
 }
 
 pub type DynApp = Box<dyn AppRunner>;
@@ -71,7 +70,7 @@ impl WindowHandle {
     }
 }
 
-pub struct AppContext {
+pub struct AppState {
     compositor: Uuid,
     buffers: BTreeMap<Uuid, String>,
     window_pixmaps: BTreeMap<Uuid, Uuid>,
@@ -79,7 +78,7 @@ pub struct AppContext {
     app_id: usize,
 }
 
-impl AppContext {
+impl AppState {
     pub fn new(compositor: Uuid, app_id: usize) -> Self {
         Self {
             compositor,
@@ -89,9 +88,16 @@ impl AppContext {
             app_id,
         }
     }
+}
 
+pub struct AppContext<'a> {
+    state: &'a mut AppState,
+    pub watch_manager: &'a mut WatchManager,
+}
+
+impl<'a> AppContext<'a> {
     pub fn compositor_id(&self) -> Uuid {
-        self.compositor
+        self.state.compositor
     }
 
     pub fn create_window(&mut self, title: &str) -> WindowHandle {
@@ -107,8 +113,8 @@ impl AppContext {
 
     pub fn create_window_with(&mut self, window: Window) -> WindowHandle {
         let title = window.title.clone();
-        let index = self.window_counter;
-        self.window_counter = self.window_counter.wrapping_add(1);
+        let index = self.state.window_counter;
+        self.state.window_counter = self.state.window_counter.wrapping_add(1);
 
         let window_name = format!("window-{title}-{index}");
         let pixmap_name = format!("pixmap-{title}-{index}");
@@ -120,9 +126,9 @@ impl AppContext {
         fields.insert(canon::TARGET, graph::Value::Uuid(pixmap));
         fields.insert(canon::STATUS, graph::Value::Symbol(canon::INIT));
         graph::fiat(Some(window_id), canon::WINDOW, fields);
-        graph::that(window_id, canon::COMPOSED_BY, self.compositor, 0);
+        graph::that(window_id, canon::COMPOSED_BY, self.state.compositor, 0);
 
-        self.window_pixmaps.insert(window_id, pixmap);
+        self.state.window_pixmaps.insert(window_id, pixmap);
 
         WindowHandle {
             window: window_id,
@@ -131,11 +137,15 @@ impl AppContext {
     }
 
     pub fn clear_window(&mut self, win: &WindowHandle) {
-        self.buffers.insert(win.window, String::new());
+        self.state.buffers.insert(win.window, String::new());
     }
 
     pub fn draw_text(&mut self, win: &WindowHandle, args: fmt::Arguments<'_>) {
-        let buf = self.buffers.entry(win.window).or_insert_with(String::new);
+        let buf = self
+            .state
+            .buffers
+            .entry(win.window)
+            .or_insert_with(String::new);
         let _ = buf.write_fmt(args);
     }
 
@@ -148,57 +158,73 @@ impl AppContext {
     }
 
     pub fn begin_tick(&mut self) {
-        self.buffers.clear();
+        self.state.buffers.clear();
     }
 
     pub fn flush(&mut self, tick: u64) {
-        for (window, text) in self.buffers.iter() {
-            if let Some(pixmap) = self.window_pixmaps.get(window) {
+        for (window, text) in self.state.buffers.iter() {
+            if let Some(pixmap) = self.state.window_pixmaps.get(window) {
                 ipc::emit_window_buffer_updated(*window, *pixmap, tick, text.as_bytes());
             }
         }
-        self.buffers.clear();
+        self.state.buffers.clear();
     }
 
     pub fn watch_journal(&mut self, filter: EventFilter) -> WatchId {
-        watch_journal_filter(self.app_id, filter)
+        self.watch_manager
+            .register_journal(self.state.app_id, filter)
     }
 
     pub fn watch_graph(&mut self, filter: ThingFilter) -> WatchId {
-        watch_graph_filter(self.app_id, filter)
+        self.watch_manager.register_graph(self.state.app_id, filter)
     }
 
-    pub fn poll_watch(&mut self, watch: WatchId) -> Option<AppEvent> {
-        poll_watch_event(self.app_id, watch)
-    }
-
-    pub fn drain_events(&mut self) -> impl Iterator<Item = AppEvent> {
-        drain_app(self.app_id)
+    pub fn drain_events(&mut self) -> Vec<AppEvent> {
+        self.watch_manager.drain_inbox(self.state.app_id)
     }
 }
 
 struct HostedApp<A: App> {
     app: A,
-    ctx: AppContext,
+    state: AppState,
 }
 
-impl<A: App> AppRunner for HostedApp<A> {
-    fn tick(&mut self, tick: u64) {
-        self.ctx.begin_tick();
-        let mut drain = self.ctx.drain_events();
-        while let Some(ev) = drain.next() {
-            self.app.on_event(&mut self.ctx, ev);
+impl<A: App> HostedApp<A> {
+    fn ctx<'a>(&'a mut self, watch_manager: &'a mut WatchManager) -> AppContext<'a> {
+        AppContext {
+            state: &mut self.state,
+            watch_manager,
         }
-        self.app.tick(&mut self.ctx, tick);
-        self.ctx.flush(tick);
     }
 }
 
-pub fn create_app<A: App + 'static>(compositor: Uuid) -> DynApp {
-    let app_id = register_app();
-    let mut ctx = AppContext::new(compositor, app_id);
-    let app = A::init(&mut ctx);
-    Box::new(HostedApp { app, ctx })
+impl<A: App> AppRunner for HostedApp<A> {
+    fn app_id(&self) -> usize {
+        self.state.app_id
+    }
+
+    fn tick(&mut self, watch_manager: &mut WatchManager, tick: u64) {
+        let mut ctx = self.ctx(watch_manager);
+        ctx.begin_tick();
+        for ev in ctx.drain_events() {
+            self.app.on_event(&mut ctx, ev);
+        }
+        self.app.tick(&mut ctx, tick);
+        ctx.flush(tick);
+    }
+}
+
+pub fn create_app<A: App + 'static>(compositor: Uuid, watch_manager: &mut WatchManager) -> DynApp {
+    let app_id = watch_manager.register_app();
+    let mut state = AppState::new(compositor, app_id);
+    let app = {
+        let mut ctx = AppContext {
+            state: &mut state,
+            watch_manager,
+        };
+        A::init(&mut ctx)
+    };
+    Box::new(HostedApp { app, state })
 }
 
 #[macro_export]
@@ -206,8 +232,9 @@ macro_rules! app_main {
     ($app_ty:ty) => {
         pub fn app_entry(
             compositor: uuid::Uuid,
+            watch_manager: &mut userland::watch::WatchManager,
         ) -> alloc::boxed::Box<dyn userland::app::AppRunner> {
-            userland::app::create_app::<$app_ty>(compositor)
+            userland::app::create_app::<$app_ty>(compositor, watch_manager)
         }
     };
 }
