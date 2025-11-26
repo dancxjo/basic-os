@@ -8,9 +8,10 @@ mod heap;
 use alloc::vec;
 use alloc::vec::Vec;
 use app_clock::app_entry as clock_app;
+use app_framebuffer_driver::app_entry as framebuffer_driver_app;
 use app_hello::app_entry as hello_app;
 use app_keyboard_driver::app_entry as keyboard_driver_app;
-use app_framebuffer_driver::app_entry as framebuffer_driver_app;
+use app_toy_rect::app_entry as toy_rect_app;
 use compositor::{Compositor, FramebufferInfo, FramebufferTarget};
 use userland::app::DynApp;
 use userland::{canon, drivers, fiat, graph_snapshot, map, println, that, Value, WatchManager};
@@ -75,6 +76,7 @@ fn register_apps(watch_manager: &mut WatchManager) -> Vec<DynApp> {
         hello_app(compositor_id(), watch_manager),
         keyboard_driver_app(compositor_id(), watch_manager),
         framebuffer_driver_app(compositor_id(), watch_manager),
+        toy_rect_app(compositor_id(), watch_manager),
     ]
 }
 

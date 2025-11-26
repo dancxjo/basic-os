@@ -242,7 +242,6 @@ impl Compositor {
         if self.backbuffer.is_empty()
             || self.framebuffer.width == 0
             || self.framebuffer.height == 0
-            || self.background.pixels.is_empty()
         {
             return;
         }
@@ -253,8 +252,45 @@ impl Compositor {
         if self.backbuffer.len() < needed {
             self.backbuffer.resize(needed, 0);
         }
-        self.draw_background();
-        self.draw_windows();
+
+        // Clear backbuffer
+        self.backbuffer.fill(0xFF000000);
+
+        // Render from graph
+        if let Some(snapshot) = userland::graph_snapshot() {
+            let things: BTreeMap<Uuid, &userland::GraphThing> = snapshot.things.iter().map(|t| (t.id, t)).collect();
+            
+            // Find windows
+            let windows: Vec<&userland::GraphThing> = snapshot.things.iter()
+                .filter(|t| t.kind == canon::WINDOW)
+                .collect();
+
+            for window in windows {
+                let x = window.fields.get(&canon::X).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let y = window.fields.get(&canon::Y).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let visible = window.fields.get(&canon::VISIBLE).and_then(|v| v.as_bool()).unwrap_or(true);
+
+                if !visible { continue; }
+
+                // Find content linked via HAS_CONTENT
+                let content_edge = snapshot.edges.iter().find(|e| e.src == window.id && e.pred == canon::HAS_CONTENT);
+
+                if let Some(edge) = content_edge {
+                    if let Some(rect_thing) = things.get(&edge.dst) {
+                        if rect_thing.kind == canon::WINDOW_RECT {
+                            let rx = rect_thing.fields.get(&canon::X).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                            let ry = rect_thing.fields.get(&canon::Y).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                            let rw = rect_thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+                            let rh = rect_thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+                            let color = rect_thing.fields.get(&canon::COLOR).and_then(|v| v.as_u64()).unwrap_or(0xFFFFFFFF) as u32;
+
+                            self.fill_rect(x + rx, y + ry, rw, rh, color);
+                        }
+                    }
+                }
+            }
+        }
+
         self.draw_cursor();
         self.present();
         self.frame_no = self.frame_no.wrapping_add(1);

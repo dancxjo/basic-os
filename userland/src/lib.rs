@@ -106,6 +106,12 @@ pub mod canon {
     pub const DISPLAY_FRAME: Symbol = canon(b'D', b'F', b'R');
     pub const CURRENT_FRAME: Symbol = canon(b'C', b'U', b'R');
     pub const SEQ: Symbol = canon(b'S', b'E', b'Q');
+    pub const APP: Symbol = canon(b'A', b'P', b'P');
+    pub const OWNS: Symbol = canon(b'O', b'W', b'N');
+    pub const HAS_CONTENT: Symbol = canon(b'H', b'C', b'T');
+    pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
+    pub const COLOR: Symbol = canon(b'C', b'L', b'R');
+    pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
 }
 
 pub mod prelude {

@@ -17,6 +17,7 @@ app-clock = { path = "../apps/clock", optional = true }
 app-graph-demo = { path = "../apps/graph_demo", optional = true }
 app-keyboard-driver = { path = "../apps/keyboard_driver", optional = true }
 app-framebuffer-driver = { path = "../apps/framebuffer_driver", optional = true }
+app-toy-rect = { path = "../apps/toy_rect", optional = true }
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 
 [profile.release]
@@ -32,6 +33,7 @@ demo-apps = [
   "app-graph-demo",
   "app-keyboard-driver",
   "app-framebuffer-driver",
+  "app-toy-rect",
 ]
 
 [build]
