@@ -25,6 +25,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_GRAPH_GET => graph_get(rdi, rsi, rdx),
         SYSCALL_WATCH_REGISTER => watch_register(rdi, rsi),
         SYSCALL_WATCH_POLL => watch_poll(rdi, rsi, rdx),
+        SYSCALL_KBD_READ => kbd_read(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -40,6 +41,7 @@ const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 const SYSCALL_GRAPH_GET: u64 = 0x05;
 const SYSCALL_WATCH_REGISTER: u64 = 0x06;
 const SYSCALL_WATCH_POLL: u64 = 0x07;
+const SYSCALL_KBD_READ: u64 = 0x08;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -90,6 +92,14 @@ fn watch_poll(watch_id: u64, out_ptr: u64, out_len: u64) -> u64 {
         None => return !0,
     };
     copy_out_slice(&bytes, out_ptr, out_len)
+}
+
+fn kbd_read(out_ptr: u64, out_len: u64) -> u64 {
+    if out_ptr == 0 || out_len == 0 {
+        return 0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
+    crate::drivers::keyboard::read_scancodes(buf) as u64
 }
 
 fn graph_get(id_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {

@@ -43,6 +43,7 @@ pub const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 pub const SYSCALL_GRAPH_GET: u64 = 0x05;
 pub const SYSCALL_WATCH_REGISTER: u64 = 0x06;
 pub const SYSCALL_WATCH_POLL: u64 = 0x07;
+pub const SYSCALL_KBD_READ: u64 = 0x08;
 
 pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
     unsafe {
@@ -95,6 +96,17 @@ pub fn watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
             watch_id,
             out.as_mut_ptr() as u64,
             out.len() as u64,
+        )
+    }
+}
+
+pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_KBD_READ,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+            0,
         )
     }
 }

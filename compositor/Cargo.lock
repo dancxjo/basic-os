@@ -41,6 +41,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "app-keyboard-driver"
+version = "0.1.0"
+dependencies = [
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -63,6 +71,7 @@ dependencies = [
  "app-clouds",
  "app-graph-demo",
  "app-hello",
+ "app-keyboard-driver",
  "flate2",
  "linked_list_allocator",
  "unifont",

@@ -86,6 +86,7 @@ pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
 pub const DRIVER_STORAGE: Symbol = canon(b'S', b'T', b'R');
 pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
 pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
+pub const EMITS: Symbol = canon(b'E', b'M', b'T');
 
 /// Return the symbolic name for a code if known.
 pub fn sym_name(code: Symbol) -> &'static str {

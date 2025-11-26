@@ -98,9 +98,10 @@ pub mod canon {
     pub const Y: Symbol = canon(b'Y', b' ', b' ');
     pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
     pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
-    pub const ADDR: Symbol = canon(b'A', b'D', b'R');
     pub const PITCH: Symbol = canon(b'P', b'T', b'H');
     pub const BPP: Symbol = canon(b'B', b'P', b'P');
+    pub const ADDR: Symbol = canon(b'A', b'D', b'R');
+    pub const EMITS: Symbol = canon(b'E', b'M', b'T');
 }
 
 pub mod prelude {

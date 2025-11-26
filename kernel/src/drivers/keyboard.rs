@@ -45,19 +45,19 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
         );
     }
 
-    publish_key_event(scancode);
-
     end_of_interrupt(1);
 }
 
-fn publish_key_event(scancode: u8) {
-    let mut fields = BTreeMap::new();
-    fields.insert(canon::SCANCODE, Value::U64(scancode as u64));
-
-    let req = GraphFiatRequest {
-        id: None,
-        kind: canon::KEY_PRESSED,
-        fields,
-    };
-    let _ = graph::fiat(req);
+pub fn read_scancodes(buf: &mut [u8]) -> usize {
+    let mut written = 0;
+    for slot in buf.iter_mut() {
+        match KEYBOARD_BUFFER.pop() {
+            Some(byte) => {
+                *slot = byte;
+                written += 1;
+            }
+            None => break,
+        }
+    }
+    written
 }
