@@ -703,7 +703,7 @@ impl MouseDriver {
     }
 
     pub fn poll(&mut self, ctx: &mut DriverContext) {
-        let mut buf = [0u8; 64];
+        let mut buf = [0u8; 256];
         let count = ctx.read_device(self.dev, &mut buf);
         for byte in buf.iter().copied().take(count) {
             if let Some(event) = self.decoder.feed(byte) {

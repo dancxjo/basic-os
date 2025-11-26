@@ -5,7 +5,7 @@ use log::warn;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::InterruptStackFrame;
 
-pub const MOUSE_RAW_CAPACITY: usize = 256;
+pub const MOUSE_RAW_CAPACITY: usize = 4096;
 
 pub static MOUSE_RAW_BYTES: InputBuffer<u8, MOUSE_RAW_CAPACITY> = InputBuffer::new(0);
 
