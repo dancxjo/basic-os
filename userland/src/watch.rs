@@ -116,6 +116,7 @@ impl WatchManager {
                 continue;
             }
             self.last_journal_ts = evt.timestamp;
+            let mut deliveries = Vec::new();
             for reg in self
                 .regs
                 .iter()
@@ -130,13 +131,16 @@ impl WatchManager {
                 if !matches_event(filter, evt) {
                     continue;
                 }
-                self.push_event(
+                deliveries.push((
                     reg.app_id,
                     AppEvent::Journal {
                         watch: reg.watch_id,
                         event: evt.clone(),
                     },
-                );
+                ));
+            }
+            for (app_id, ev) in deliveries {
+                self.push_event(app_id, ev);
             }
         }
     }
@@ -162,6 +166,7 @@ impl WatchManager {
     }
 
     fn enqueue_graph_change(&mut self, app_ids: &[usize], thing_id: Uuid, kind: Symbol) {
+        let mut deliveries = Vec::new();
         for reg in self
             .regs
             .iter()
@@ -176,13 +181,16 @@ impl WatchManager {
             if !matches_thing(filter, thing_id, kind) {
                 continue;
             }
-            self.push_event(
+            deliveries.push((
                 reg.app_id,
                 AppEvent::Graph {
                     watch: reg.watch_id,
                     thing_id,
                 },
-            );
+            ));
+        }
+        for (app_id, ev) in deliveries {
+            self.push_event(app_id, ev);
         }
     }
 

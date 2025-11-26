@@ -8,6 +8,7 @@ use crate::drivers::{self, DriverDescriptor};
 use crate::graph::{map, Value};
 use crate::sys;
 use crate::Symbol;
+use core::convert::TryInto;
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -343,7 +344,7 @@ impl KeyboardDriver {
             0x1C => KeyCode::Enter,
             0x39 => KeyCode::Space,
             0x0E => KeyCode::Backspace,
-            0x0F | 0x38 => KeyCode::YieldNow,
+            0x38 => KeyCode::YieldNow,
             0x3B..=0x44 => KeyCode::Function(code as u8 - 0x3A),
             0x48 => KeyCode::ArrowUp,
             0x50 => KeyCode::ArrowDown,
@@ -730,9 +731,40 @@ impl Driver for MouseDriver {
 
 // ------------------ Framebuffer driver ------------------
 
+#[derive(Clone, Copy, Debug)]
+pub struct FramebufferInfo {
+    pub width: usize,
+    pub height: usize,
+    pub pitch: usize,
+    pub bpp: u16,
+}
+
+impl FramebufferInfo {
+    pub fn from_device(ctx: &DriverContext, dev: DeviceHandle) -> Option<Self> {
+        let mut buf = [0u8; 16];
+        let count = ctx.read_device(dev, &mut buf);
+        if count < buf.len() {
+            return None;
+        }
+
+        let width = u32::from_le_bytes(buf[0..4].try_into().ok()?) as usize;
+        let height = u32::from_le_bytes(buf[4..8].try_into().ok()?) as usize;
+        let pitch = u32::from_le_bytes(buf[8..12].try_into().ok()?) as usize;
+        let bpp = u32::from_le_bytes(buf[12..16].try_into().ok()?) as u16;
+
+        Some(Self {
+            width,
+            height,
+            pitch,
+            bpp,
+        })
+    }
+}
+
 pub struct FramebufferDriver {
     dev: DeviceHandle,
     pub mapping: Option<sys::DeviceMapping>,
+    info: Option<FramebufferInfo>,
 }
 
 impl FramebufferDriver {
@@ -743,11 +775,16 @@ impl FramebufferDriver {
 
     fn from_handle(ctx: &DriverContext, dev: DeviceHandle) -> Self {
         let mapping = ctx.map_device(dev);
-        Self { dev, mapping }
+        let info = FramebufferInfo::from_device(ctx, dev);
+        Self { dev, mapping, info }
     }
 
     pub fn blit(&self, ctx: &DriverContext, data: &[u8]) -> usize {
         ctx.write_device(self.dev, data)
+    }
+
+    pub fn info(&self) -> Option<FramebufferInfo> {
+        self.info
     }
 }
 

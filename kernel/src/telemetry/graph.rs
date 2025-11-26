@@ -98,7 +98,10 @@ impl Store {
     }
 
     pub fn latest(&self, id: &Uuid) -> Option<GraphThing> {
-        self.things.get(id).and_then(|versions| versions.last()).cloned()
+        self.things
+            .get(id)
+            .and_then(|versions| versions.last())
+            .cloned()
     }
 
     pub fn latest_of_kind(&self, kind: Symbol) -> Vec<GraphThing> {

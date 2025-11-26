@@ -14,8 +14,8 @@ use app_hello::app_entry as hello_app;
 use compositor::Compositor;
 use userland::app::DynApp;
 use userland::{
-    canon, drivers, emit_frame_ready, fetch_journal_events, fiat, map, println,
-    start_builtin_drivers, that, DriverContext, Value, WatchManager,
+    canon, drivers, fetch_journal_events, fiat, map, println, start_builtin_drivers, that,
+    DriverContext, FramebufferInfo, Value, WatchManager,
 };
 use uuid::Uuid;
 
@@ -35,7 +35,19 @@ pub extern "C" fn _start() -> ! {
     let mut running_drivers =
         start_builtin_drivers(&mut driver_ctx, compositor_id(), framebuffer_id());
 
-    let mut compositor = Compositor::init_with_watches(&mut watch_manager, compositor_app_id);
+    let fb_info = running_drivers
+        .framebuffer
+        .as_ref()
+        .and_then(|fb| fb.info())
+        .unwrap_or(FramebufferInfo {
+            width: 1024,
+            height: 768,
+            pitch: 1024 * 4,
+            bpp: 32,
+        });
+
+    let mut compositor =
+        Compositor::init_with_watches(&mut watch_manager, compositor_app_id, fb_info);
     let mut tick: u64 = 0;
     loop {
         running_drivers.poll_all(&mut driver_ctx);
@@ -52,13 +64,11 @@ pub extern "C" fn _start() -> ! {
         }
 
         tick_apps(&mut apps, &mut watch_manager, tick);
-        let frame = compositor.tick();
-        emit_frame_ready(
-            compositor_id(),
-            framebuffer_id(),
-            compositor_surface_id(),
-            frame.as_bytes(),
-        );
+        let fb_driver = running_drivers
+            .framebuffer
+            .as_ref()
+            .expect("Framebuffer driver missing");
+        compositor.tick(fb_driver, &driver_ctx);
         tick = tick.wrapping_add(1);
         busy_wait();
     }

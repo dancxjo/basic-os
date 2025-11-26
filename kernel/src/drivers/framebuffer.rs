@@ -279,13 +279,36 @@ fn write_framebuffer(buf: &[u8]) -> usize {
     count
 }
 
+fn read_framebuffer(buf: &mut [u8]) -> usize {
+    let fb_arc = match FRAMEBUFFER_DEVICE.lock().clone() {
+        Some(fb) => fb,
+        None => return 0,
+    };
+    let fb = fb_arc.lock();
+    let required = core::mem::size_of::<u32>() * 4;
+    if buf.len() < required {
+        return 0;
+    }
+
+    let width = (fb.width as u32).to_le_bytes();
+    let height = (fb.height as u32).to_le_bytes();
+    let pitch = (fb.pitch as u32).to_le_bytes();
+    let bpp = (fb.bpp as u32).to_le_bytes();
+
+    buf[..4].copy_from_slice(&width);
+    buf[4..8].copy_from_slice(&height);
+    buf[8..12].copy_from_slice(&pitch);
+    buf[12..16].copy_from_slice(&bpp);
+    required
+}
+
 /// Advertise the framebuffer as a device endpoint so userland drivers can map
 /// or push pixel data directly.
 pub fn register_framebuffer_device(framebuffer: Arc<SpinMutex<Framebuffer>>) {
     *FRAMEBUFFER_DEVICE.lock() = Some(framebuffer);
     device::register_device(
         DeviceKind::Framebuffer,
-        None,
+        Some(read_framebuffer),
         Some(write_framebuffer),
         Some(map_framebuffer),
     );

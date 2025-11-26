@@ -112,9 +112,15 @@ impl<'a> AppContext<'a> {
     }
 
     pub fn create_window_with(&mut self, window: Window) -> WindowHandle {
-        let title = window.title.clone();
+        let mut window = window;
         let index = self.state.window_counter;
         self.state.window_counter = self.state.window_counter.wrapping_add(1);
+        if window.x == 0 && window.y == 0 {
+            let offset = (index as u64) * 24;
+            window.x = offset;
+            window.y = offset;
+        }
+        let title = window.title.clone();
 
         let window_name = format!("window-{title}-{index}");
         let pixmap_name = format!("pixmap-{title}-{index}");
@@ -204,12 +210,18 @@ impl<A: App> AppRunner for HostedApp<A> {
     }
 
     fn tick(&mut self, watch_manager: &mut WatchManager, tick: u64) {
-        let mut ctx = self.ctx(watch_manager);
+        let state = &mut self.state;
+        let app = &mut self.app;
+        let mut ctx = AppContext {
+            state,
+            watch_manager,
+        };
+
         ctx.begin_tick();
         for ev in ctx.drain_events() {
-            self.app.on_event(&mut ctx, ev);
+            app.on_event(&mut ctx, ev);
         }
-        self.app.tick(&mut ctx, tick);
+        app.tick(&mut ctx, tick);
         ctx.flush(tick);
     }
 }

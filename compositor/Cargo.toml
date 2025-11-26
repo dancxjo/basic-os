@@ -11,6 +11,7 @@ app-clouds = { path = "../apps/clouds", optional = true }
 app-hello = { path = "../apps/hello", optional = true }
 app-clock = { path = "../apps/clock", optional = true }
 app-graph-demo = { path = "../apps/graph_demo", optional = true }
+font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 
 [profile.release]
 panic = "abort"

@@ -51,6 +51,7 @@ dependencies = [
  "app-clouds",
  "app-graph-demo",
  "app-hello",
+ "font8x8",
  "linked_list_allocator",
  "userland",
  "uuid",
@@ -67,6 +68,12 @@ name = "embedded-io"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
+
+[[package]]
+name = "font8x8"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875488b8711a968268c7cf5d139578713097ca4635a76044e8fe8eedf831d07e"
 
 [[package]]
 name = "linked_list_allocator"
