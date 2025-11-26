@@ -69,7 +69,23 @@ pub struct GraphThatRequest {
     pub revision_hint: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchQuery {
+    pub kind: Option<Symbol>,
+    pub src: Option<Uuid>,
+    pub dst: Option<Uuid>,
+}
+
+pub type WatchId = u64;
+
+pub struct Watch {
+    id: WatchId,
+    query: WatchQuery,
+    queue: Vec<GraphChange>,
+}
+
 const MAX_CHANGE_LOG: usize = 1024;
+const MAX_WATCH_QUEUE: usize = 1024;
 
 #[derive(Default)]
 pub struct Store {
@@ -78,7 +94,9 @@ pub struct Store {
     edges: Vec<GraphEdge>,
     kind_index: BTreeMap<Symbol, BTreeSet<Uuid>>,
     edges_by_src_pred: BTreeMap<(Uuid, Symbol), Vec<GraphEdge>>,
-    changes: Vec<GraphChange>,
+    // changes: Vec<GraphChange>, // Removed global firehose
+    watches: BTreeMap<WatchId, Watch>,
+    next_watch_id: WatchId,
 }
 
 impl Store {
@@ -89,7 +107,33 @@ impl Store {
             edges: Vec::new(),
             kind_index: BTreeMap::new(),
             edges_by_src_pred: BTreeMap::new(),
-            changes: Vec::new(),
+            // changes: Vec::new(),
+            watches: BTreeMap::new(),
+            next_watch_id: 1,
+        }
+    }
+
+    pub fn register_watch(&mut self, query: WatchQuery) -> WatchId {
+        let id = self.next_watch_id;
+        self.next_watch_id += 1;
+        self.watches.insert(
+            id,
+            Watch {
+                id,
+                query,
+                queue: Vec::new(),
+            },
+        );
+        id
+    }
+
+    pub fn poll_watch(&mut self, id: WatchId) -> Vec<GraphChange> {
+        if let Some(watch) = self.watches.get_mut(&id) {
+            let events = watch.queue.clone();
+            watch.queue.clear();
+            events
+        } else {
+            Vec::new()
         }
     }
 
@@ -106,7 +150,8 @@ impl Store {
         };
 
         self.insert_thing(thing.clone());
-        self.record_change(GraphChange::Thing(thing.clone()));
+        // self.record_change(GraphChange::Thing(thing.clone()));
+        self.notify_watches(&GraphChange::Thing(thing.clone()));
         emit_thing_event(&thing);
         reflect_thing_side_effects(&thing);
         thing
@@ -121,7 +166,8 @@ impl Store {
             revision,
         };
         self.insert_edge(edge.clone());
-        self.record_change(GraphChange::Edge(edge.clone()));
+        // self.record_change(GraphChange::Edge(edge.clone()));
+        self.notify_watches(&GraphChange::Edge(edge.clone()));
         emit_edge_event(&edge);
         revision
     }
@@ -150,17 +196,11 @@ impl Store {
     }
 
     pub fn changes_since(&self, revision: u64) -> GraphWatchBatch {
-        let latest = self.next_revision.saturating_sub(1);
-        let changes = self
-            .changes
-            .iter()
-            .filter(|c| c.revision() > revision)
-            .cloned()
-            .collect();
+        // Deprecated / Stubbed
         GraphWatchBatch {
             from_revision: revision,
-            latest_revision: latest,
-            changes,
+            latest_revision: self.next_revision.saturating_sub(1),
+            changes: Vec::new(),
         }
     }
 
@@ -184,7 +224,9 @@ impl Store {
         self.edges.clear();
         self.kind_index.clear();
         self.edges_by_src_pred.clear();
-        self.changes.clear();
+        // self.changes.clear();
+        self.watches.clear(); // Clear watches on snapshot apply? Or keep them?
+        // Probably clear since state is reset.
 
         for thing in snapshot.things.into_iter() {
             self.insert_thing(thing);
@@ -203,11 +245,67 @@ impl Store {
         rev
     }
 
+    /*
     fn record_change(&mut self, change: GraphChange) {
         self.changes.push(change);
         if self.changes.len() > MAX_CHANGE_LOG {
             let overflow = self.changes.len().saturating_sub(MAX_CHANGE_LOG);
             self.changes.drain(0..overflow);
+        }
+    }
+    */
+
+    fn notify_watches(&mut self, change: &GraphChange) {
+        for watch in self.watches.values_mut() {
+            if Self::matches(&watch.query, change) {
+                watch.queue.push(change.clone());
+                if watch.queue.len() > MAX_WATCH_QUEUE {
+                    // Drop oldest
+                    watch.queue.remove(0);
+                }
+            }
+        }
+    }
+
+    fn matches(query: &WatchQuery, change: &GraphChange) -> bool {
+        match change {
+            GraphChange::Thing(t) => {
+                if let Some(kind) = query.kind {
+                    if t.kind != kind {
+                        return false;
+                    }
+                }
+                if let Some(id) = query.src {
+                    // For things, src filter might mean "is this thing"
+                    if t.id != id {
+                        return false;
+                    }
+                }
+                // dst filter doesn't apply to things usually, unless we define it
+                true
+            }
+            GraphChange::Edge(e) => {
+                // Edges don't have a "kind" in the same way, but they have a predicate.
+                // If query.kind is set, maybe we check predicate? Or we need a predicate filter.
+                // The current WatchQuery has `kind`, `src`, `dst`.
+                // Let's assume `kind` maps to `pred` for edges if we want to filter by edge type.
+                if let Some(kind) = query.kind {
+                    if e.pred != kind {
+                        return false;
+                    }
+                }
+                if let Some(src) = query.src {
+                    if e.src != src {
+                        return false;
+                    }
+                }
+                if let Some(dst) = query.dst {
+                    if e.dst != dst {
+                        return false;
+                    }
+                }
+                true
+            }
         }
     }
 
@@ -300,6 +398,19 @@ pub fn export_changes_since(revision: u64) -> Option<Vec<u8>> {
 pub fn export_thing_bytes(id: Uuid) -> Option<Vec<u8>> {
     let thing = get_thing(&id)?;
     postcard::to_allocvec(&thing).ok()
+}
+
+pub fn register_watch(query: WatchQuery) -> WatchId {
+    with_store(|store| store.register_watch(query))
+}
+
+pub fn poll_watch(id: WatchId) -> Vec<GraphChange> {
+    with_store(|store| store.poll_watch(id))
+}
+
+pub fn export_watch_events(id: WatchId) -> Option<Vec<u8>> {
+    let events = poll_watch(id);
+    postcard::to_allocvec(&events).ok()
 }
 
 fn emit_thing_event(thing: &GraphThing) {

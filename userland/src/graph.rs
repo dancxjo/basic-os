@@ -113,6 +113,17 @@ pub struct GraphThatRequest {
     pub revision_hint: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchQuery {
+    pub kind: Option<Symbol>,
+    pub src: Option<Uuid>,
+    pub dst: Option<Uuid>,
+}
+
+pub struct WatchHandle {
+    pub id: u64,
+}
+
 pub fn extract_text(value: &Value) -> Option<String> {
     match value {
         Value::Text(s) => Some(s.clone()),
@@ -197,13 +208,6 @@ impl GraphChange {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphWatchBatch {
-    pub from_revision: u64,
-    pub latest_revision: u64,
-    pub changes: Vec<GraphChange>,
-}
-
 pub fn graph_snapshot() -> Option<GraphSnapshot> {
     let mut buf = vec![0u8; 4096];
     let needed = sys::graph_snapshot_raw(&mut buf) as usize;
@@ -229,27 +233,30 @@ pub fn graph_snapshot() -> Option<GraphSnapshot> {
     postcard::from_bytes::<GraphSnapshot>(&buf[..written]).ok()
 }
 
-pub fn graph_watch(since: u64) -> Option<GraphWatchBatch> {
-    let mut buf = vec![0u8; 4096];
-    let needed = sys::graph_watch_raw(since, &mut buf) as usize;
-    if needed == 0 {
-        return Some(GraphWatchBatch {
-            from_revision: since,
-            latest_revision: since,
-            changes: Vec::new(),
-        });
+pub fn watch(query: WatchQuery) -> Option<WatchHandle> {
+    let buf = postcard::to_allocvec(&query).ok()?;
+    let id = sys::watch_register_raw(&buf);
+    if id == !0 {
+        None
+    } else {
+        Some(WatchHandle { id })
     }
-    if needed > MAX_SNAPSHOT_BYTES {
-        return None;
+}
+
+pub fn poll_watch(handle: &WatchHandle) -> Vec<GraphChange> {
+    let mut buf = vec![0u8; 4096];
+    let needed = sys::watch_poll_raw(handle.id, &mut buf) as usize;
+    if needed == 0 {
+        return Vec::new();
     }
     if needed > buf.len() {
         buf.resize(needed, 0);
     }
-    let written = sys::graph_watch_raw(since, &mut buf) as usize;
+    let written = sys::watch_poll_raw(handle.id, &mut buf) as usize;
     if written == 0 || written > buf.len() {
-        return None;
+        return Vec::new();
     }
-    postcard::from_bytes::<GraphWatchBatch>(&buf[..written]).ok()
+    postcard::from_bytes::<Vec<GraphChange>>(&buf[..written]).unwrap_or_default()
 }
 
 pub fn graph_get(id: Uuid) -> Option<GraphThing> {
@@ -323,16 +330,7 @@ pub fn load_things_of_kind<T: Thingable>() -> Vec<(Uuid, T)> {
 }
 
 pub fn update_thing<T: Thingable>(id: Uuid, new_value: &T) {
-    let current_revision = match graph_get(id) {
-        Some(thing) => thing.revision,
-        None => {
-            fiat_thing(new_value);
-            return;
-        }
-    };
-
-    let mut fields = new_value.to_fields();
-    fields.insert(canon::REVISION, Value::U64(current_revision + 1));
+    let fields = new_value.to_fields();
     fiat(Some(id), T::kind(), fields);
 }
 

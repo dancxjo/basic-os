@@ -39,8 +39,10 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
 pub const SYSCALL_GRAPH_FIAT: u64 = 0x01;
 pub const SYSCALL_GRAPH_LINK: u64 = 0x02;
 pub const SYSCALL_GRAPH_QUERY: u64 = 0x03;
-pub const SYSCALL_GRAPH_WATCH: u64 = 0x04;
+// pub const SYSCALL_GRAPH_WATCH: u64 = 0x04;
 pub const SYSCALL_GRAPH_GET: u64 = 0x05;
+pub const SYSCALL_WATCH_REGISTER: u64 = 0x06;
+pub const SYSCALL_WATCH_POLL: u64 = 0x07;
 
 pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
     unsafe {
@@ -75,11 +77,22 @@ pub fn graph_link_raw(payload: &[u8]) -> u64 {
     }
 }
 
-pub fn graph_watch_raw(since: u64, out: &mut [u8]) -> u64 {
+pub fn watch_register_raw(payload: &[u8]) -> u64 {
     unsafe {
         syscall(
-            SYSCALL_GRAPH_WATCH,
-            since,
+            SYSCALL_WATCH_REGISTER,
+            payload.as_ptr() as u64,
+            payload.len() as u64,
+            0,
+        )
+    }
+}
+
+pub fn watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_WATCH_POLL,
+            watch_id,
             out.as_mut_ptr() as u64,
             out.len() as u64,
         )

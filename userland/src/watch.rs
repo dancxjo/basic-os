@@ -5,8 +5,7 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use crate::canon;
-use crate::graph::{graph_watch, GraphChange, GraphEdge, GraphThing, GraphWatchBatch};
+use crate::graph::{self, GraphChange, GraphEdge, GraphThing};
 use crate::Symbol;
 use uuid::Uuid;
 
@@ -32,19 +31,11 @@ pub enum AppEvent {
     Edge { watch: WatchId, edge: GraphEdge },
 }
 
-#[derive(Clone, Debug)]
-pub struct WatchRegistration {
-    pub app_id: usize,
-    pub watch_id: WatchId,
-    pub thing_filter: ThingFilter,
-}
-
 pub struct WatchManager {
     next_app: usize,
     next_watch: u32,
-    regs: Vec<WatchRegistration>,
+    app_watches: BTreeMap<usize, Vec<(WatchId, graph::WatchHandle)>>,
     inboxes: BTreeMap<usize, Vec<AppEvent>>,
-    last_revision: u64,
 }
 
 impl WatchManager {
@@ -52,9 +43,8 @@ impl WatchManager {
         Self {
             next_app: 0,
             next_watch: 0,
-            regs: Vec::new(),
+            app_watches: BTreeMap::new(),
             inboxes: BTreeMap::new(),
-            last_revision: 0,
         }
     }
 
@@ -66,6 +56,7 @@ impl WatchManager {
     }
 
     pub fn register_journal(&mut self, app_id: usize, filter: EventFilter) -> WatchId {
+        // Map journal filter to graph watch
         self.register_graph(
             app_id,
             ThingFilter {
@@ -77,11 +68,20 @@ impl WatchManager {
 
     pub fn register_graph(&mut self, app_id: usize, filter: ThingFilter) -> WatchId {
         let watch_id = self.alloc_watch();
-        self.regs.push(WatchRegistration {
-            app_id,
-            watch_id,
-            thing_filter: filter,
-        });
+
+        let query = graph::WatchQuery {
+            kind: filter.kind,
+            src: filter.id,
+            dst: None,
+        };
+
+        if let Some(handle) = graph::watch(query) {
+            self.app_watches
+                .entry(app_id)
+                .or_default()
+                .push((watch_id, handle));
+        }
+
         self.inbox_for(app_id);
         watch_id
     }
@@ -96,20 +96,31 @@ impl WatchManager {
     }
 
     pub fn process_graph(&mut self, app_ids: &[usize]) {
-        let batch = match graph_watch(self.last_revision) {
-            Some(b) => b,
-            None => return,
-        };
-        self.process_graph_batch(app_ids, &batch);
-        self.last_revision = batch.latest_revision;
-    }
+        let mut events_to_push = Vec::new();
 
-    pub fn process_graph_batch(&mut self, app_ids: &[usize], batch: &GraphWatchBatch) {
-        for change in batch.changes.iter() {
-            match change {
-                GraphChange::Thing(thing) => self.enqueue_graph_change(app_ids, thing),
-                GraphChange::Edge(edge) => self.enqueue_edge_change(app_ids, edge),
+        for app_id in app_ids {
+            if let Some(watches) = self.app_watches.get_mut(app_id) {
+                for (watch_id, handle) in watches {
+                    let events = graph::poll_watch(handle);
+                    for change in events {
+                        let ev = match change {
+                            GraphChange::Thing(t) => AppEvent::Thing {
+                                watch: *watch_id,
+                                thing: t,
+                            },
+                            GraphChange::Edge(e) => AppEvent::Edge {
+                                watch: *watch_id,
+                                edge: e,
+                            },
+                        };
+                        events_to_push.push((*app_id, ev));
+                    }
+                }
             }
+        }
+
+        for (app_id, ev) in events_to_push {
+            self.push_event(app_id, ev);
         }
     }
 
@@ -122,72 +133,4 @@ impl WatchManager {
     fn inbox_for(&mut self, app_id: usize) -> &mut Vec<AppEvent> {
         self.inboxes.entry(app_id).or_insert_with(Vec::new)
     }
-
-    fn enqueue_graph_change(&mut self, app_ids: &[usize], thing: &GraphThing) {
-        let mut deliveries = Vec::new();
-        for reg in self.regs.iter() {
-            if !app_ids.contains(&reg.app_id) {
-                continue;
-            }
-            if !matches_thing(&reg.thing_filter, thing.id, thing.kind) {
-                continue;
-            }
-            deliveries.push((
-                reg.app_id,
-                AppEvent::Thing {
-                    watch: reg.watch_id,
-                    thing: thing.clone(),
-                },
-            ));
-        }
-        for (app_id, ev) in deliveries {
-            self.push_event(app_id, ev);
-        }
-    }
-
-    fn enqueue_edge_change(&mut self, app_ids: &[usize], edge: &GraphEdge) {
-        let mut deliveries = Vec::new();
-        for reg in self.regs.iter() {
-            if !app_ids.contains(&reg.app_id) {
-                continue;
-            }
-            // Reuse thing filters to match either endpoint.
-            if let Some(expected_kind) = reg.thing_filter.kind {
-                if expected_kind != canon::EDGE_ADDED {
-                    continue;
-                }
-            }
-            if let Some(id) = reg.thing_filter.id {
-                if id != edge.src && id != edge.dst {
-                    continue;
-                }
-            }
-            deliveries.push((
-                reg.app_id,
-                AppEvent::Edge {
-                    watch: reg.watch_id,
-                    edge: edge.clone(),
-                },
-            ));
-        }
-        for (app_id, ev) in deliveries {
-            self.push_event(app_id, ev);
-        }
-    }
-}
-
-fn matches_thing(filter: &ThingFilter, thing_id: Uuid, kind: Symbol) -> bool {
-    if let Some(expected_kind) = filter.kind {
-        if expected_kind != kind {
-            return false;
-        }
-    }
-
-    if let Some(expected_id) = filter.id {
-        if expected_id != thing_id {
-            return false;
-        }
-    }
-
-    true
 }

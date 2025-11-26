@@ -3,7 +3,7 @@ use x86_64::VirtAddr;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
 use crate::serial_println;
-use crate::telemetry::graph::{self, GraphFiatRequest, GraphThatRequest};
+use crate::telemetry::graph::{self, GraphFiatRequest, GraphThatRequest, WatchQuery};
 
 #[unsafe(no_mangle)]
 static mut USER_RSP: u64 = 0;
@@ -22,8 +22,9 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),
         SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
         SYSCALL_GRAPH_QUERY => graph_query(rdi, rsi),
-        SYSCALL_GRAPH_WATCH => graph_watch(rdi, rsi, rdx),
         SYSCALL_GRAPH_GET => graph_get(rdi, rsi, rdx),
+        SYSCALL_WATCH_REGISTER => watch_register(rdi, rsi),
+        SYSCALL_WATCH_POLL => watch_poll(rdi, rsi, rdx),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -35,8 +36,10 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
 const SYSCALL_GRAPH_FIAT: u64 = 0x01;
 const SYSCALL_GRAPH_LINK: u64 = 0x02;
 const SYSCALL_GRAPH_QUERY: u64 = 0x03;
-const SYSCALL_GRAPH_WATCH: u64 = 0x04;
+// const SYSCALL_GRAPH_WATCH: u64 = 0x04;
 const SYSCALL_GRAPH_GET: u64 = 0x05;
+const SYSCALL_WATCH_REGISTER: u64 = 0x06;
+const SYSCALL_WATCH_POLL: u64 = 0x07;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -70,8 +73,19 @@ fn graph_query(out_ptr: u64, out_len: u64) -> u64 {
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 
-fn graph_watch(since_rev: u64, out_ptr: u64, out_len: u64) -> u64 {
-    let bytes = match crate::telemetry::graph::export_changes_since(since_rev) {
+fn watch_register(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(query) = postcard::from_bytes::<WatchQuery>(buf) else {
+        return !0;
+    };
+    graph::register_watch(query)
+}
+
+fn watch_poll(watch_id: u64, out_ptr: u64, out_len: u64) -> u64 {
+    let bytes = match graph::export_watch_events(watch_id) {
         Some(buf) => buf,
         None => return !0,
     };
