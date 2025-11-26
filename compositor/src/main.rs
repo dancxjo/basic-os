@@ -49,6 +49,7 @@ pub extern "C" fn _start() -> ! {
     let mut compositor =
         Compositor::init_with_watches(&mut watch_manager, compositor_app_id, fb_info);
     let mut tick: u64 = 0;
+    let mut logged_missing_fb = false;
     loop {
         running_drivers.poll_all(&mut driver_ctx);
         let journal_events = fetch_journal_events().unwrap_or_default();
@@ -64,11 +65,13 @@ pub extern "C" fn _start() -> ! {
         }
 
         tick_apps(&mut apps, &mut watch_manager, tick);
-        let fb_driver = running_drivers
-            .framebuffer
-            .as_ref()
-            .expect("Framebuffer driver missing");
-        compositor.tick(fb_driver, &driver_ctx);
+        if let Some(fb_driver) = running_drivers.framebuffer.as_ref() {
+            compositor.tick(fb_driver, &driver_ctx);
+            logged_missing_fb = false;
+        } else if !logged_missing_fb {
+            println!("Framebuffer driver missing; compositor skipping render");
+            logged_missing_fb = true;
+        }
         tick = tick.wrapping_add(1);
         busy_wait();
     }
@@ -135,7 +138,7 @@ fn busy_wait() {
 }
 
 #[panic_handler]
-pub fn panic(_info: &core::panic::PanicInfo) -> ! {
-    println!("\nPanic inside userland compositor!");
+pub fn panic(info: &core::panic::PanicInfo) -> ! {
+    println!("\nPanic inside userland compositor: {info}");
     loop {}
 }

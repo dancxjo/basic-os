@@ -2,7 +2,7 @@ use linked_list_allocator::LockedHeap;
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
-static mut HEAP_SPACE: [u8; 64 * 1024] = [0; 64 * 1024];
+static mut HEAP_SPACE: [u8; 8 * 1024 * 1024] = [0; 8 * 1024 * 1024];
 
 pub fn init_heap() {
     unsafe {

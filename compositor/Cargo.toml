@@ -2,6 +2,7 @@
 name = "compositor"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 userland = { path = "../userland" }
@@ -11,7 +12,7 @@ app-clouds = { path = "../apps/clouds", optional = true }
 app-hello = { path = "../apps/hello", optional = true }
 app-clock = { path = "../apps/clock", optional = true }
 app-graph-demo = { path = "../apps/graph_demo", optional = true }
-font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 
 [profile.release]
 panic = "abort"
@@ -28,6 +29,9 @@ rustflags = [
   "-C", "link-arg=-Tlink.ld",
   "-C", "relocation-model=static"
 ]
+
+[build-dependencies]
+flate2 = "1.0"
 
 [[bin]]
 name = "compositor"

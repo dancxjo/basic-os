@@ -9,14 +9,15 @@ use alloc::vec::Vec;
 use core::cmp::{max, min};
 use core::convert::TryInto;
 
-use font8x8::{UnicodeFonts, BASIC_FONTS};
+use unifont::{get_glyph, Glyph};
 use userland::{
     canon, extract_text, load_thing, AppEvent, DriverContext, EventFilter, FramebufferDriver,
     FramebufferInfo, ThingFilter, Value, WatchId, WatchManager, Window,
 };
 use uuid::Uuid;
 
-const TITLE_BAR_HEIGHT: usize = 16;
+const FONT_HEIGHT: usize = 16;
+const TITLE_BAR_HEIGHT: usize = FONT_HEIGHT + 4;
 const BORDER_THICKNESS: usize = 2;
 const WINDOW_PADDING: usize = 6;
 const CURSOR_SIZE: usize = 16;
@@ -381,16 +382,18 @@ impl Compositor {
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
-                cursor_y += 8;
+                cursor_y += FONT_HEIGHT;
                 continue;
             }
+            let Some(glyph) = get_glyph(ch) else { continue };
+            let gw = glyph.get_width();
             if let Some(limit) = max_width {
-                if cursor_x + 8 > x + limit {
+                if cursor_x + gw > x + limit {
                     break;
                 }
             }
-            self.draw_glyph(cursor_x, cursor_y, ch, color);
-            cursor_x += 8;
+            self.draw_glyph(cursor_x, cursor_y, glyph, color);
+            cursor_x += gw;
         }
     }
 
@@ -408,44 +411,43 @@ impl Compositor {
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
-                cursor_y += 8;
-                if cursor_y + 8 >= y + height {
+                cursor_y += FONT_HEIGHT;
+                if cursor_y + FONT_HEIGHT >= y + height {
                     break;
                 }
                 continue;
             }
-            if cursor_x + 8 >= x + width {
+            let Some(glyph) = get_glyph(ch) else { continue };
+            let gw = glyph.get_width();
+            if cursor_x + gw >= x + width {
                 cursor_x = x;
-                cursor_y += 8;
-                if cursor_y + 8 >= y + height {
+                cursor_y += FONT_HEIGHT;
+                if cursor_y + FONT_HEIGHT >= y + height {
                     break;
                 }
             }
-            self.draw_glyph(cursor_x, cursor_y, ch, color);
-            cursor_x += 8;
+            self.draw_glyph(cursor_x, cursor_y, glyph, color);
+            cursor_x += gw;
         }
     }
 
-    fn draw_glyph(&mut self, x: usize, y: usize, ch: char, color: u32) {
+    fn draw_glyph(&mut self, x: usize, y: usize, glyph: &Glyph, color: u32) {
         if x >= self.framebuffer.width || y >= self.framebuffer.height {
             return;
         }
-        let glyph = BASIC_FONTS
-            .get(ch)
-            .or_else(|| BASIC_FONTS.get('?'))
-            .unwrap_or([0; 8]);
 
-        for (row, bits) in glyph.iter().enumerate() {
+        let width = glyph.get_width();
+        for row in 0..FONT_HEIGHT {
             let dst_y = y + row;
             if dst_y >= self.framebuffer.height {
                 break;
             }
-            for col in 0..8 {
+            for col in 0..width {
                 let dst_x = x + col;
                 if dst_x >= self.framebuffer.width {
                     break;
                 }
-                if bits & (1 << col) != 0 {
+                if glyph.get_pixel(col, row) {
                     let idx = dst_y * self.framebuffer.stride + dst_x;
                     self.backbuffer[idx] = color;
                 }

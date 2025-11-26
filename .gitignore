@@ -13,3 +13,5 @@
 kernel/target/CACHEDIR.TAG
 
 userland.bin
+compositor/unifont-*.hex.gz
+compositor/unifont-*.hex
