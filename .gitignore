@@ -12,3 +12,4 @@
 # Tool-generated files
 kernel/target/CACHEDIR.TAG
 
+userland.bin

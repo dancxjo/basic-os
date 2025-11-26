@@ -2,6 +2,8 @@
 
 extern crate alloc;
 
+pub mod drivers;
+
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec;
@@ -166,6 +168,11 @@ pub mod canon {
     pub const WINDOW_CREATED: Symbol = canon(b'W', b'C', b'R');
     pub const WINDOW_BUFFER_UPDATED: Symbol = canon(b'W', b'B', b'U');
     pub const FRAME_READY: Symbol = canon(b'F', b'R', b'M');
+    pub const DRIVER_INPUT: Symbol = canon(b'I', b'N', b'P');
+    pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
+    pub const DRIVER_STORAGE: Symbol = canon(b'S', b'T', b'R');
+    pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
+    pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

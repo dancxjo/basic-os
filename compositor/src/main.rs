@@ -9,7 +9,9 @@ use app_clock::{register as register_clock, tick as tick_clock, AppHandle as Clo
 use app_clouds::{register as register_clouds, tick as tick_clouds, AppHandle as CloudsHandle};
 use app_hello::{register as register_hello, tick as tick_hello, AppHandle as HelloHandle};
 use compositor::Compositor;
-use userland::{canon, emit_edge_added, emit_frame_ready, emit_thing_created, map, println, Value};
+use userland::{
+    canon, drivers, emit_edge_added, emit_frame_ready, emit_thing_created, map, println, Value,
+};
 use uuid::Uuid;
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
@@ -18,6 +20,10 @@ const FRAME_INTERVAL_SPINS: usize = 10_000_000;
 pub extern "C" fn _start() -> ! {
     heap::init_heap();
 
+    drivers::register_builtin_drivers();
+    drivers::connect_stream("ps2-keyboard", compositor_id(), 0);
+    drivers::connect_stream("ps2-mouse", compositor_id(), 0);
+    drivers::connect_stream("limine-framebuffer", framebuffer_id(), 0);
     register_compositor_things();
     let apps = register_apps();
 

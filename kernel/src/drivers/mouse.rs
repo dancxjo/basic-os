@@ -1,7 +1,6 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::framebuffer::Framebuffer;
 use crate::drivers::input::InputBuffer;
-use crate::drivers::registry::{DriverDescriptor, DriverKind};
 use crate::telemetry::canon;
 use crate::telemetry::journal::{self, Event, Value};
 use alloc::collections::BTreeMap;
@@ -27,12 +26,6 @@ pub static MOUSE_EVENTS: InputBuffer<MouseEvent, MOUSE_EVENT_CAPACITY> =
         right: false,
         middle: false,
     });
-pub const DRIVER: DriverDescriptor = DriverDescriptor::new(
-    "ps2-mouse",
-    DriverKind::Input,
-    "PS/2 mouse (3-byte packet)",
-    init,
-);
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct MouseEvent {

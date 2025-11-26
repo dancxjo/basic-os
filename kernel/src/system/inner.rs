@@ -11,7 +11,6 @@ use crate::bootloader::{get_hhdm_offset, get_module};
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::{Framebuffer, init_console};
-use crate::drivers::registry;
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
@@ -86,8 +85,10 @@ impl System {
             ps2::enable_ps2_devices();
         });
 
-        bootstrap_step!("drivers", {
-            registry::init_all();
+        bootstrap_step!("mouse driver", {
+            if let Err(err) = crate::drivers::mouse::init() {
+                info!("Mouse driver init failed: {}", err);
+            }
         });
 
         let hpet = HPET::new(0xFED00000);

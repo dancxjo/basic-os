@@ -1,6 +1,5 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::input::InputBuffer;
-use crate::drivers::registry::{DriverDescriptor, DriverKind};
 use crate::serial_print;
 use crate::task::runtime;
 use crate::telemetry::canon::{self, Symbol};
@@ -478,17 +477,6 @@ pub fn process_scancode(scancode: u8) {
 }
 
 pub static KEYBOARD_BUFFER: InputBuffer<u8, KEYBOARD_BUFFER_LEN> = InputBuffer::new(0);
-pub const DRIVER: DriverDescriptor = DriverDescriptor::new(
-    "ps2-keyboard",
-    DriverKind::Input,
-    "PS/2 keyboard (set 1 scancodes)",
-    init,
-);
-
-pub fn init() -> Result<(), &'static str> {
-    // All setup is performed by interrupts; nothing to probe here yet.
-    Ok(())
-}
 
 pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let mut data_port = Port::<u8>::new(0x60);

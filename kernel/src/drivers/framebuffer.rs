@@ -5,7 +5,6 @@ use limine::request::FramebufferRequest;
 use spin::Mutex as SpinMutex;
 
 use crate::bootloader::get_hhdm_offset;
-use crate::drivers::registry::{DriverDescriptor, DriverKind};
 
 const MAX_WIDTH: usize = 3840;
 const MAX_HEIGHT: usize = 2160;
@@ -19,13 +18,6 @@ pub struct Framebuffer {
     pub pitch_pixels: usize,
     pub bpp: u16,
 }
-
-pub const DRIVER: DriverDescriptor = DriverDescriptor::new(
-    "limine-framebuffer",
-    DriverKind::Display,
-    "Framebuffer provided by Limine bootloader",
-    init_driver,
-);
 
 impl Framebuffer {
     pub fn new() -> Option<Self> {
@@ -99,13 +91,6 @@ impl Framebuffer {
             self.fb[idx] = color;
         }
     }
-}
-
-/// Lightweight probe hook so the driver registry can announce presence.
-pub fn init_driver() -> Result<(), &'static str> {
-    Framebuffer::new()
-        .map(|_| ())
-        .ok_or("Framebuffer not available")
 }
 
 pub struct FramebufferConsole {

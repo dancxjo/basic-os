@@ -5,6 +5,7 @@ use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, TaskMode, prepare_context};
 use crate::task::runtime;
 use crate::task::scheduler::Task;
+use core::ptr;
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
@@ -35,7 +36,8 @@ pub fn create_user_page_table(
     let virt = hhdm_offset + phys.as_u64();
     let l4_table = unsafe {
         let ptr: *mut PageTable = virt.as_mut_ptr();
-        ptr.write(PageTable::new());
+        // Zero the page table in place to avoid a 4 KiB stack allocation from PageTable::new()
+        ptr::write_bytes(ptr, 0, 1);
         &mut *ptr
     };
     let l4_table_ptr: *mut PageTable = l4_table;
