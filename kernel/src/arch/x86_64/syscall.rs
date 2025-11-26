@@ -102,10 +102,52 @@ fn journal_emit(kind_raw: u64, data_ptr: u64, len: u64) -> u64 {
 
     let event = Event::new(kind, data);
     serial_println!("journal_emit: event created. Emitting...");
+    apply_graph_side_effect(&event);
     let _ = journal::emit(event.clone());
     reflect_write_event(&event);
     serial_println!("journal_emit: done.");
     0
+}
+
+fn apply_graph_side_effect(event: &Event) {
+    if let Some(map) = event.data.as_map() {
+        if event.kind == canon::THING_CREATED {
+            if let Some(req) = build_graph_fiat(map) {
+                let _ = graph::fiat(req);
+            }
+        } else if event.kind == canon::EDGE_ADDED {
+            if let Some(req) = build_graph_that(map) {
+                let _ = graph::that(req);
+            }
+        }
+    }
+}
+
+fn build_graph_fiat(fields: &BTreeMap<Symbol, Value>) -> Option<GraphFiatRequest> {
+    let id = fields.get(&canon::ID).and_then(Value::as_uuid);
+    let kind = fields.get(&canon::KIND).and_then(Value::as_symbol)?;
+    let raw_fields = fields.get(&canon::FIELDS).and_then(Value::as_map)?.clone();
+    Some(GraphFiatRequest {
+        id,
+        kind,
+        fields: raw_fields,
+    })
+}
+
+fn build_graph_that(fields: &BTreeMap<Symbol, Value>) -> Option<GraphThatRequest> {
+    let src = fields.get(&canon::SRC).and_then(Value::as_uuid)?;
+    let dst = fields.get(&canon::DST).and_then(Value::as_uuid)?;
+    let pred = fields.get(&canon::PREDICATE).and_then(Value::as_symbol)?;
+    let revision_hint = fields
+        .get(&canon::REVISION)
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    Some(GraphThatRequest {
+        src,
+        pred,
+        dst,
+        revision_hint,
+    })
 }
 
 fn journal_snapshot(out_ptr: u64, out_len: u64) -> u64 {
