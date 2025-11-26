@@ -9,8 +9,30 @@ use crate::telemetry::{
 use crate::{serial_print, serial_println};
 
 #[unsafe(no_mangle)]
+static mut USER_RSP: u64 = 0;
+
+const KERNEL_STACK_SIZE: usize = 16 * 1024; // 16 KiB
+
+#[repr(C, align(16))]
+struct AlignedStack([u8; KERNEL_STACK_SIZE]);
+
+#[unsafe(no_mangle)]
+static mut SYSCALL_KERNEL_STACK: AlignedStack = AlignedStack([0; KERNEL_STACK_SIZE]);
+
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
-    match rax {
+    serial_println!(
+        "Syscall: rax={:#x} rdi={:#x} rsi={:#x} rdx={:#x}",
+        rax,
+        rdi,
+        rsi,
+        rdx
+    );
+    unsafe {
+        let rsp = USER_RSP;
+        serial_println!("USER_RSP: {:#x}", rsp);
+    }
+    let ret = match rax {
         SYSCALL_WRITE_PORT => write_port(rdi, rsi, rdx),
         SYSCALL_READ_PORT => read_port(rdi),
         SYSCALL_JOURNAL_EMIT => journal_emit(rdi, rsi, rdx),
@@ -20,7 +42,12 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
         }
+    };
+    unsafe {
+        let rsp = USER_RSP;
+        serial_println!("USER_RSP exit: {:#x}", rsp);
     }
+    ret
 }
 
 const SYSCALL_WRITE_PORT: u64 = 0x01;
@@ -42,12 +69,33 @@ fn write_port(port: u64, data: u64, _flags: u64) -> u64 {
 }
 
 fn journal_emit(kind_raw: u64, data_ptr: u64, len: u64) -> u64 {
+    serial_println!(
+        "journal_emit: kind={:#x} ptr={:#x} len={}",
+        kind_raw,
+        data_ptr,
+        len
+    );
     if data_ptr == 0 && len > 0 {
         return !0;
     }
 
+    // Test allocator
+    {
+        let mut test_vec = alloc::vec::Vec::new();
+        test_vec.push(1u8);
+        serial_println!("Allocator test: vec len = {}", test_vec.len());
+    }
+
     let kind = Symbol::new(kind_raw as u32);
     let data_slice = unsafe { core::slice::from_raw_parts(data_ptr as *const u8, len as usize) };
+
+    serial_println!("journal_emit: parsing data...");
+    // Try to read the slice first to ensure it's accessible
+    let mut sum: u64 = 0;
+    for b in data_slice {
+        sum += *b as u64;
+    }
+    serial_println!("journal_emit: slice sum = {}", sum);
 
     let data = postcard::from_bytes::<Value>(data_slice).unwrap_or_else(|_| {
         match core::str::from_utf8(data_slice) {
@@ -55,10 +103,13 @@ fn journal_emit(kind_raw: u64, data_ptr: u64, len: u64) -> u64 {
             Err(_) => Value::Bytes(data_slice.to_vec()),
         }
     });
+    serial_println!("journal_emit: data parsed. Creating event...");
 
     let event = Event::new(kind, data);
+    serial_println!("journal_emit: event created. Emitting...");
     let _ = journal::emit(event.clone());
     reflect_write_event(&event);
+    serial_println!("journal_emit: done.");
     0
 }
 
@@ -142,25 +193,33 @@ pub fn init_syscall() {
         Efer::update(|efer| *efer |= EferFlags::SYSTEM_CALL_EXTENSIONS);
 
         // Set entry point for syscall
-        LStar::write(VirtAddr::new(syscall_entry_asm as u64));
+        LStar::write(VirtAddr::new(syscall_entry_asm as *const () as u64));
 
         // Define CS/SS selectors (CS for kernel, SS is unused by sysretq)
         let kernel_cs = 0x08u16;
-        let user_cs = 0x1Bu16; // User code segment
+        // For sysretq, we need a base selector such that:
+        // CS = base + 16 (0x10)
+        // SS = base + 8  (0x08)
+        // Our GDT has UserData at 0x28 (Index 5) and UserCode at 0x30 (Index 6).
+        // So we need base + 8 = 0x28 => base = 0x20.
+        // We use RPL 3 for user segments, so 0x20 | 3 = 0x23.
+        let user_cs = 0x23u16;
 
-        // Star::write now expects four arguments: kernel_cs, kernel_ss, user_cs, user_ss
-        // kernel_ss is typically kernel_cs + 8, user_ss is typically user_cs + 8
-        let kernel_ss = kernel_cs + 8;
-        let user_ss = user_cs + 8;
-        let _ = Star::write(
-            x86_64::structures::gdt::SegmentSelector(kernel_cs),
-            x86_64::structures::gdt::SegmentSelector(kernel_ss),
-            x86_64::structures::gdt::SegmentSelector(user_cs),
-            x86_64::structures::gdt::SegmentSelector(user_ss),
-        );
+        // Star::write expects: cs_sysret, ss_sysret, cs_syscall, ss_syscall
+        // cs_sysret: User Code (0x33 = 0x30 | 3)
+        // ss_sysret: User Data (0x2b = 0x28 | 3)
+        // cs_syscall: Kernel Code (0x08)
+        // ss_syscall: Kernel Data (0x10)
+
+        let kernel_cs = x86_64::structures::gdt::SegmentSelector(0x08);
+        let kernel_ss = x86_64::structures::gdt::SegmentSelector(0x10);
+        let user_cs = x86_64::structures::gdt::SegmentSelector(0x30 | 3);
+        let user_ss = x86_64::structures::gdt::SegmentSelector(0x28 | 3);
+
+        Star::write(user_cs, user_ss, kernel_cs, kernel_ss).expect("Failed to set STAR MSR");
 
         // Mask flags (e.g. disable interrupts during syscall entry)
-        SFMask::write(x86_64::registers::rflags::RFlags::empty());
+        SFMask::write(x86_64::registers::rflags::RFlags::INTERRUPT_FLAG);
     }
 
     serial_println!("Syscall mechanism initialized.");

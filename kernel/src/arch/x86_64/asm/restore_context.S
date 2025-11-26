@@ -83,12 +83,13 @@ restore_context:
     movq 0(%rsp), %rcx        # saved RIP
     movq 16(%rsp), %rsi       # saved RFLAGS
     movq 24(%rsp), %rdi       # saved RSP
+    
     movq %rdi, %rsp           # switch to the saved kernel stack
 
-    pushq %rsi                # rflags
-    pushq %rax                # cs
-    pushq %rcx                # rip
-    iretq
+    pushq %rsi                # push rflags to new stack
+    popfq                     # restore rflags
+
+    jmp *%rcx                 # jump to rip
 
 1:
     iretq

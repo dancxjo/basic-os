@@ -116,7 +116,7 @@ impl Task {
                 page = page + 1;
             }
 
-            self.stack_top = base_virt + Self::STACK_SIZE;
+            self.stack_top = base_virt + Self::STACK_SIZE - 128;
         }
         info!("Stack allocated for task {}", index);
     }

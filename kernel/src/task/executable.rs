@@ -66,6 +66,19 @@ pub fn create_user_page_table(
             ..VirtAddr::new(KERNEL_STACK_VIRT_BASE + (KERNEL_STACK_PAGES as u64 * 4096)))
             .into(),
     );
+
+    // Mirror task stacks (scheduler uses a different region)
+    const TASK_STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
+    const MAX_TASKS_TO_MAP: u64 = 64;
+    const TASK_STACK_SIZE: u64 = 16 * 4096;
+    mirror_kernel_region(
+        &mut offset_page_table,
+        frame_allocator,
+        (VirtAddr::new(TASK_STACK_REGION_BASE)
+            ..VirtAddr::new(TASK_STACK_REGION_BASE + MAX_TASKS_TO_MAP * TASK_STACK_SIZE))
+            .into(),
+    );
+
     // Ensure MMIO regions like the local APIC remain accessible.
     const APIC_BASE: u64 = 0xfee0_0000;
     mirror_kernel_region(
@@ -73,50 +86,19 @@ pub fn create_user_page_table(
         frame_allocator,
         (VirtAddr::new(APIC_BASE)..VirtAddr::new(APIC_BASE + 0x1000)).into(),
     );
-    // Explicitly map the local APIC MMIO page in case the mirror skipped it.
-    let apic_page = Page::<Size4KiB>::containing_address(VirtAddr::new(APIC_BASE));
-    let apic_frame = PhysFrame::containing_address(PhysAddr::new(APIC_BASE));
-    unsafe {
-        offset_page_table
-            .map_to(
-                apic_page,
-                apic_frame,
-                PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                frame_allocator,
-            )
-            .expect("map_to failed (APIC)")
-            .flush();
-    }
+
     const HPET_BASE: u64 = 0xfed0_0000;
     mirror_kernel_region(
         &mut offset_page_table,
         frame_allocator,
         (VirtAddr::new(HPET_BASE)..VirtAddr::new(HPET_BASE + 0x1000)).into(),
     );
-    let hpet_page = Page::<Size4KiB>::containing_address(VirtAddr::new(HPET_BASE));
-    let hpet_frame = PhysFrame::containing_address(PhysAddr::new(HPET_BASE));
-    unsafe {
-        offset_page_table
-            .map_to(
-                hpet_page,
-                hpet_frame,
-                PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                frame_allocator,
-            )
-            .expect("map_to failed (HPET)")
-            .flush();
+
+    // Mirror framebuffer
+    if let Some(range) = crate::drivers::framebuffer::get_framebuffer_virt_range() {
+        mirror_kernel_region(&mut offset_page_table, frame_allocator, range);
     }
 
-    // Mirror each kernel task stack so kernel tasks remain runnable while the user page table is active.
-    let task_count = runtime::task_count();
-    for idx in 0..task_count {
-        let base = Task::stack_base_for_task(idx);
-        mirror_kernel_region(
-            &mut offset_page_table,
-            frame_allocator,
-            (VirtAddr::new(base)..VirtAddr::new(base + Task::stack_size())).into(),
-        );
-    }
     (l4_table, offset_page_table)
 }
 
@@ -163,7 +145,11 @@ pub fn load_elf<'a>(
         let file_offset = ph.p_offset as usize;
         let file_size = ph.p_filesz as usize;
         let mem_size = ph.p_memsz as usize;
-        let vaddr = load_base + ph.p_vaddr;
+        let vaddr = if elf.header.e_type == goblin::elf::header::ET_DYN {
+            load_base + ph.p_vaddr
+        } else {
+            VirtAddr::new(ph.p_vaddr)
+        };
         let end_vaddr = vaddr + mem_size as u64;
 
         let start_page = Page::containing_address(vaddr);
@@ -178,6 +164,9 @@ pub fn load_elf<'a>(
         }
 
         for page in Page::range_inclusive(start_page, end_page) {
+            if mapper.translate_page(page).is_ok() {
+                continue;
+            }
             let p4_index = page.p4_index();
             unsafe {
                 let entry = &_page_table[p4_index];
@@ -288,8 +277,14 @@ pub fn load_elf<'a>(
         );
     }
 
+    let entry = if elf.header.e_type == goblin::elf::header::ET_DYN {
+        load_base + elf.entry
+    } else {
+        VirtAddr::new(elf.entry)
+    };
+
     Ok(LoadedElf {
-        entry: load_base + elf.entry,
+        entry,
         stack_top: user_stack_top,
     })
 }

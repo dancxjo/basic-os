@@ -3,8 +3,16 @@ use core::cmp::max;
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use limine::request::FramebufferRequest;
 use spin::Mutex as SpinMutex;
+use x86_64::VirtAddr;
+use core::ops::Range;
 
 use crate::bootloader::get_hhdm_offset;
+
+static FRAMEBUFFER_VIRT_RANGE: SpinMutex<Option<Range<VirtAddr>>> = SpinMutex::new(None);
+
+pub fn get_framebuffer_virt_range() -> Option<Range<VirtAddr>> {
+    FRAMEBUFFER_VIRT_RANGE.lock().clone()
+}
 
 const MAX_WIDTH: usize = 3840;
 const MAX_HEIGHT: usize = 2160;
@@ -30,14 +38,10 @@ impl Framebuffer {
         let pitch = fb_info.pitch() as usize;
         let pitch_pixels = pitch / 4;
         let len = pitch_pixels * height;
-        let phys_addr = fb_info.addr() as u64;
-        let hhdm = get_hhdm_offset().as_u64();
-        let virt_addr = if phys_addr >= hhdm {
-            phys_addr
-        } else {
-            hhdm.checked_add(phys_addr)
-                .expect("Framebuffer address overflowed HHDM computation")
-        };
+        let virt_addr = fb_info.addr();
+        
+        *FRAMEBUFFER_VIRT_RANGE.lock() = Some(VirtAddr::new(virt_addr as u64)..VirtAddr::new((virt_addr as u64) + (len * 4) as u64));
+
         let fb_ptr = virt_addr as *mut u32;
         let fb_slice = unsafe { core::slice::from_raw_parts_mut(fb_ptr, len) };
 

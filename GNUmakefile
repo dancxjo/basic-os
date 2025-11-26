@@ -236,7 +236,7 @@ limine/limine:
 
 .PHONY: userland
 userland:
-	cargo build --release --target x86_64-unknown-none --manifest-path compositor/Cargo.toml --features demo-apps
+	cd compositor && RUSTFLAGS="-C link-arg=-Tlink.ld -C relocation-model=static -C code-model=large" cargo build --release --target x86_64-unknown-none --features demo-apps
 	cp -v compositor/target/x86_64-unknown-none/release/compositor userland.bin
 
 .PHONY: kernel

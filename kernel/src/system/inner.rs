@@ -55,6 +55,10 @@ impl System {
 
         bootstrap_step!("heap", {
             init_heap(&mut mapper, &mut frame_allocator);
+            // Test allocator immediately after init
+            let mut v = alloc::vec::Vec::new();
+            v.push(42);
+            log::info!("Allocator test in boot: v[0] = {}", v[0]);
         });
 
         bootstrap_step!("telemetry", {
