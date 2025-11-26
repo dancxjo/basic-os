@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 userland = { path = "../../userland" }
 uuid = { version = "1.10", default-features = false, features = [
-  "v5",
-  "serde",
+    "v5",
+    "serde",
 ] }
 
 [[bin]]

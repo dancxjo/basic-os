@@ -17,7 +17,7 @@ pub extern "C" fn _start() -> ! {
     // register_compositor_things();
     let mut watch_manager = WatchManager::new();
     let compositor_app_id = watch_manager.register_app();
-    
+
     // No more register_apps() - they are separate processes
 
     let fb_target = discover_framebuffer().unwrap_or_else(fallback_framebuffer);
@@ -31,7 +31,7 @@ pub extern "C" fn _start() -> ! {
     let mut tick: u64 = 0;
     loop {
         let mut all_ids = vec![compositor_app_id];
-        
+
         watch_manager.process_graph(&all_ids);
 
         for ev in watch_manager.drain_inbox(compositor_app_id) {

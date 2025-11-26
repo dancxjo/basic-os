@@ -5,9 +5,9 @@ extern crate alloc;
 pub mod app;
 pub mod drivers;
 pub mod graph;
+pub mod heap;
 pub mod sys;
 pub mod watch;
-pub mod heap;
 
 pub use heap::init_heap;
 pub use uuid;

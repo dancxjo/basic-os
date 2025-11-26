@@ -181,7 +181,7 @@ impl<'a> AppContext<'a> {
                 payload.insert(canon::TARGET, Value::Uuid(*pixmap));
                 payload.insert(canon::REVISION, Value::U64(tick));
                 payload.insert(canon::TEXT, Value::Bytes(text.as_bytes().to_vec()));
-                
+
                 if let Some(bmp) = self.state.bitmaps.remove(window) {
                     payload.insert(canon::BITMAP, Value::Bytes(bmp));
                 }
@@ -262,19 +262,20 @@ macro_rules! app_main {
         #[no_mangle]
         pub extern "C" fn _start() -> ! {
             $crate::init_heap();
-            
+
             let mut watch_manager = $crate::WatchManager::new();
             let compositor_id = $crate::uuid::Uuid::nil();
-            
-            let mut app_runner = $crate::app::create_app::<$app_ty>(compositor_id, &mut watch_manager);
-            
+
+            let mut app_runner =
+                $crate::app::create_app::<$app_ty>(compositor_id, &mut watch_manager);
+
             let mut tick = 0;
             loop {
                 let app_id = app_runner.app_id();
                 watch_manager.process_graph(&[app_id]);
                 app_runner.tick(&mut watch_manager, tick);
                 tick = tick.wrapping_add(1);
-                
+
                 // Simple busy wait for now to avoid burning CPU too hard if idle
                 // Ideally we would sleep until an event arrives
                 for _ in 0..1000 {
