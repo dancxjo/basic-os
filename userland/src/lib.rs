@@ -233,13 +233,23 @@ fn emit(kind: Symbol, data: Value) {
 
 /// Bring a Thing into existence in the graph. Returns the Thing ID that was declared.
 pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: BTreeMap<Symbol, Value>) -> Uuid {
-    let id = id.unwrap_or_else(Uuid::new_v4);
+    let id = id.unwrap_or_else(|| {
+        // Derive a stable UUID from the Thing kind and fields so callers do not need randomness.
+        let mut name: Vec<u8> = Vec::new();
+        name.extend_from_slice(&kind.0.to_be_bytes());
+        if let Ok(buf) = postcard::to_allocvec(&fields) {
+            name.extend_from_slice(&buf);
+        }
+        Uuid::new_v5(&Uuid::NAMESPACE_OID, &name)
+    });
+    #[allow(deprecated)]
     emit_thing_created(id, kind, 0, fields);
     id
 }
 
 /// Add an edge between two Things in the graph.
 pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
+    #[allow(deprecated)]
     emit_edge_added(src, pred, dst, revision);
 }
 
