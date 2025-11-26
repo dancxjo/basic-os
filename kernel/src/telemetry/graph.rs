@@ -1,13 +1,14 @@
 use crate::telemetry::canon;
 use crate::telemetry::canon::Symbol;
-use crate::telemetry::journal::{Event, Value};
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+use crate::telemetry::journal::{self, Value};
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use spin::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Thing {
+pub struct GraphThing {
     pub id: Uuid,
     pub kind: Symbol,
     pub fields: BTreeMap<Symbol, Value>,
@@ -15,7 +16,7 @@ pub struct Thing {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Edge {
+pub struct GraphEdge {
     pub src: Uuid,
     pub pred: Symbol,
     pub dst: Uuid,
@@ -23,161 +24,164 @@ pub struct Edge {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Snapshot {
+pub struct GraphSnapshot {
     pub revision: u64,
     pub thing_count: usize,
     pub edge_count: usize,
-    pub things: Vec<Thing>,
-    pub edges: Vec<Edge>,
+    pub things: Vec<GraphThing>,
+    pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphFiatRequest {
+    pub id: Option<Uuid>,
+    pub kind: Symbol,
+    pub fields: BTreeMap<Symbol, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphThatRequest {
+    pub src: Uuid,
+    pub pred: Symbol,
+    pub dst: Uuid,
+    pub revision_hint: u64,
 }
 
 #[derive(Default)]
 pub struct Store {
-    pub things: BTreeMap<Uuid, Vec<Thing>>,
-    pub edges: Vec<Edge>,
+    next_revision: u64,
+    things: BTreeMap<Uuid, Vec<GraphThing>>,
+    edges: Vec<GraphEdge>,
+    kind_index: BTreeMap<Symbol, BTreeSet<Uuid>>,
+    edges_by_src_pred: BTreeMap<(Uuid, Symbol), Vec<GraphEdge>>,
 }
 
 impl Store {
     pub fn new() -> Self {
         Self {
+            next_revision: 1,
             things: BTreeMap::new(),
             edges: Vec::new(),
+            kind_index: BTreeMap::new(),
+            edges_by_src_pred: BTreeMap::new(),
         }
     }
 
-    pub fn latest(&self, id: &Uuid) -> Option<&Thing> {
-        self.things.get(id).and_then(|versions| versions.last())
-    }
-
-    pub fn replay_events(&mut self, events: &[Event]) {
-        self.things.clear();
-        self.edges.clear();
-        for event in events {
-            self.apply_event(event);
-        }
-    }
-
-    pub(crate) fn apply_event(&mut self, event: &Event) {
-        if event.kind == canon::THING_CREATED {
-            self.ingest_thing(event);
-        } else if event.kind == canon::EDGE_ADDED {
-            self.ingest_edge(event);
-        }
-    }
-
-    fn ingest_thing(&mut self, event: &Event) {
-        let data = match event.data.as_map() {
-            Some(m) => m,
-            None => return,
-        };
-
-        let id = match data.get(&canon::ID).and_then(Value::as_uuid) {
-            Some(id) => id,
-            None => return,
-        };
-        let kind = match data.get(&canon::KIND).and_then(Value::as_symbol) {
-            Some(k) => k,
-            None => return,
-        };
-        let revision = data
-            .get(&canon::REVISION)
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let fields = data
-            .get(&canon::FIELDS)
-            .and_then(Value::as_map)
-            .cloned()
-            .unwrap_or_else(BTreeMap::new);
-
-        let thing = Thing {
+    pub fn fiat(&mut self, request: GraphFiatRequest) -> GraphThing {
+        let id = request
+            .id
+            .unwrap_or_else(|| derive_uuid(request.kind, &request.fields));
+        let revision = self.next_revision();
+        let thing = GraphThing {
             id,
-            kind,
-            fields,
+            kind: request.kind,
+            fields: request.fields,
             revision,
         };
 
-        let versions = self.things.entry(id).or_default();
-        let should_add = versions
-            .last()
-            .map(|prev| thing.revision > prev.revision)
-            .unwrap_or(true);
-        if should_add {
-            versions.push(thing);
-        }
+        self.insert_thing(thing.clone());
+        emit_thing_event(&thing);
+        thing
     }
 
-    fn ingest_edge(&mut self, event: &Event) {
-        let data = match event.data.as_map() {
-            Some(m) => m,
-            None => return,
-        };
-        let src = match data.get(&canon::SRC).and_then(Value::as_uuid) {
-            Some(v) => v,
-            None => return,
-        };
-        let dst = match data.get(&canon::DST).and_then(Value::as_uuid) {
-            Some(v) => v,
-            None => return,
-        };
-        let pred = match data.get(&canon::PREDICATE).and_then(Value::as_symbol) {
-            Some(v) => v,
-            None => return,
-        };
-        let revision = data
-            .get(&canon::REVISION)
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-
-        let edge = Edge {
-            src,
-            pred,
-            dst,
+    pub fn that(&mut self, request: GraphThatRequest) -> u64 {
+        let revision = self.next_revision();
+        let edge = GraphEdge {
+            src: request.src,
+            pred: request.pred,
+            dst: request.dst,
             revision,
         };
-
-        let is_new = self
-            .edges
-            .last()
-            .map(|prev| edge.revision >= prev.revision)
-            .unwrap_or(true);
-        if is_new {
-            self.edges.push(edge);
-        }
+        self.insert_edge(edge.clone());
+        emit_edge_event(&edge);
+        revision
     }
 
-    pub fn snapshot(&self) -> Snapshot {
+    pub fn latest(&self, id: &Uuid) -> Option<GraphThing> {
+        self.things.get(id).and_then(|versions| versions.last()).cloned()
+    }
+
+    pub fn latest_of_kind(&self, kind: Symbol) -> Vec<GraphThing> {
+        let Some(ids) = self.kind_index.get(&kind) else {
+            return Vec::new();
+        };
+        ids.iter()
+            .filter_map(|id| self.latest(id))
+            .collect::<Vec<_>>()
+    }
+
+    pub fn edges_of(&self, src: Uuid, pred: Symbol) -> Vec<GraphEdge> {
+        self.edges_by_src_pred
+            .get(&(src, pred))
+            .cloned()
+            .unwrap_or_else(Vec::new)
+    }
+
+    pub fn snapshot(&self) -> GraphSnapshot {
         let mut things = Vec::new();
-        let mut revision = 0;
-
         for versions in self.things.values() {
-            for thing in versions {
-                revision = revision.max(thing.revision);
-                things.push(thing.clone());
-            }
+            things.extend(versions.iter().cloned());
         }
 
-        for edge in &self.edges {
-            revision = revision.max(edge.revision);
-        }
-
-        Snapshot {
-            revision,
-            thing_count: self.things.len(),
+        GraphSnapshot {
+            revision: self.next_revision.saturating_sub(1),
+            thing_count: self.kind_index.values().map(BTreeSet::len).sum(),
             edge_count: self.edges.len(),
             things,
             edges: self.edges.clone(),
         }
     }
 
-    pub fn apply_snapshot(&mut self, snapshot: Snapshot) {
+    pub fn apply_snapshot(&mut self, snapshot: GraphSnapshot) {
         self.things.clear();
         self.edges.clear();
-        self.edges.extend(snapshot.edges.into_iter());
+        self.kind_index.clear();
+        self.edges_by_src_pred.clear();
 
         for thing in snapshot.things.into_iter() {
-            let versions = self.things.entry(thing.id).or_default();
-            versions.push(thing);
-            versions.sort_by_key(|t| t.revision);
+            self.insert_thing(thing);
+        }
+
+        for edge in snapshot.edges.into_iter() {
+            self.insert_edge(edge);
+        }
+
+        self.next_revision = snapshot.revision.saturating_add(1);
+    }
+
+    fn next_revision(&mut self) -> u64 {
+        let rev = self.next_revision;
+        self.next_revision = self.next_revision.wrapping_add(1);
+        rev
+    }
+
+    fn insert_thing(&mut self, thing: GraphThing) {
+        let versions = self.things.entry(thing.id).or_default();
+        let should_add = versions
+            .last()
+            .map(|prev| thing.revision > prev.revision)
+            .unwrap_or(true);
+        if should_add {
+            versions.push(thing.clone());
+            self.kind_index
+                .entry(thing.kind)
+                .or_default()
+                .insert(thing.id);
+        }
+    }
+
+    fn insert_edge(&mut self, edge: GraphEdge) {
+        let should_add = self
+            .edges
+            .last()
+            .map(|prev| edge.revision > prev.revision)
+            .unwrap_or(true);
+        if should_add {
+            self.edges.push(edge.clone());
+            self.edges_by_src_pred
+                .entry((edge.src, edge.pred))
+                .or_default()
+                .push(edge);
         }
     }
 }
@@ -197,11 +201,27 @@ pub fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
     f(store)
 }
 
-pub fn snapshot() -> Snapshot {
+pub fn fiat(request: GraphFiatRequest) -> GraphThing {
+    with_store(|store| store.fiat(request))
+}
+
+pub fn that(request: GraphThatRequest) -> u64 {
+    with_store(|store| store.that(request))
+}
+
+pub fn get_thing(id: &Uuid) -> Option<GraphThing> {
+    with_store(|store| store.latest(id))
+}
+
+pub fn get_things_of_kind(kind: Symbol) -> Vec<GraphThing> {
+    with_store(|store| store.latest_of_kind(kind))
+}
+
+pub fn snapshot() -> GraphSnapshot {
     with_store(|store| store.snapshot())
 }
 
-pub fn apply_snapshot(snapshot: Snapshot) {
+pub fn apply_snapshot(snapshot: GraphSnapshot) {
     with_store(|store| store.apply_snapshot(snapshot));
 }
 
@@ -211,7 +231,34 @@ pub fn export_snapshot_bytes() -> Option<Vec<u8>> {
 }
 
 pub fn import_snapshot_bytes(buf: &[u8]) -> Result<(), postcard::Error> {
-    let snapshot: Snapshot = postcard::from_bytes(buf)?;
+    let snapshot: GraphSnapshot = postcard::from_bytes(buf)?;
     apply_snapshot(snapshot);
     Ok(())
+}
+
+fn emit_thing_event(thing: &GraphThing) {
+    let mut payload = BTreeMap::new();
+    payload.insert(canon::ID, Value::Uuid(thing.id));
+    payload.insert(canon::KIND, Value::Symbol(thing.kind));
+    payload.insert(canon::FIELDS, Value::Map(thing.fields.clone()));
+    payload.insert(canon::REVISION, Value::U64(thing.revision));
+    let _ = journal::emit_data(canon::THING_CREATED, Value::Map(payload));
+}
+
+fn emit_edge_event(edge: &GraphEdge) {
+    let mut payload = BTreeMap::new();
+    payload.insert(canon::SRC, Value::Uuid(edge.src));
+    payload.insert(canon::DST, Value::Uuid(edge.dst));
+    payload.insert(canon::PREDICATE, Value::Symbol(edge.pred));
+    payload.insert(canon::REVISION, Value::U64(edge.revision));
+    let _ = journal::emit_data(canon::EDGE_ADDED, Value::Map(payload));
+}
+
+fn derive_uuid(kind: Symbol, fields: &BTreeMap<Symbol, Value>) -> Uuid {
+    let mut name: Vec<u8> = Vec::new();
+    name.extend_from_slice(&kind.0.to_be_bytes());
+    if let Ok(buf) = postcard::to_allocvec(fields) {
+        name.extend_from_slice(&buf);
+    }
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, &name)
 }

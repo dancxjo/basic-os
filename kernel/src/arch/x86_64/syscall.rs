@@ -5,6 +5,7 @@ use crate::drivers::device;
 use crate::telemetry::{
     canon,
     canon::Symbol,
+    graph::{self, GraphFiatRequest, GraphThatRequest},
     journal::{self, Event, Value},
 };
 use crate::{serial_print, serial_println};

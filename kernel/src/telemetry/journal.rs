@@ -168,7 +168,6 @@ pub fn init() {
 /// Record an event, evicting the oldest entry when at capacity.
 pub fn emit(event: Event) -> bool {
     with_journal(|j| j.emit(event.clone()));
-    crate::telemetry::graph::with_store(|store| store.apply_event(&event));
     true
 }
 
