@@ -1,8 +1,8 @@
 use core::fmt;
 
-/// Raw syscall entry point (rax, rdi, rsi, rdx).
+/// Raw syscall entry point (rax, rdi, rsi, rdx, r10).
 #[inline(always)]
-pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
+pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     let ret: u64;
     core::arch::asm!(
         "syscall",
@@ -10,6 +10,7 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         inout("rdi") rdi => _,
         inout("rsi") rsi => _,
         inout("rdx") rdx => _,
+        in("r10") r10,
         out("rcx") _,
         out("r11") _,
         out("r8") _,
@@ -91,6 +92,7 @@ pub fn fb_info() -> Option<FramebufferInfo> {
             &mut info as *mut _ as u64,
             core::mem::size_of::<FramebufferInfo>() as u64,
             0,
+            0,
         )
     };
     if ret == 0 {
@@ -101,7 +103,7 @@ pub fn fb_info() -> Option<FramebufferInfo> {
 }
 
 pub fn fb_map() -> u64 {
-    unsafe { syscall(SYSCALL_FB_MAP, 0, 0, 0) }
+    unsafe { syscall(SYSCALL_FB_MAP, 0, 0, 0, 0) }
 }
 
 pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
@@ -110,6 +112,7 @@ pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
             SYSCALL_GRAPH_FIAT,
             payload.as_ptr() as u64,
             payload.len() as u64,
+            0,
             0,
         )
     }
@@ -123,6 +126,7 @@ pub fn graph_find_by_kind_raw(req: &GraphFindByKind, out: &mut [u8]) -> u64 {
             req_ptr,
             out.as_mut_ptr() as u64,
             out.len() as u64,
+            0,
         )
     }
 }
@@ -133,6 +137,7 @@ pub fn graph_link_raw(payload: &[u8]) -> u64 {
             SYSCALL_GRAPH_LINK,
             payload.as_ptr() as u64,
             payload.len() as u64,
+            0,
             0,
         )
     }
@@ -145,6 +150,7 @@ pub fn graph_get_nodes_raw(pattern: &[u8], out: &mut [u8]) -> u64 {
             pattern.as_ptr() as u64,
             pattern.len() as u64,
             out.as_mut_ptr() as u64,
+            out.len() as u64,
         )
     }
 }
@@ -156,6 +162,7 @@ pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
             request.as_ptr() as u64,
             request.len() as u64,
             out.as_mut_ptr() as u64,
+            out.len() as u64,
         )
     }
 }
@@ -166,6 +173,7 @@ pub fn graph_set_props_raw(request: &[u8]) -> u64 {
             SYSCALL_GRAPH_SET_PROPS,
             request.as_ptr() as u64,
             request.len() as u64,
+            0,
             0,
         )
     }
@@ -178,6 +186,7 @@ pub fn watch_register_raw(payload: &[u8]) -> u64 {
             payload.as_ptr() as u64,
             payload.len() as u64,
             0,
+            0,
         )
     }
 }
@@ -189,6 +198,7 @@ pub fn watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
             watch_id,
             out.as_mut_ptr() as u64,
             out.len() as u64,
+            0,
         )
     }
 }
@@ -199,6 +209,7 @@ pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
             SYSCALL_KBD_READ,
             out.as_mut_ptr() as u64,
             out.len() as u64,
+            0,
             0,
         )
     }

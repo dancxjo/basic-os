@@ -119,8 +119,6 @@ pub struct GraphThatRequest {
     pub dst: Uuid,
     pub revision_hint: u64,
     #[serde(default)]
-    pub owner: Option<Uuid>,
-    #[serde(default)]
     pub props: Map,
 }
 
@@ -209,7 +207,6 @@ pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
         pred,
         dst,
         revision_hint: revision,
-        owner: None,
         props: map(),
     };
     if let Ok(buf) = postcard::to_allocvec(&req) {

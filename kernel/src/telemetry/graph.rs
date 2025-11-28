@@ -79,7 +79,6 @@ pub struct GraphThatRequest {
     pub pred: Symbol,
     pub dst: Uuid,
     pub revision_hint: u64,
-    pub owner: Option<BundleId>,
     #[serde(default)]
     pub props: BTreeMap<Symbol, Value>,
 }
@@ -472,20 +471,29 @@ impl Store {
     */
 
     fn notify_watches(&mut self, change: &GraphChange) {
-        for watch in self.watches.values_mut() {
-            if !self.change_visible_to(watch.owner, change) {
+        let (target, edge) = match change {
+            GraphChange::Thing(t) => (Some(t.clone()), None),
+            GraphChange::Edge(e) => (self.latest(&e.src).or_else(|| self.latest(&e.dst)), Some(e)),
+        };
+
+        let watch_specs: Vec<(WatchId, BundleId, NodePattern)> = self
+            .watches
+            .values()
+            .map(|w| (w.id, w.owner, w.pattern.clone()))
+            .collect();
+
+        for (watch_id, owner, pattern) in watch_specs {
+            if !self.change_visible_to(owner, change) {
                 continue;
             }
-            let target = match change {
-                GraphChange::Thing(t) => Some(t.clone()),
-                GraphChange::Edge(e) => self.latest(&e.src).or_else(|| self.latest(&e.dst)),
-            };
-            if let Some(node) = target {
-                if Self::matches_pattern(&watch.pattern, &node, Some(change)) {
-                    watch.queue.push(change.clone());
-                    if watch.queue.len() > MAX_WATCH_QUEUE {
-                        // Drop oldest
-                        watch.queue.remove(0);
+            if let Some(node) = target.clone() {
+                if Self::matches_pattern(&pattern, &node, edge) {
+                    if let Some(watch) = self.watches.get_mut(&watch_id) {
+                        watch.queue.push(change.clone());
+                        if watch.queue.len() > MAX_WATCH_QUEUE {
+                            // Drop oldest
+                            watch.queue.remove(0);
+                        }
                     }
                 }
             }
@@ -539,12 +547,15 @@ impl Store {
     }
 
     fn add_ownership_edge(&mut self, owner: BundleId, node: Uuid, revision: u64) {
+        let mut props = BTreeMap::new();
+        props.insert(canon::OWNER, Value::Uuid(owner));
+        props.insert(canon::DST, Value::Uuid(node));
         let edge = GraphEdge {
-            id: Uuid::new_v4(),
+            id: derive_uuid(canon::OWNS, &props),
             src: Self::bundle_node_id(owner),
             pred: canon::OWNS,
             dst: node,
-            props: BTreeMap::new(),
+            props,
             owner,
             revision,
         };

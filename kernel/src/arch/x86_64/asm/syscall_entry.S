@@ -17,6 +17,7 @@ syscall_entry_asm:
     push rcx
     push r11
 
+    mov r8, r10
     mov rcx, rdx
     mov rdx, rsi
     mov rsi, rdi

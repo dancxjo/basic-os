@@ -1,5 +1,4 @@
 use uuid::Uuid;
-use x86_64::VirtAddr;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
 use crate::serial_println;
@@ -21,7 +20,7 @@ struct AlignedStack([u8; KERNEL_STACK_SIZE]);
 static mut SYSCALL_KERNEL_STACK: AlignedStack = AlignedStack([0; KERNEL_STACK_SIZE]);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
+pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     let ret = match rax {
         SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),
         SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
@@ -34,8 +33,8 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_FB_MAP => fb_map(),
         SYSCALL_GRAPH_FIND_BY_KIND => graph_find_by_kind(rdi, rsi, rdx),
         SYSCALL_MOUSE_READ => mouse_read(rdi, rsi),
-        SYSCALL_GRAPH_GET_NODES => graph_get_nodes(rdi, rsi, rdx),
-        SYSCALL_GRAPH_GET_PROPS => graph_get_props(rdi, rsi, rdx),
+        SYSCALL_GRAPH_GET_NODES => graph_get_nodes(rdi, rsi, rdx, r10),
+        SYSCALL_GRAPH_GET_PROPS => graph_get_props(rdi, rsi, rdx, r10),
         SYSCALL_GRAPH_SET_PROPS => graph_set_props(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
@@ -214,7 +213,7 @@ fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 
-fn graph_get_nodes(req_ptr: u64, req_len: u64, out_ptr: u64) -> u64 {
+fn graph_get_nodes(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
     if req_ptr == 0 {
         return !0;
     }
@@ -230,7 +229,7 @@ fn graph_get_nodes(req_ptr: u64, req_len: u64, out_ptr: u64) -> u64 {
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 
-fn graph_get_props(req_ptr: u64, req_len: u64, out_ptr: u64) -> u64 {
+fn graph_get_props(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
     if req_ptr == 0 {
         return !0;
     }
@@ -264,7 +263,7 @@ fn graph_set_props(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 unsafe extern "C" {
-    fn syscall_entry_asm(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64;
+    fn syscall_entry_asm(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64;
 }
 pub fn init_syscall() {
     use x86_64::VirtAddr;

@@ -42,11 +42,22 @@ pub fn assign_bundle(task: TaskId, bundle: BundleId) {
     });
 }
 
+/// Mark the current task as belonging to a bundle.
+pub fn assign_current_bundle(bundle: BundleId) {
+    unsafe {
+        let task_ptr = crate::task::scheduler::CURRENT_TASK;
+        if !task_ptr.is_null() {
+            (*task_ptr).bundle = bundle;
+        }
+    }
+}
+
 /// Return the bundle associated with the currently running task.
 pub fn current_bundle() -> BundleId {
     unsafe {
-        if let Some(task) = (crate::task::scheduler::CURRENT_TASK as *const _).as_ref() {
-            return task.bundle;
+        let task_ptr = crate::task::scheduler::CURRENT_TASK;
+        if !task_ptr.is_null() {
+            return (*task_ptr).bundle;
         }
     }
     KERNEL_BUNDLE_ID
