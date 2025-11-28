@@ -98,6 +98,19 @@ pub const WINDOW_BUFFER_UPDATED: Symbol = canon(b'W', b'B', b'U');
 pub const FRAME_READY: Symbol = canon(b'F', b'R', b'M');
 pub const SURFACE: Symbol = canon(b'S', b'F', b'C');
 pub const CURSOR: Symbol = canon(b'C', b'R', b'S');
+pub const SHARED_BUFFER: Symbol = canon(b'S', b'B', b'F');
+pub const QUEUE_STATE: Symbol = canon(b'Q', b'S', b'T');
+pub const BUFFER_KIND: Symbol = canon(b'B', b'K', b'D');
+pub const BUFFER_USAGE: Symbol = canon(b'B', b'U', b'G');
+pub const RING: Symbol = canon(b'R', b'I', b'N');
+pub const LINEAR: Symbol = canon(b'L', b'I', b'N');
+pub const PIPE_USAGE: Symbol = canon(b'P', b'I', b'P');
+pub const SURFACE_USAGE: Symbol = canon(b'S', b'R', b'F');
+pub const RX_RING_USAGE: Symbol = canon(b'R', b'X', b'R');
+pub const HEAD: Symbol = canon(b'H', b'E', b'A');
+pub const TAIL: Symbol = canon(b'T', b'A', b'I');
+pub const HAS_DATA: Symbol = canon(b'H', b'D', b'T');
+pub const CAPACITY: Symbol = canon(b'C', b'A', b'P');
 
 pub const DRIVER_INPUT: Symbol = canon(b'I', b'N', b'P');
 pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
@@ -228,6 +241,19 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (PRESENTS, "presents"),
         (SURFACE, "surface"),
         (CURSOR, "cursor"),
+        (SHARED_BUFFER, "buffer.shared"),
+        (QUEUE_STATE, "queue.state"),
+        (BUFFER_KIND, "buffer.kind"),
+        (BUFFER_USAGE, "buffer.usage"),
+        (RING, "ring"),
+        (LINEAR, "linear"),
+        (PIPE_USAGE, "pipe"),
+        (SURFACE_USAGE, "surface"),
+        (RX_RING_USAGE, "rx_ring"),
+        (HEAD, "head"),
+        (TAIL, "tail"),
+        (HAS_DATA, "has_data"),
+        (CAPACITY, "capacity"),
         (X, "x"),
         (Y, "y"),
         (Z, "z"),
@@ -334,6 +360,19 @@ pub fn from_str(s: &str) -> Option<Symbol> {
         (PRESENTS, "presents"),
         (SURFACE, "surface"),
         (CURSOR, "cursor"),
+        (SHARED_BUFFER, "buffer.shared"),
+        (QUEUE_STATE, "queue.state"),
+        (BUFFER_KIND, "buffer.kind"),
+        (BUFFER_USAGE, "buffer.usage"),
+        (RING, "ring"),
+        (LINEAR, "linear"),
+        (PIPE_USAGE, "pipe"),
+        (SURFACE_USAGE, "surface"),
+        (RX_RING_USAGE, "rx_ring"),
+        (HEAD, "head"),
+        (TAIL, "tail"),
+        (HAS_DATA, "has_data"),
+        (CAPACITY, "capacity"),
         (X, "x"),
         (Y, "y"),
         (Z, "z"),

@@ -126,6 +126,32 @@ pub struct GraphPropsGetRequest {
     pub keys: Vec<Symbol>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedBufferSpec {
+    pub id: Option<Uuid>,
+    pub size_bytes: u64,
+    pub kind: Symbol,
+    pub usage: Symbol,
+    #[serde(default)]
+    pub addr: Option<u64>,
+    #[serde(default)]
+    pub props: BTreeMap<Symbol, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueStateSpec {
+    pub id: Option<Uuid>,
+    pub buffer: Uuid,
+    pub owner: BundleId,
+    pub head: u64,
+    pub tail: u64,
+    pub has_data: bool,
+    #[serde(default)]
+    pub capacity: Option<u64>,
+    #[serde(default)]
+    pub props: BTreeMap<Symbol, Value>,
+}
+
 /// Request to grant a capability from one bundle to another.
 /// Data capabilities (CAN_READ/CAN_WRITE/CAN_LINK) may be delegated by the
 /// owner of the target Thing. Hardware capabilities (IRQ, DMA, MMIO, PORT IO)
@@ -796,6 +822,68 @@ pub fn get_props(
 
 pub fn set_props(owner: BundleId, request: GraphPropsRequest) -> bool {
     with_store(|store| store.set_props(owner, request))
+}
+
+pub fn declare_shared_buffer(owner: BundleId, mut spec: SharedBufferSpec) -> GraphThing {
+    let mut fields = spec.props;
+    fields.insert(canon::BYTES, Value::U64(spec.size_bytes));
+    fields.insert(canon::BUFFER_KIND, Value::Symbol(spec.kind));
+    fields.insert(canon::BUFFER_USAGE, Value::Symbol(spec.usage));
+    fields.insert(canon::OWNER, Value::Uuid(owner));
+    if let Some(addr) = spec.addr {
+        fields.insert(canon::ADDR, Value::U64(addr));
+    }
+
+    let request = GraphNodeRequest {
+        id: spec.id,
+        labels: vec![canon::SHARED_BUFFER],
+        props: fields,
+    };
+    fiat_node(owner, request)
+}
+
+pub fn declare_queue_state(mut spec: QueueStateSpec) -> GraphThing {
+    let mut fields = spec.props;
+    fields.insert(canon::BUFFER, Value::Uuid(spec.buffer));
+    fields.insert(canon::HEAD, Value::U64(spec.head));
+    fields.insert(canon::TAIL, Value::U64(spec.tail));
+    fields.insert(canon::HAS_DATA, Value::Bool(spec.has_data));
+    fields.insert(canon::OWNER, Value::Uuid(spec.owner));
+    if let Some(cap) = spec.capacity {
+        fields.insert(canon::CAPACITY, Value::U64(cap));
+    }
+
+    let request = GraphNodeRequest {
+        id: spec.id,
+        labels: vec![canon::QUEUE_STATE],
+        props: fields,
+    };
+    fiat_node(spec.owner, request)
+}
+
+pub fn update_queue_state(
+    owner: BundleId,
+    queue_id: Uuid,
+    head: u64,
+    tail: u64,
+    has_data: bool,
+    capacity: Option<u64>,
+) -> bool {
+    let mut props = BTreeMap::new();
+    props.insert(canon::HEAD, Value::U64(head));
+    props.insert(canon::TAIL, Value::U64(tail));
+    props.insert(canon::HAS_DATA, Value::Bool(has_data));
+    if let Some(cap) = capacity {
+        props.insert(canon::CAPACITY, Value::U64(cap));
+    }
+
+    set_props(
+        owner,
+        GraphPropsRequest {
+            node: queue_id,
+            props,
+        },
+    )
 }
 
 pub fn grant_capability(grantor: BundleId, request: GrantCapabilityRequest) -> bool {
