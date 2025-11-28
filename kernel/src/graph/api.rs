@@ -19,7 +19,7 @@ pub fn init() {
     }
 }
 
-pub fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
+pub(crate) fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
     let mut s = STORE.lock();
     let store = s.get_or_insert_with(Store::new);
     f(store)
@@ -150,9 +150,14 @@ pub fn apply_snapshot(snapshot: GraphSnapshot) {
     with_store(|store| store.apply_snapshot(snapshot));
 }
 
-pub fn export_thing_bytes(id: Uuid) -> Option<Vec<u8>> {
-    let thing = get_thing(&id)?;
-    postcard::to_allocvec(&thing).ok()
+pub fn export_thing_bytes(owner: BundleId, id: Uuid) -> Option<Vec<u8>> {
+    with_store(|store| {
+        if !store.can_read(owner, id) {
+            return None;
+        }
+        let thing = store.latest(&id)?;
+        postcard::to_allocvec(&thing).ok()
+    })
 }
 
 pub fn register_watch(owner: BundleId, query: WatchQuery) -> WatchId {

@@ -115,3 +115,22 @@ unsafe extern "C" {
     #[link_name = "yield_now"]
     fn yield_now_raw();
 }
+
+#[cfg(debug_assertions)]
+pub fn debug_dump_current_task() {
+    unsafe {
+        let task_ptr = crate::task::scheduler::CURRENT_TASK;
+        if !task_ptr.is_null() {
+            let task = &*task_ptr;
+            log::info!(
+                "Current Task: mode={:?}, bundle={}, rip={:#x}, rsp={:#x}",
+                task.mode,
+                task.bundle,
+                task.context.frame.rip,
+                task.context.frame.rsp
+            );
+        } else {
+            log::info!("Current Task: NULL");
+        }
+    }
+}

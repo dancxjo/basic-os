@@ -495,7 +495,7 @@ impl Store {
         self.has_capability(bundle, target, capability)
     }
 
-    fn can_read(&self, bundle: BundleId, node: Uuid) -> bool {
+    pub fn can_read(&self, bundle: BundleId, node: Uuid) -> bool {
         bundle == KERNEL_BUNDLE_ID
             || self.owns(bundle, node)
             || self.has_capability(bundle, node, canon::CAN_READ)

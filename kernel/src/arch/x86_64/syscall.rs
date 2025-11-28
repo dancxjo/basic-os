@@ -179,7 +179,7 @@ fn graph_get(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
 
     match request {
         GraphGetRequest::Thing(id) => {
-            let bytes = match crate::graph::export_thing_bytes(id) {
+            let bytes = match crate::graph::export_thing_bytes(current_bundle(), id) {
                 Some(buf) => buf,
                 None => return !0,
             };
