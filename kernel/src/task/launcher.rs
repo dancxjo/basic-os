@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use log::info;
+use log::{info, warn};
 use spin::Mutex as SpinMutex;
 use x86_64::PhysAddr;
 use x86_64::structures::paging::PhysFrame;
@@ -13,6 +13,13 @@ use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
 
 #[derive(Clone)]
+/// Representation of a discovered user module and its bundle wiring.
+///
+/// Lifecycle overview:
+/// 1. The bootloader supplies a raw ELF *module*.
+/// 2. We create a deterministic graph *bundle node* for it using a v5 UUID.
+/// 3. `start_user_task` turns that bundle into an executing *task*.
+/// 4. We apply initial *capabilities* that connect the bundle to device nodes.
 struct UserModule {
     name: &'static str,
     bundle: BundleId,
@@ -26,6 +33,7 @@ pub fn init_user_modules() {
     let mut drivers = Vec::new();
     let mut compositors = Vec::new();
     let mut selected_app: Option<&'static str> = None;
+    let mut preferred_apps = Vec::new();
 
     for (name, data) in list_modules().into_iter() {
         if !data.starts_with(b"\x7FELF") {
@@ -44,14 +52,39 @@ pub fn init_user_modules() {
                 compositors.push(name);
             }
             BundleType::App => {
-                if selected_app.is_none() && preferred_app(name) {
-                    info!("Queueing user module '{}'", name);
-                    selected_app = Some(name);
+                if preferred_app(name) {
+                    preferred_apps.push(name);
+                    if selected_app.is_none() {
+                        info!("Queueing preferred app module '{}'", name);
+                        selected_app = Some(name);
+                    } else {
+                        info!("Skipping extra preferred app module '{}' for now", name);
+                    }
                 } else {
-                    info!("Skipping extra app module '{}' for now", name);
+                    info!("Skipping non-preferred app module '{}' for now", name);
                 }
             }
         }
+    }
+
+    if compositors.len() > 1 {
+        warn!(
+            "Multiple compositor modules detected ({}): {:?}; launching in discovery order",
+            compositors.len(),
+            compositors
+        );
+    } else if compositors.is_empty() {
+        warn!("No compositor module discovered; userland will run without a compositor");
+    }
+
+    if preferred_apps.is_empty() {
+        warn!(
+            "No preferred app (clouds/input_tester) discovered; userland will start without an app"
+        );
+    }
+
+    if drivers.is_empty() {
+        info!("No user-space drivers discovered; continuing without driver bundles");
     }
 
     let mut entries = Vec::new();
@@ -109,7 +142,17 @@ fn next_user_module() -> Option<UserModule> {
     let guard = USER_MODULES.lock();
     let list = guard.as_ref()?;
     let idx = NEXT_USER_MODULE.fetch_add(1, Ordering::AcqRel);
-    list.get(idx).cloned()
+    match list.get(idx).cloned() {
+        Some(module) => Some(module),
+        None => {
+            warn!(
+                "NEXT_USER_MODULE index {} exceeded discovered module count {}; halting launcher task",
+                idx,
+                list.len()
+            );
+            None
+        }
+    }
 }
 
 fn create_user_module(name: &'static str, bundle_type: BundleType) -> UserModule {
