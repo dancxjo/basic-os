@@ -203,6 +203,19 @@ The granting bundle must either own the target Thing or already have the capabil
 
 ```rust
 // Example: Grant read access to another bundle
+use userland::{canon, grant_capability};
+
+// Grant read permission on thing_id to other_bundle_id
+let success = grant_capability(other_bundle_id, thing_id, canon::CAN_READ);
+if success {
+    // Capability was successfully granted
+}
+```
+
+Alternatively, using the low-level API:
+
+```rust
+use userland::{canon, GrantCapabilityRequest};
 use userland::sys::grant_capability_raw;
 
 let request = GrantCapabilityRequest {

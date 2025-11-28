@@ -165,6 +165,18 @@ pub struct GraphPropsGetRequest {
     pub keys: Vec<Symbol>,
 }
 
+/// Request to grant a capability from one bundle to another.
+/// The granting bundle must own the target node or have the capability itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrantCapabilityRequest {
+    /// The bundle receiving the capability
+    pub grantee: Uuid,
+    /// The target node the capability applies to
+    pub target: Uuid,
+    /// The capability being granted (e.g., CAN_READ, CAN_WRITE, CAN_LINK)
+    pub capability: Symbol,
+}
+
 pub struct WatchHandle {
     pub id: u64,
 }
@@ -211,6 +223,22 @@ pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
     };
     if let Ok(buf) = postcard::to_allocvec(&req) {
         let _ = sys::graph_link_raw(&buf);
+    }
+}
+
+/// Grant a capability to another bundle.
+/// The calling bundle must own the target or have the capability itself.
+/// Returns true if the capability was successfully granted.
+pub fn grant_capability(grantee: Uuid, target: Uuid, capability: Symbol) -> bool {
+    let req = GrantCapabilityRequest {
+        grantee,
+        target,
+        capability,
+    };
+    if let Ok(buf) = postcard::to_allocvec(&req) {
+        sys::grant_capability_raw(&buf) == 0
+    } else {
+        false
     }
 }
 
