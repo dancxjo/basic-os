@@ -3,8 +3,10 @@ use x86_64::VirtAddr;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
 use crate::serial_println;
+use crate::task::runtime::current_bundle;
 use crate::telemetry::graph::{
-    self, GraphFiatRequest, GraphFindByKind, GraphThatRequest, WatchQuery,
+    self, GraphFiatRequest, GraphFindByKind, GraphPropsGetRequest, GraphPropsRequest,
+    GraphThatRequest, NodePattern, WatchQuery,
 };
 
 #[unsafe(no_mangle)]
@@ -32,6 +34,9 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64) -> u64 {
         SYSCALL_FB_MAP => fb_map(),
         SYSCALL_GRAPH_FIND_BY_KIND => graph_find_by_kind(rdi, rsi, rdx),
         SYSCALL_MOUSE_READ => mouse_read(rdi, rsi),
+        SYSCALL_GRAPH_GET_NODES => graph_get_nodes(rdi, rsi, rdx),
+        SYSCALL_GRAPH_GET_PROPS => graph_get_props(rdi, rsi, rdx),
+        SYSCALL_GRAPH_SET_PROPS => graph_set_props(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -52,6 +57,9 @@ const SYSCALL_FB_INFO: u64 = 0x09;
 const SYSCALL_FB_MAP: u64 = 0x0A;
 const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
 const SYSCALL_MOUSE_READ: u64 = 0x0C;
+const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
+const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
+const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -61,7 +69,8 @@ fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     let Ok(request) = postcard::from_bytes::<GraphFiatRequest>(buf) else {
         return !0;
     };
-    let thing = graph::fiat(request);
+    let bundle = current_bundle();
+    let thing = graph::fiat_for_bundle(bundle, request);
     thing.revision
 }
 
@@ -73,7 +82,8 @@ fn graph_link(req_ptr: u64, req_len: u64) -> u64 {
     let Ok(request) = postcard::from_bytes::<GraphThatRequest>(buf) else {
         return !0;
     };
-    graph::that(request)
+    let bundle = current_bundle();
+    graph::that_for_bundle(bundle, request)
 }
 
 fn watch_register(req_ptr: u64, req_len: u64) -> u64 {
@@ -84,7 +94,7 @@ fn watch_register(req_ptr: u64, req_len: u64) -> u64 {
     let Ok(query) = postcard::from_bytes::<WatchQuery>(buf) else {
         return !0;
     };
-    graph::register_watch(query)
+    graph::register_watch(current_bundle(), query)
 }
 
 fn watch_poll(watch_id: u64, out_ptr: u64, out_len: u64) -> u64 {
@@ -191,12 +201,66 @@ fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
         core::str::from_utf8_unchecked(slice)
     };
 
-    let bytes = match crate::telemetry::graph::export_find_by_kind_bytes(kind_str, request.cursor) {
+    let bundle = current_bundle();
+    let bytes = match crate::telemetry::graph::export_find_by_kind_bytes(
+        bundle,
+        kind_str,
+        request.cursor,
+    ) {
         Some(buf) => buf,
         None => return !0,
     };
 
     copy_out_slice(&bytes, out_ptr, out_len)
+}
+
+fn graph_get_nodes(req_ptr: u64, req_len: u64, out_ptr: u64) -> u64 {
+    if req_ptr == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(pattern) = postcard::from_bytes::<NodePattern>(buf) else {
+        return !0;
+    };
+    let nodes = graph::get_nodes(current_bundle(), pattern);
+    let bytes = match postcard::to_allocvec(&nodes) {
+        Ok(b) => b,
+        Err(_) => return !0,
+    };
+    copy_out_slice(&bytes, out_ptr, out_len)
+}
+
+fn graph_get_props(req_ptr: u64, req_len: u64, out_ptr: u64) -> u64 {
+    if req_ptr == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<GraphPropsGetRequest>(buf) else {
+        return !0;
+    };
+    let Some(map) = graph::get_props(current_bundle(), request) else {
+        return !0;
+    };
+    let bytes = match postcard::to_allocvec(&map) {
+        Ok(b) => b,
+        Err(_) => return !0,
+    };
+    copy_out_slice(&bytes, out_ptr, out_len)
+}
+
+fn graph_set_props(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<GraphPropsRequest>(buf) else {
+        return !0;
+    };
+    if graph::set_props(current_bundle(), request) {
+        0
+    } else {
+        !0
+    }
 }
 
 unsafe extern "C" {

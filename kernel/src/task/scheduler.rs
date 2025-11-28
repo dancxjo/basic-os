@@ -20,7 +20,10 @@
 //! - Tasks are spaced by stack size
 
 use crate::{
-    arch::x86_64::interrupts::end_of_interrupt, mm::allocator::BootFrameAllocator, serial_print,
+    arch::x86_64::interrupts::end_of_interrupt,
+    mm::allocator::BootFrameAllocator,
+    serial_print,
+    telemetry::graph::{BundleId, KERNEL_BUNDLE_ID},
 };
 use alloc::vec::Vec;
 use core::ptr;
@@ -39,6 +42,7 @@ pub struct Task {
     pub context: FullContext,
     pub initialized: bool,
     pub mode: TaskMode,
+    pub bundle: BundleId,
 }
 
 impl Task {
@@ -58,6 +62,7 @@ impl Task {
             context: unsafe { core::mem::zeroed() },
             initialized: false,
             mode,
+            bundle: KERNEL_BUNDLE_ID,
         };
 
         task.allocate_stack_if_needed(mapper, frame_allocator, index);

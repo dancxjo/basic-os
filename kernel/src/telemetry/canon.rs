@@ -67,6 +67,16 @@ pub const WRITE: Symbol = canon(b'W', b'R', b'T');
 pub const TARGET: Symbol = canon(b'T', b'G', b'T');
 pub const TEXT: Symbol = canon(b'T', b'X', b'T');
 pub const STDOUT: Symbol = canon(b'S', b'T', b'D');
+pub const BUNDLE: Symbol = canon(b'B', b'N', b'D');
+pub const OWNER: Symbol = canon(b'O', b'W', b'N');
+pub const OWNS: Symbol = canon(b'O', b'W', b'S');
+pub const CAN_READ: Symbol = canon(b'C', b'R', b'D');
+pub const CAN_WRITE: Symbol = canon(b'C', b'W', b'R');
+pub const CAN_LINK: Symbol = canon(b'C', b'L', b'K');
+pub const CAN_HANDLE_IRQ: Symbol = canon(b'C', b'I', b'Q');
+pub const CAN_DMA: Symbol = canon(b'C', b'D', b'M');
+pub const CAN_MMIO: Symbol = canon(b'C', b'M', b'M');
+pub const CAN_PORT_IO: Symbol = canon(b'C', b'P', b'O');
 pub const ADDR: Symbol = canon(b'A', b'D', b'R');
 pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
 pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
@@ -133,6 +143,16 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (DY, "dy"),
         (BUTTONS, "buttons"),
         (WRITE, "write"),
+        (BUNDLE, "bundle"),
+        (OWNER, "owner"),
+        (OWNS, "owns"),
+        (CAN_READ, "can_read"),
+        (CAN_WRITE, "can_write"),
+        (CAN_LINK, "can_link"),
+        (CAN_HANDLE_IRQ, "can_handle_irq"),
+        (CAN_DMA, "can_dma"),
+        (CAN_MMIO, "can_mmio"),
+        (CAN_PORT_IO, "can_port_io"),
         (TARGET, "target"),
         (TEXT, "text"),
         (STDOUT, "stdout"),
@@ -200,6 +220,16 @@ pub fn from_str(s: &str) -> Option<Symbol> {
         (DY, "dy"),
         (BUTTONS, "buttons"),
         (WRITE, "write"),
+        (BUNDLE, "bundle"),
+        (OWNER, "owner"),
+        (OWNS, "owns"),
+        (CAN_READ, "can_read"),
+        (CAN_WRITE, "can_write"),
+        (CAN_LINK, "can_link"),
+        (CAN_HANDLE_IRQ, "can_handle_irq"),
+        (CAN_DMA, "can_dma"),
+        (CAN_MMIO, "can_mmio"),
+        (CAN_PORT_IO, "can_port_io"),
         (TARGET, "target"),
         (TEXT, "text"),
         (STDOUT, "stdout"),

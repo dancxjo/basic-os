@@ -365,5 +365,5 @@ pub fn publish_framebuffer_node(framebuffer: Arc<SpinMutex<Framebuffer>>) {
         kind: canon::PIXMAP,
         fields,
     };
-    let _ = graph::fiat(req);
+    let _ = graph::fiat_for_bundle(graph::KERNEL_BUNDLE_ID, req);
 }

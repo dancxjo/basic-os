@@ -1,6 +1,7 @@
 use crate::mm::allocator::{BootFrameAllocator, global_mapper};
 use crate::task::context::TaskMode;
 use crate::task::scheduler::{SCHEDULER, Scheduler};
+use crate::telemetry::graph::{BundleId, KERNEL_BUNDLE_ID};
 
 pub type TaskId = usize;
 
@@ -30,6 +31,25 @@ pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
         sched.spawn(entry, TaskMode::Kernel, mapper, frame_allocator);
         TaskHandle { id }
     })
+}
+
+/// Mark the given task as belonging to a bundle.
+pub fn assign_bundle(task: TaskId, bundle: BundleId) {
+    with_scheduler(|sched| {
+        if let Some(Some(t)) = sched.tasks.get_mut(task).map(|t| t.as_mut()) {
+            t.bundle = bundle;
+        }
+    });
+}
+
+/// Return the bundle associated with the currently running task.
+pub fn current_bundle() -> BundleId {
+    unsafe {
+        if let Some(task) = (crate::task::scheduler::CURRENT_TASK as *const _).as_ref() {
+            return task.bundle;
+        }
+    }
+    KERNEL_BUNDLE_ID
 }
 
 /// Return the number of registered tasks.

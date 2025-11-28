@@ -48,6 +48,9 @@ pub const SYSCALL_FB_INFO: u64 = 0x09;
 pub const SYSCALL_FB_MAP: u64 = 0x0A;
 pub const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
 pub const SYSCALL_MOUSE_READ: u64 = 0x0C;
+pub const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
+pub const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
+pub const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
@@ -130,6 +133,39 @@ pub fn graph_link_raw(payload: &[u8]) -> u64 {
             SYSCALL_GRAPH_LINK,
             payload.as_ptr() as u64,
             payload.len() as u64,
+            0,
+        )
+    }
+}
+
+pub fn graph_get_nodes_raw(pattern: &[u8], out: &mut [u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_GRAPH_GET_NODES,
+            pattern.as_ptr() as u64,
+            pattern.len() as u64,
+            out.as_mut_ptr() as u64,
+        )
+    }
+}
+
+pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_GRAPH_GET_PROPS,
+            request.as_ptr() as u64,
+            request.len() as u64,
+            out.as_mut_ptr() as u64,
+        )
+    }
+}
+
+pub fn graph_set_props_raw(request: &[u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_GRAPH_SET_PROPS,
+            request.as_ptr() as u64,
+            request.len() as u64,
             0,
         )
     }

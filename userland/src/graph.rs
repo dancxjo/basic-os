@@ -1,4 +1,4 @@
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -118,6 +118,10 @@ pub struct GraphThatRequest {
     pub pred: Symbol,
     pub dst: Uuid,
     pub revision_hint: u64,
+    #[serde(default)]
+    pub owner: Option<Uuid>,
+    #[serde(default)]
+    pub props: Map,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +129,42 @@ pub struct WatchQuery {
     pub kind: Option<Symbol>,
     pub src: Option<Uuid>,
     pub dst: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NodePattern {
+    pub labels: Vec<Symbol>,
+    #[serde(default)]
+    pub props: Map,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNodeRequest {
+    pub id: Option<Uuid>,
+    pub labels: Vec<Symbol>,
+    pub props: Map,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphLinkRequest {
+    pub id: Option<Uuid>,
+    pub kind: Symbol,
+    pub from: Uuid,
+    pub to: Uuid,
+    #[serde(default)]
+    pub props: Map,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphPropsRequest {
+    pub node: Uuid,
+    pub props: Map,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphPropsGetRequest {
+    pub node: Uuid,
+    pub keys: Vec<Symbol>,
 }
 
 pub struct WatchHandle {
@@ -169,6 +209,8 @@ pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
         pred,
         dst,
         revision_hint: revision,
+        owner: None,
+        props: map(),
     };
     if let Ok(buf) = postcard::to_allocvec(&req) {
         let _ = sys::graph_link_raw(&buf);
@@ -179,15 +221,20 @@ pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
 pub struct GraphThing {
     pub id: Uuid,
     pub kind: Symbol,
+    pub labels: BTreeSet<Symbol>,
     pub fields: Map,
+    pub owner: Uuid,
     pub revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
+    pub id: Uuid,
     pub src: Uuid,
     pub pred: Symbol,
     pub dst: Uuid,
+    pub props: Map,
+    pub owner: Uuid,
     pub revision: u64,
 }
 
@@ -253,6 +300,37 @@ pub fn find_by_kind(kind: &str) -> Vec<GraphThing> {
         }
     }
     results
+}
+
+pub fn get_nodes(pattern: NodePattern) -> Vec<GraphThing> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let Ok(encoded) = postcard::to_allocvec(&pattern) else {
+        return Vec::new();
+    };
+    let len = sys::graph_get_nodes_raw(&encoded, &mut buf);
+    if len == !0 {
+        return Vec::new();
+    }
+    postcard::from_bytes::<Vec<GraphThing>>(&buf[..len as usize]).unwrap_or_default()
+}
+
+pub fn get_props(request: GraphPropsGetRequest) -> Option<Map> {
+    let Ok(encoded) = postcard::to_allocvec(&request) else {
+        return None;
+    };
+    let mut buf = vec![0u8; 4096];
+    let len = sys::graph_get_props_raw(&encoded, &mut buf);
+    if len == !0 {
+        return None;
+    }
+    postcard::from_bytes::<Map>(&buf[..len as usize]).ok()
+}
+
+pub fn set_props(request: GraphPropsRequest) -> bool {
+    if let Ok(encoded) = postcard::to_allocvec(&request) {
+        return sys::graph_set_props_raw(&encoded) == 0;
+    }
+    false
 }
 
 pub trait Thingable: Sized {

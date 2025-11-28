@@ -7,6 +7,13 @@ use serde::{Deserialize, Serialize};
 use spin::Mutex;
 use uuid::Uuid;
 
+/// Identifier representing a bundle/authority.
+pub type BundleId = Uuid;
+
+/// Stable identifier for the kernel bundle. This bundle implicitly holds
+/// all privileges and is used for early boot declarations.
+pub const KERNEL_BUNDLE_ID: BundleId = Uuid::from_u128(0xfeed_cafe_dead_beef_cafe_babe_0000_0001);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GraphChange {
     Thing(GraphThing),
@@ -26,15 +33,20 @@ impl GraphChange {
 pub struct GraphThing {
     pub id: Uuid,
     pub kind: Symbol,
+    pub labels: BTreeSet<Symbol>,
     pub fields: BTreeMap<Symbol, Value>,
+    pub owner: BundleId,
     pub revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
+    pub id: Uuid,
     pub src: Uuid,
     pub pred: Symbol,
     pub dst: Uuid,
+    pub props: BTreeMap<Symbol, Value>,
+    pub owner: BundleId,
     pub revision: u64,
 }
 
@@ -67,6 +79,9 @@ pub struct GraphThatRequest {
     pub pred: Symbol,
     pub dst: Uuid,
     pub revision_hint: u64,
+    pub owner: Option<BundleId>,
+    #[serde(default)]
+    pub props: BTreeMap<Symbol, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +89,42 @@ pub struct WatchQuery {
     pub kind: Option<Symbol>,
     pub src: Option<Uuid>,
     pub dst: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NodePattern {
+    pub labels: Vec<Symbol>,
+    #[serde(default)]
+    pub props: BTreeMap<Symbol, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNodeRequest {
+    pub id: Option<Uuid>,
+    pub labels: Vec<Symbol>,
+    pub props: BTreeMap<Symbol, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphLinkRequest {
+    pub id: Option<Uuid>,
+    pub kind: Symbol,
+    pub from: Uuid,
+    pub to: Uuid,
+    #[serde(default)]
+    pub props: BTreeMap<Symbol, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphPropsRequest {
+    pub node: Uuid,
+    pub props: BTreeMap<Symbol, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphPropsGetRequest {
+    pub node: Uuid,
+    pub keys: Vec<Symbol>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,7 +146,8 @@ pub type WatchId = u64;
 
 pub struct Watch {
     id: WatchId,
-    query: WatchQuery,
+    owner: BundleId,
+    pattern: NodePattern,
     queue: Vec<GraphChange>,
 }
 
@@ -128,21 +180,36 @@ impl Store {
         }
     }
 
-    pub fn register_watch(&mut self, query: WatchQuery) -> WatchId {
+    pub fn register_watch(&mut self, owner: BundleId, query: WatchQuery) -> WatchId {
+        let mut pattern = NodePattern::default();
+        if let Some(kind) = query.kind {
+            pattern.labels.push(kind);
+        }
+        if let Some(src) = query.src {
+            pattern.props.insert(canon::SRC, Value::Uuid(src));
+        }
+        if let Some(dst) = query.dst {
+            pattern.props.insert(canon::DST, Value::Uuid(dst));
+        }
+        self.register_watch_pattern(owner, pattern)
+    }
+
+    pub fn register_watch_pattern(&mut self, owner: BundleId, pattern: NodePattern) -> WatchId {
         let id = self.next_watch_id;
         self.next_watch_id += 1;
         self.watches.insert(
             id,
             Watch {
                 id,
-                query,
+                owner,
+                pattern,
                 queue: Vec::new(),
             },
         );
         id
     }
 
-    pub fn find_by_kind(&self, kind: &str, cursor: u64) -> (Vec<GraphThing>, u64) {
+    pub fn find_by_kind(&self, owner: BundleId, kind: &str, cursor: u64) -> (Vec<GraphThing>, u64) {
         let symbol = if let Some(s) = canon::from_str(kind) {
             s
         } else {
@@ -172,6 +239,9 @@ impl Store {
 
                 if let Some(things) = self.things.get(uuid) {
                     if let Some(thing) = things.last() {
+                        if !self.can_read(owner, thing.id) {
+                            continue;
+                        }
                         results.push(thing.clone());
                         count += 1;
                     }
@@ -195,39 +265,127 @@ impl Store {
             None
         }
     }
-    pub fn fiat(&mut self, request: GraphFiatRequest) -> GraphThing {
-        let id = request
-            .id
-            .unwrap_or_else(|| derive_uuid(request.kind, &request.fields));
+    pub fn fiat(&mut self, owner: BundleId, request: GraphFiatRequest) -> GraphThing {
+        let mut labels = BTreeSet::new();
+        labels.insert(request.kind);
+        let node_request = GraphNodeRequest {
+            id: request.id,
+            labels: labels.iter().copied().collect(),
+            props: request.fields,
+        };
+        self.fiat_node(owner, node_request)
+    }
+
+    pub fn fiat_node(&mut self, owner: BundleId, request: GraphNodeRequest) -> GraphThing {
+        self.ensure_bundle_node(owner);
+        let mut labels: BTreeSet<Symbol> = request.labels.iter().copied().collect();
+        if labels.is_empty() {
+            labels.insert(canon::THING_CREATED);
+        }
+        let kind = *labels.iter().next().unwrap_or(&canon::THING_CREATED);
+        let mut props = request.props;
+        props.entry(canon::OWNER).or_insert(Value::Uuid(owner));
+        let id = request.id.unwrap_or_else(|| derive_uuid(kind, &props));
         let revision = self.next_revision();
         let thing = GraphThing {
             id,
-            kind: request.kind,
-            fields: request.fields,
+            kind,
+            labels,
+            fields: props,
+            owner,
             revision,
         };
 
         self.insert_thing(thing.clone());
-        // self.record_change(GraphChange::Thing(thing.clone()));
+        self.add_ownership_edge(owner, thing.id, revision);
         self.notify_watches(&GraphChange::Thing(thing.clone()));
         emit_thing_event(&thing);
         reflect_thing_side_effects(&thing);
         thing
     }
 
-    pub fn that(&mut self, request: GraphThatRequest) -> u64 {
+    pub fn that(&mut self, owner: BundleId, request: GraphThatRequest) -> u64 {
+        let link_request = GraphLinkRequest {
+            id: None,
+            kind: request.pred,
+            from: request.src,
+            to: request.dst,
+            props: request.props,
+        };
+        self.link_edge(owner, link_request)
+    }
+
+    pub fn link_edge(&mut self, owner: BundleId, request: GraphLinkRequest) -> u64 {
+        if !self.can_link(owner, request.from, request.to, request.kind) {
+            return 0;
+        }
         let revision = self.next_revision();
         let edge = GraphEdge {
-            src: request.src,
-            pred: request.pred,
-            dst: request.dst,
+            id: request
+                .id
+                .unwrap_or_else(|| derive_uuid(request.kind, &request.props)),
+            src: request.from,
+            pred: request.kind,
+            dst: request.to,
+            props: request.props,
+            owner,
             revision,
         };
         self.insert_edge(edge.clone());
-        // self.record_change(GraphChange::Edge(edge.clone()));
         self.notify_watches(&GraphChange::Edge(edge.clone()));
         emit_edge_event(&edge);
         revision
+    }
+
+    pub fn get_nodes(&self, owner: BundleId, pattern: NodePattern) -> Vec<GraphThing> {
+        let mut matches = Vec::new();
+        for thing in self.things.values().filter_map(|v| v.last()) {
+            if !self.can_read(owner, thing.id) {
+                continue;
+            }
+            if Self::matches_pattern(&pattern, thing, None) {
+                matches.push(thing.clone());
+            }
+        }
+        matches
+    }
+
+    pub fn get_props(
+        &self,
+        owner: BundleId,
+        request: GraphPropsGetRequest,
+    ) -> Option<BTreeMap<Symbol, Value>> {
+        let thing = self.latest(&request.node)?;
+        if !self.can_read(owner, thing.id) {
+            return None;
+        }
+        let mut out = BTreeMap::new();
+        if request.keys.is_empty() {
+            out.extend(thing.fields.iter().map(|(k, v)| (*k, v.clone())));
+        } else {
+            for key in request.keys.iter() {
+                if let Some(val) = thing.fields.get(key) {
+                    out.insert(*key, val.clone());
+                }
+            }
+        }
+        Some(out)
+    }
+
+    pub fn set_props(&mut self, owner: BundleId, request: GraphPropsRequest) -> bool {
+        let Some(mut current) = self.latest(&request.node) else {
+            return false;
+        };
+        if !self.can_write(owner, current.id) {
+            return false;
+        }
+        for (k, v) in request.props.iter() {
+            current.fields.insert(*k, v.clone());
+        }
+        current.revision = self.next_revision();
+        self.insert_thing(current.clone());
+        self.notify_watches(&GraphChange::Thing(current));
+        true
     }
 
     pub fn latest(&self, id: &Uuid) -> Option<GraphThing> {
@@ -315,54 +473,139 @@ impl Store {
 
     fn notify_watches(&mut self, change: &GraphChange) {
         for watch in self.watches.values_mut() {
-            if Self::matches(&watch.query, change) {
-                watch.queue.push(change.clone());
-                if watch.queue.len() > MAX_WATCH_QUEUE {
-                    // Drop oldest
-                    watch.queue.remove(0);
+            if !self.change_visible_to(watch.owner, change) {
+                continue;
+            }
+            let target = match change {
+                GraphChange::Thing(t) => Some(t.clone()),
+                GraphChange::Edge(e) => self.latest(&e.src).or_else(|| self.latest(&e.dst)),
+            };
+            if let Some(node) = target {
+                if Self::matches_pattern(&watch.pattern, &node, Some(change)) {
+                    watch.queue.push(change.clone());
+                    if watch.queue.len() > MAX_WATCH_QUEUE {
+                        // Drop oldest
+                        watch.queue.remove(0);
+                    }
                 }
             }
         }
     }
 
-    fn matches(query: &WatchQuery, change: &GraphChange) -> bool {
-        match change {
-            GraphChange::Thing(t) => {
-                if let Some(kind) = query.kind {
-                    if t.kind != kind {
-                        return false;
-                    }
-                }
-                if let Some(id) = query.src {
-                    // For things, src filter might mean "is this thing"
-                    if t.id != id {
-                        return false;
-                    }
-                }
-                // dst filter doesn't apply to things usually, unless we define it
-                true
+    fn matches_pattern(
+        pattern: &NodePattern,
+        thing: &GraphThing,
+        edge: Option<&GraphEdge>,
+    ) -> bool {
+        for label in pattern.labels.iter() {
+            if !thing.labels.contains(label) {
+                return false;
             }
+        }
+        for (k, v) in pattern.props.iter() {
+            match (thing.fields.get(k), edge) {
+                (Some(existing), _) if existing == v => {}
+                (_, Some(e)) if *k == canon::SRC && *v == Value::Uuid(e.src) => {}
+                (_, Some(e)) if *k == canon::DST && *v == Value::Uuid(e.dst) => {}
+                (_, Some(e)) if *k == canon::PREDICATE && *v == Value::Symbol(e.pred) => {}
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    fn bundle_node_id(bundle: BundleId) -> Uuid {
+        bundle
+    }
+
+    fn ensure_bundle_node(&mut self, bundle: BundleId) {
+        let id = Self::bundle_node_id(bundle);
+        if self.things.get(&id).is_some() {
+            return;
+        }
+        let mut labels = BTreeSet::new();
+        labels.insert(canon::BUNDLE);
+        let mut fields = BTreeMap::new();
+        fields.insert(canon::ID, Value::Uuid(bundle));
+        let thing = GraphThing {
+            id,
+            kind: canon::BUNDLE,
+            labels,
+            fields,
+            owner: bundle,
+            revision: self.next_revision(),
+        };
+        self.insert_thing(thing);
+    }
+
+    fn add_ownership_edge(&mut self, owner: BundleId, node: Uuid, revision: u64) {
+        let edge = GraphEdge {
+            id: Uuid::new_v4(),
+            src: Self::bundle_node_id(owner),
+            pred: canon::OWNS,
+            dst: node,
+            props: BTreeMap::new(),
+            owner,
+            revision,
+        };
+        self.insert_edge(edge);
+    }
+
+    fn owns(&self, bundle: BundleId, node: Uuid) -> bool {
+        let bundle_node = Self::bundle_node_id(bundle);
+        self.edges_by_src_pred
+            .get(&(bundle_node, canon::OWNS))
+            .map(|edges| edges.iter().any(|e| e.dst == node))
+            .unwrap_or(false)
+    }
+
+    fn has_capability(&self, bundle: BundleId, target: Uuid, predicate: Symbol) -> bool {
+        let bundle_node = Self::bundle_node_id(bundle);
+        self.edges_by_src_pred
+            .get(&(bundle_node, predicate))
+            .map(|edges| edges.iter().any(|e| e.dst == target))
+            .unwrap_or(false)
+    }
+
+    fn can_read(&self, bundle: BundleId, node: Uuid) -> bool {
+        bundle == KERNEL_BUNDLE_ID
+            || self.owns(bundle, node)
+            || self.has_capability(bundle, node, canon::CAN_READ)
+            || self.can_write(bundle, node)
+    }
+
+    fn can_write(&self, bundle: BundleId, node: Uuid) -> bool {
+        bundle == KERNEL_BUNDLE_ID
+            || self.owns(bundle, node)
+            || self.has_capability(bundle, node, canon::CAN_WRITE)
+    }
+
+    fn can_link(&self, bundle: BundleId, from: Uuid, to: Uuid, kind: Symbol) -> bool {
+        if bundle == KERNEL_BUNDLE_ID || self.owns(bundle, from) || self.owns(bundle, to) {
+            return true;
+        }
+        let bundle_node = Self::bundle_node_id(bundle);
+        if let Some(edges) = self.edges_by_src_pred.get(&(bundle_node, canon::CAN_LINK)) {
+            for edge in edges.iter() {
+                if edge.dst == from || edge.dst == to {
+                    if let Some(Value::Symbol(cap_kind)) = edge.props.get(&canon::KIND) {
+                        if *cap_kind == kind {
+                            return true;
+                        }
+                    } else {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn change_visible_to(&self, bundle: BundleId, change: &GraphChange) -> bool {
+        match change {
+            GraphChange::Thing(t) => self.can_read(bundle, t.id),
             GraphChange::Edge(e) => {
-                // Edges don't have a "kind" in the same way, but they have a predicate.
-                // If query.kind is set, maybe we check predicate? Or we need a predicate filter.
-                // The current WatchQuery has `kind`, `src`, `dst`.
-                // Let's assume `kind` maps to `pred` for edges if we want to filter by edge type.
-                if let Some(kind) = query.kind {
-                    if e.pred != kind {
-                        return false;
-                    }
-                }
-                if let Some(src) = query.src {
-                    if e.src != src {
-                        return false;
-                    }
-                }
-                if let Some(dst) = query.dst {
-                    if e.dst != dst {
-                        return false;
-                    }
-                }
-                true
+                self.can_read(bundle, e.src) || self.can_read(bundle, e.dst) || e.owner == bundle
             }
         }
     }
@@ -414,11 +657,42 @@ pub fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
 }
 
 pub fn fiat(request: GraphFiatRequest) -> GraphThing {
-    with_store(|store| store.fiat(request))
+    fiat_for_bundle(KERNEL_BUNDLE_ID, request)
+}
+
+pub fn fiat_for_bundle(owner: BundleId, request: GraphFiatRequest) -> GraphThing {
+    with_store(|store| store.fiat(owner, request))
+}
+
+pub fn fiat_node(owner: BundleId, request: GraphNodeRequest) -> GraphThing {
+    with_store(|store| store.fiat_node(owner, request))
 }
 
 pub fn that(request: GraphThatRequest) -> u64 {
-    with_store(|store| store.that(request))
+    that_for_bundle(KERNEL_BUNDLE_ID, request)
+}
+
+pub fn that_for_bundle(owner: BundleId, request: GraphThatRequest) -> u64 {
+    with_store(|store| store.that(owner, request))
+}
+
+pub fn link(owner: BundleId, request: GraphLinkRequest) -> u64 {
+    with_store(|store| store.link_edge(owner, request))
+}
+
+pub fn get_nodes(owner: BundleId, pattern: NodePattern) -> Vec<GraphThing> {
+    with_store(|store| store.get_nodes(owner, pattern))
+}
+
+pub fn get_props(
+    owner: BundleId,
+    request: GraphPropsGetRequest,
+) -> Option<BTreeMap<Symbol, Value>> {
+    with_store(|store| store.get_props(owner, request))
+}
+
+pub fn set_props(owner: BundleId, request: GraphPropsRequest) -> bool {
+    with_store(|store| store.set_props(owner, request))
 }
 
 pub fn get_thing(id: &Uuid) -> Option<GraphThing> {
@@ -458,12 +732,16 @@ pub fn export_thing_bytes(id: Uuid) -> Option<Vec<u8>> {
     postcard::to_allocvec(&thing).ok()
 }
 
-pub fn register_watch(query: WatchQuery) -> WatchId {
-    with_store(|store| store.register_watch(query))
+pub fn register_watch(owner: BundleId, query: WatchQuery) -> WatchId {
+    with_store(|store| store.register_watch(owner, query))
 }
 
-pub fn export_find_by_kind_bytes(kind: &str, cursor: u64) -> Option<Vec<u8>> {
-    let (things, next_cursor) = with_store(|store| store.find_by_kind(kind, cursor));
+pub fn register_watch_pattern(owner: BundleId, pattern: NodePattern) -> WatchId {
+    with_store(|store| store.register_watch_pattern(owner, pattern))
+}
+
+pub fn export_find_by_kind_bytes(owner: BundleId, kind: &str, cursor: u64) -> Option<Vec<u8>> {
+    let (things, next_cursor) = with_store(|store| store.find_by_kind(owner, kind, cursor));
 
     let header = GraphFindResultHeader {
         next_cursor,
@@ -490,6 +768,7 @@ fn emit_thing_event(thing: &GraphThing) {
     payload.insert(canon::ID, Value::Uuid(thing.id));
     payload.insert(canon::KIND, Value::Symbol(thing.kind));
     payload.insert(canon::FIELDS, Value::Map(thing.fields.clone()));
+    payload.insert(canon::OWNER, Value::Uuid(thing.owner));
     payload.insert(canon::REVISION, Value::U64(thing.revision));
     let _ = journal::emit_data(canon::THING_CREATED, Value::Map(payload));
 }
@@ -499,6 +778,10 @@ fn emit_edge_event(edge: &GraphEdge) {
     payload.insert(canon::SRC, Value::Uuid(edge.src));
     payload.insert(canon::DST, Value::Uuid(edge.dst));
     payload.insert(canon::PREDICATE, Value::Symbol(edge.pred));
+    payload.insert(canon::OWNER, Value::Uuid(edge.owner));
+    if !edge.props.is_empty() {
+        payload.insert(canon::FIELDS, Value::Map(edge.props.clone()));
+    }
     payload.insert(canon::REVISION, Value::U64(edge.revision));
     let _ = journal::emit_data(canon::EDGE_ADDED, Value::Map(payload));
 }
