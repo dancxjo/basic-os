@@ -166,15 +166,14 @@ The following syscalls are exposed to userland:
 ### Graph Operations
 - `SYSCALL_GRAPH_FIAT` (0x01): Create a new Thing in the graph
 - `SYSCALL_GRAPH_LINK` (0x02): Create an edge between two Things
-- `SYSCALL_GRAPH_GET` (0x05): Get a specific Thing by UUID
+- `SYSCALL_GRAPH_GET` (0x05): Fetch Things by UUID or node pattern
 - `SYSCALL_GRAPH_FIND_BY_KIND` (0x0B): Find Things by kind
-- `SYSCALL_GRAPH_GET_NODES` (0x0D): Get nodes matching a pattern
 - `SYSCALL_GRAPH_GET_PROPS` (0x0E): Get properties of a node
 - `SYSCALL_GRAPH_SET_PROPS` (0x0F): Set properties on a node
 
 ### Watch Operations
-- `SYSCALL_WATCH_REGISTER` (0x06): Register a watch for graph changes
-- `SYSCALL_WATCH_POLL` (0x07): Poll for changes from a registered watch
+- `SYSCALL_GRAPH_WATCH_REGISTER` (0x06): Register a watch for graph changes
+- `SYSCALL_GRAPH_WATCH_POLL` (0x07): Poll for changes from a registered watch
 
 ### Device Access
 - `SYSCALL_KBD_READ` (0x08): Read keyboard scancodes

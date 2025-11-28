@@ -140,6 +140,12 @@ pub struct NodePattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GraphGetRequest {
+    Thing(Uuid),
+    Pattern(NodePattern),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNodeRequest {
     pub id: Option<Uuid>,
     pub labels: Vec<Symbol>,
@@ -333,10 +339,10 @@ pub fn find_by_kind(kind: &str) -> Vec<GraphThing> {
 
 pub fn get_nodes(pattern: NodePattern) -> Vec<GraphThing> {
     let mut buf = vec![0u8; 64 * 1024];
-    let Ok(encoded) = postcard::to_allocvec(&pattern) else {
+    let Ok(encoded) = postcard::to_allocvec(&GraphGetRequest::Pattern(pattern)) else {
         return Vec::new();
     };
-    let len = sys::graph_get_nodes_raw(&encoded, &mut buf);
+    let len = sys::graph_get_raw(&encoded, &mut buf);
     if len == !0 {
         return Vec::new();
     }
@@ -530,7 +536,10 @@ pub trait Thingable: Sized {
 
 pub fn load_thing<T: Thingable>(id: Uuid) -> Option<T> {
     let mut buf = vec![0u8; 4096];
-    let len = sys::graph_get_raw(id.as_bytes(), &mut buf);
+    let Ok(encoded) = postcard::to_allocvec(&GraphGetRequest::Thing(id)) else {
+        return None;
+    };
+    let len = sys::graph_get_raw(&encoded, &mut buf);
     if len == !0 {
         return None;
     }
@@ -691,7 +700,7 @@ pub fn watch(query: WatchQuery) -> Option<WatchHandle> {
 
 pub fn watch_pattern(pattern: NodePattern) -> Option<WatchHandle> {
     if let Ok(buf) = postcard::to_allocvec(&pattern) {
-        let id = sys::watch_register_raw(&buf);
+        let id = sys::graph_watch_register_raw(&buf);
         if id != !0 {
             return Some(WatchHandle { id });
         }
@@ -701,7 +710,7 @@ pub fn watch_pattern(pattern: NodePattern) -> Option<WatchHandle> {
 
 pub fn poll_watch(handle: &WatchHandle) -> Vec<GraphChange> {
     let mut buf = vec![0u8; 64 * 1024];
-    let len = sys::watch_poll_raw(handle.id, &mut buf);
+    let len = sys::graph_watch_poll_raw(handle.id, &mut buf);
     if len == !0 {
         return Vec::new();
     }

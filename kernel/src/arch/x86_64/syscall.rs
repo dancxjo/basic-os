@@ -4,8 +4,8 @@ use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
 use crate::drivers::irq_dma;
 use crate::graph::{
-    self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphPropsGetRequest,
-    GraphPropsRequest, GraphThatRequest, NodePattern, WatchQuery,
+    self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphGetRequest,
+    GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, NodePattern, WatchQuery,
 };
 use crate::serial_println;
 use crate::task::runtime::current_bundle;
@@ -27,15 +27,14 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64
         SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),
         SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
         // SYSCALL_GRAPH_QUERY => graph_query(rdi, rsi),
-        SYSCALL_GRAPH_GET => graph_get(rdi, rsi, rdx),
-        SYSCALL_WATCH_REGISTER => watch_register(rdi, rsi),
-        SYSCALL_WATCH_POLL => watch_poll(rdi, rsi, rdx),
+        SYSCALL_GRAPH_GET => graph_get(rdi, rsi, rdx, r10),
+        SYSCALL_GRAPH_WATCH_REGISTER => watch_register(rdi, rsi),
+        SYSCALL_GRAPH_WATCH_POLL => watch_poll(rdi, rsi, rdx),
         SYSCALL_KBD_READ => kbd_read(rdi, rsi),
         SYSCALL_FB_INFO => fb_info(rdi, rsi),
         SYSCALL_FB_MAP => fb_map(),
         SYSCALL_GRAPH_FIND_BY_KIND => graph_find_by_kind(rdi, rsi, rdx),
         SYSCALL_MOUSE_READ => mouse_read(rdi, rsi),
-        SYSCALL_GRAPH_GET_NODES => graph_get_nodes(rdi, rsi, rdx, r10),
         SYSCALL_GRAPH_GET_PROPS => graph_get_props(rdi, rsi, rdx, r10),
         SYSCALL_GRAPH_SET_PROPS => graph_set_props(rdi, rsi),
         SYSCALL_GRANT_CAPABILITY => grant_capability(rdi, rsi),
@@ -57,14 +56,13 @@ const SYSCALL_GRAPH_LINK: u64 = 0x02;
 // const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 // const SYSCALL_GRAPH_WATCH: u64 = 0x04;
 const SYSCALL_GRAPH_GET: u64 = 0x05;
-const SYSCALL_WATCH_REGISTER: u64 = 0x06;
-const SYSCALL_WATCH_POLL: u64 = 0x07;
+const SYSCALL_GRAPH_WATCH_REGISTER: u64 = 0x06;
+const SYSCALL_GRAPH_WATCH_POLL: u64 = 0x07;
 const SYSCALL_KBD_READ: u64 = 0x08;
 const SYSCALL_FB_INFO: u64 = 0x09;
 const SYSCALL_FB_MAP: u64 = 0x0A;
 const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
 const SYSCALL_MOUSE_READ: u64 = 0x0C;
-const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
 const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
 const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
 const SYSCALL_GRANT_CAPABILITY: u64 = 0x10;
@@ -162,21 +160,41 @@ fn mouse_read(out_ptr: u64, out_len: u64) -> u64 {
     crate::drivers::mouse::read_mouse(buf) as u64
 }
 
-fn graph_get(id_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if id_ptr == 0 {
+fn graph_get(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
         return !0;
     }
-    let id_bytes = unsafe { core::slice::from_raw_parts(id_ptr as *const u8, 16) };
-    let Ok(id) = Uuid::from_slice(id_bytes) else {
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let request = postcard::from_bytes::<GraphGetRequest>(buf).or_else(|_| {
+        if req_len as usize == 16 {
+            Uuid::from_slice(buf).ok().map(GraphGetRequest::Thing)
+        } else {
+            None
+        }
+    });
+
+    let Some(request) = request else {
         return !0;
     };
 
-    let bytes = match crate::graph::export_thing_bytes(id) {
-        Some(buf) => buf,
-        None => return !0,
-    };
+    match request {
+        GraphGetRequest::Thing(id) => {
+            let bytes = match crate::graph::export_thing_bytes(id) {
+                Some(buf) => buf,
+                None => return !0,
+            };
 
-    copy_out_slice(&bytes, out_ptr, out_len)
+            copy_out_slice(&bytes, out_ptr, out_len)
+        }
+        GraphGetRequest::Pattern(pattern) => {
+            let nodes = graph::get_nodes(current_bundle(), pattern);
+            let bytes = match postcard::to_allocvec(&nodes) {
+                Ok(b) => b,
+                Err(_) => return !0,
+            };
+            copy_out_slice(&bytes, out_ptr, out_len)
+        }
+    }
 }
 
 fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
@@ -248,22 +266,6 @@ fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
         None => return !0,
     };
 
-    copy_out_slice(&bytes, out_ptr, out_len)
-}
-
-fn graph_get_nodes(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if req_ptr == 0 {
-        return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
-    let Ok(pattern) = postcard::from_bytes::<NodePattern>(buf) else {
-        return !0;
-    };
-    let nodes = graph::get_nodes(current_bundle(), pattern);
-    let bytes = match postcard::to_allocvec(&nodes) {
-        Ok(b) => b,
-        Err(_) => return !0,
-    };
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 
