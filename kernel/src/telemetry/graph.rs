@@ -2,6 +2,7 @@ use crate::telemetry::canon;
 use crate::telemetry::canon::Symbol;
 use crate::telemetry::journal::{self, Value};
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use spin::Mutex;

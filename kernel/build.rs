@@ -4,12 +4,14 @@ use cc::Build;
 
 fn main() {
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let linker_script = manifest_dir.join(format!("linker-{arch}.ld"));
 
     // Tell cargo to pass the linker script to the linker
-    println!("cargo:rustc-link-arg=-Tlinker-{arch}.ld");
+    println!("cargo:rustc-link-arg=-T{}", linker_script.display());
 
     // Re-run if the linker script changes
-    println!("cargo:rerun-if-changed=linker-{arch}.ld");
+    println!("cargo:rerun-if-changed={}", linker_script.display());
 
     let _out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 

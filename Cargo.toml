@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "kernel",
+    "userland",
+    "compositor",
+    "apps/*",
+    "drivers/*",
+]
+resolver = "2"
