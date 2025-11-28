@@ -4,7 +4,7 @@ ThingOS treats the graph of Things (nodes) and Edges (relationships) as the cent
 
 ## Overview
 
-The telemetry stack consists of three layers:
+The graph stack consists of three layers:
 
 1. **Journal** (`kernel/src/graph/journal.rs`): append-only event log (kernel-internal, not exposed to userland)
 2. **Graph** (`kernel/src/graph/store.rs`): derived view built by replaying journal events

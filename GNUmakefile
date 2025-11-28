@@ -8,6 +8,16 @@ override USER_VARIABLE = $(if $(filter $(origin $(1)),default undefined),$(eval 
 # Target architecture to build for. Default to x86_64.
 $(call USER_VARIABLE,KARCH,x86_64)
 
+ifeq ($(KARCH),x86_64)
+    override RUST_TARGET := x86_64-unknown-none
+else ifeq ($(KARCH),aarch64)
+    override RUST_TARGET := aarch64-unknown-none
+else ifeq ($(KARCH),riscv64)
+    override RUST_TARGET := riscv64gc-unknown-none-elf
+else ifeq ($(KARCH),loongarch64)
+    override RUST_TARGET := loongarch64-unknown-none
+endif
+
 # Default user QEMU flags. These are appended to the QEMU command calls.
 $(call USER_VARIABLE,QEMUFLAGS,-m 4G -serial mon\:stdio)
 # $(call USER_VARIABLE,QEMUFLAGS,-m 4G)
@@ -236,12 +246,12 @@ limine/limine:
 
 .PHONY: userland
 userland:
-	cd compositor && RUSTFLAGS="-C link-arg=-Tlink.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
-	cp -v compositor/target/x86_64-unknown-none/release/compositor userland.bin
-	cd apps/clouds && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
-	cd apps/keyboard_driver && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
-	cd apps/mouse_driver && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
-	cd apps/framebuffer_driver && RUSTFLAGS="-C link-arg=-T../../userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+		cd compositor && RUSTFLAGS="-C link-arg=-T$(CURDIR)/compositor/link.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target $(RUST_TARGET)
+	cp -v target/$(RUST_TARGET)/release/compositor userland.bin
+	cd apps/clouds && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/keyboard_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/mouse_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/framebuffer_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 
 .PHONY: kernel
 kernel:
@@ -253,10 +263,10 @@ $(IMAGE_NAME).iso: limine/limine kernel userland
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
 	cp -v userland.bin iso_root/boot/
-	cp -v apps/clouds/target/x86_64-unknown-none/release/clouds iso_root/boot/
-	cp -v apps/keyboard_driver/target/x86_64-unknown-none/release/keyboard_driver iso_root/boot/
-	cp -v apps/mouse_driver/target/x86_64-unknown-none/release/mouse_driver iso_root/boot/
-	cp -v apps/framebuffer_driver/target/x86_64-unknown-none/release/framebuffer_driver iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/clouds iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/keyboard_driver iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/mouse_driver iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/framebuffer_driver iso_root/boot/
 	mkdir -p iso_root/boot/limine
 	cp -v limine.conf iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT

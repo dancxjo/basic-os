@@ -165,13 +165,13 @@ fn graph_get(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
-    let request = postcard::from_bytes::<GraphGetRequest>(buf).or_else(|_| {
-        if req_len as usize == 16 {
-            Uuid::from_slice(buf).ok().map(GraphGetRequest::Thing)
-        } else {
-            None
-        }
-    });
+    let request = if let Ok(req) = postcard::from_bytes::<GraphGetRequest>(buf) {
+        Some(req)
+    } else if req_len as usize == 16 {
+        Uuid::from_slice(buf).ok().map(GraphGetRequest::Thing)
+    } else {
+        None
+    };
 
     let Some(request) = request else {
         return !0;

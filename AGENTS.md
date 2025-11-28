@@ -18,7 +18,7 @@
 ## Repository layout
 - `kernel/` – Rust kernel crate.  `kmain` in `src/main.rs` is the entry point.
 - `compositor/` – userland compositor binary and library.
-- `userland/` – shared userland support library (syscalls/telemetry helpers).
+- `userland/` – shared userland support library (syscalls/graph helpers).
 - `apps/` – small user apps (clouds, hello, clock) that publish window buffers.
 - `limine.conf` describes boot configuration and modules included in the ISO.
 

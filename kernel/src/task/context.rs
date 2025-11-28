@@ -4,7 +4,7 @@
 //! The layout must match the assembly code in tick_handler.S and restore_context.S.
 
 /// Task execution mode (privilege level).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TaskMode {
     Kernel,
     User,

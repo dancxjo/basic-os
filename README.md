@@ -49,14 +49,14 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/kernel -ex "target remote 
   `window_buffer_updated` events and produces composed frames.
 - **apps/** – small demo apps (clouds, hello, clock) that publish window
   buffers/events to be composed.
-- **userland/** – shared userland support library (syscalls/telemetry helpers).
+- **userland/** – shared userland support library (syscalls/graph helpers).
 - **runner/** – userland binary that wires the compositor and demo apps
   together for now (until multiple user tasks are supported).
 
 ## Syscall surface (early)
 
 Userland interacts with the system through graph and device syscalls. The
-telemetry journal stays inside the kernel; user code queries live state via
+The journal stays inside the kernel; user code queries live state via
 graph operations and watches instead of snapshots.
 
 - `graph_find_by_kind(kind_ptr, kind_len, cursor)`: query the graph for things
