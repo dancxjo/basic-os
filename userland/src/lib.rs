@@ -95,6 +95,8 @@ pub mod canon {
     pub const WINDOW_CREATED: Symbol = canon(b'W', b'C', b'R');
     pub const WINDOW_BUFFER_UPDATED: Symbol = canon(b'W', b'B', b'U');
     pub const FRAME_READY: Symbol = canon(b'F', b'R', b'M');
+    pub const SURFACE: Symbol = canon(b'S', b'F', b'C');
+    pub const CURSOR: Symbol = canon(b'C', b'R', b'S');
     pub const DRIVER_INPUT: Symbol = canon(b'I', b'N', b'P');
     pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
     pub const DRIVER_STORAGE: Symbol = canon(b'S', b'T', b'R');
@@ -103,6 +105,7 @@ pub mod canon {
     pub const TITLE: Symbol = canon(b'T', b'T', b'L');
     pub const X: Symbol = canon(b'X', b' ', b' ');
     pub const Y: Symbol = canon(b'Y', b' ', b' ');
+    pub const Z: Symbol = canon(b'Z', b'I', b'N');
     pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
     pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
     pub const PITCH: Symbol = canon(b'P', b'T', b'H');
@@ -140,6 +143,9 @@ pub mod canon {
     pub const COLOR: Symbol = canon(b'C', b'L', b'R');
     pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
     pub const BITMAP: Symbol = canon(b'B', b'M', b'P');
+    pub const DIRTY: Symbol = canon(b'D', b'R', b'T');
+    pub const HAS_SURFACE: Symbol = canon(b'H', b'S', b'F');
+    pub const PRESENTS: Symbol = canon(b'P', b'R', b'S');
 
     // Capability symbols for granting permissions
     pub const CAN_READ: Symbol = canon(b'C', b'R', b'D');
@@ -156,7 +162,7 @@ pub mod prelude {
     pub use crate::app_main;
     pub use crate::graph::{
         extract_text, fiat, fiat_thing, grant_capability, load_thing, load_things_of_kind, map,
-        that, update_thing, Thingable, Value, Window,
+        that, update_thing, Surface, Thingable, Value, Window,
     };
     pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
     pub use crate::{print, println};
@@ -165,8 +171,8 @@ pub mod prelude {
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
     extract_text, fiat, fiat_thing, grant_capability, load_thing, load_things_of_kind, map, that,
-    update_thing, Event, GrantCapabilityRequest, GraphEdge, GraphSnapshot, GraphThing, Thingable,
-    Value, Window,
+    update_thing, Event, GrantCapabilityRequest, GraphEdge, GraphSnapshot, GraphThing, NodePattern,
+    Surface, Thingable, Value, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 

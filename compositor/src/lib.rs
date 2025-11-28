@@ -4,17 +4,17 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::sync::Arc;
 use core::cmp::{max, min};
 use core::convert::TryInto;
 use core::ptr;
 
 use unifont::{get_glyph, Glyph};
 use userland::{
-    canon, extract_text, load_thing, println, AppEvent, Symbol, ThingFilter, Thingable, Value,
-    WatchId, WatchManager, Window,
+    canon, load_thing, println, AppEvent, NodePattern, Surface, Thingable, Value, WatchId,
+    WatchManager, Window,
 };
 use uuid::Uuid;
 
@@ -56,9 +56,10 @@ pub struct Compositor {
     backbuffer: Vec<u32>,
     windows: BTreeMap<Uuid, WindowSurface>,
     window_order: Vec<Uuid>,
-    watch_window_buffers: Option<WatchId>,
+    watch_surfaces: Option<WatchId>,
     watch_windows: Option<WatchId>,
     watch_mouse: Option<WatchId>,
+    watch_cursor: Option<WatchId>,
     watch_fb: Option<WatchId>,
     fb_id: Option<Uuid>,
     cursor: CursorState,
@@ -75,7 +76,7 @@ struct FramebufferSurface {
 #[derive(Clone)]
 struct WindowSurface {
     window: Window,
-    pixmap: Uuid,
+    surface_id: Option<Uuid>,
     text: String,
     bitmap: Option<Arc<Bitmap>>,
 }
@@ -84,6 +85,7 @@ struct CursorState {
     x: i32,
     y: i32,
     buttons: u8,
+    visible: bool,
 }
 
 impl CursorState {
@@ -92,6 +94,7 @@ impl CursorState {
             x: (width / 2) as i32,
             y: (height / 2) as i32,
             buttons: 0,
+            visible: true,
         }
     }
 
@@ -99,6 +102,25 @@ impl CursorState {
         self.x = clamp_i32(self.x + dx as i32, 0, width.saturating_sub(1) as i32);
         self.y = clamp_i32(self.y + dy as i32, 0, height.saturating_sub(1) as i32);
         self.buttons = buttons;
+    }
+
+    fn set_from_graph(
+        &mut self,
+        x: Option<i64>,
+        y: Option<i64>,
+        visible: Option<bool>,
+        width: usize,
+        height: usize,
+    ) {
+        if let Some(nx) = x {
+            self.x = clamp_i32(nx as i32, 0, width.saturating_sub(1) as i32);
+        }
+        if let Some(ny) = y {
+            self.y = clamp_i32(ny as i32, 0, height.saturating_sub(1) as i32);
+        }
+        if let Some(vis) = visible {
+            self.visible = vis;
+        }
     }
 }
 
@@ -168,9 +190,10 @@ impl Compositor {
             backbuffer: vec![0u32; stride * height],
             windows: BTreeMap::new(),
             window_order: Vec::new(),
-            watch_window_buffers: None,
+            watch_surfaces: None,
             watch_windows: None,
             watch_mouse: None,
+            watch_cursor: None,
             watch_fb: None,
             fb_id: None,
             cursor: CursorState::new(fb_info.width, height),
@@ -183,47 +206,55 @@ impl Compositor {
         app_id: usize,
         fb: FramebufferTarget,
     ) -> Self {
-        let window_buffer_watch = watch_manager.register_graph(
-            app_id,
-            ThingFilter {
-                kind: Some(canon::WINDOW_BUFFER_UPDATED),
-                id: None,
-            },
-        );
-        let mouse_watch = watch_manager.register_graph(
-            app_id,
-            ThingFilter {
-                kind: Some(canon::INPUT_EVENT),
-                id: None,
-            },
-        );
-        let window_watch = watch_manager.register_graph(
-            app_id,
-            ThingFilter {
-                kind: Some(canon::WINDOW),
-                id: None,
-            },
-        );
-        let fb_watch = watch_manager.register_graph(
-            app_id,
-            ThingFilter {
-                kind: Some(canon::DISPLAY_FRAMEBUFFER),
-                id: None,
-            },
-        );
+        let mut surface_pattern = NodePattern::default();
+        surface_pattern.labels.push(canon::SURFACE);
+        surface_pattern
+            .props
+            .insert(canon::DIRTY, Value::Bool(true));
+
+        let mut surface_discovery = NodePattern::default();
+        surface_discovery.labels.push(canon::SURFACE);
+
+        let mut window_pattern = NodePattern::default();
+        window_pattern.labels.push(canon::WINDOW);
+
+        let mut cursor_pattern = NodePattern::default();
+        cursor_pattern.labels.push(canon::CURSOR);
+
+        let mut fb_pattern = NodePattern::default();
+        fb_pattern.labels.push(canon::DISPLAY_FRAMEBUFFER);
+
+        let mut mouse_pattern = NodePattern::default();
+        mouse_pattern.labels.push(canon::INPUT_EVENT);
+
+        let surface_watch = watch_manager.register_pattern(app_id, surface_pattern.clone());
+        let window_watch = watch_manager.register_pattern(app_id, window_pattern.clone());
+        let cursor_watch = watch_manager.register_pattern(app_id, cursor_pattern.clone());
+        let fb_watch = watch_manager.register_pattern(app_id, fb_pattern.clone());
+        let mouse_watch = watch_manager.register_pattern(app_id, mouse_pattern);
 
         let mut comp = Self::new(fb);
-        comp.watch_window_buffers = Some(window_buffer_watch);
+        comp.watch_surfaces = Some(surface_watch);
         comp.watch_windows = Some(window_watch);
         comp.watch_mouse = Some(mouse_watch);
+        comp.watch_cursor = Some(cursor_watch);
         comp.watch_fb = Some(fb_watch);
 
-        // Initial window discovery
-        let windows = userland::graph::find_by_kind("window");
-        for thing in windows {
+        for thing in userland::graph::get_nodes(window_pattern) {
             if let Some(window) = Window::load(&thing) {
                 comp.ingest_window(window);
             }
+        }
+
+        for thing in userland::graph::get_nodes(surface_discovery) {
+            comp.ingest_surface(&thing);
+        }
+
+        if let Some(cursor_node) = userland::graph::get_nodes(cursor_pattern)
+            .into_iter()
+            .next()
+        {
+            comp.ingest_cursor(&cursor_node);
         }
 
         comp
@@ -232,8 +263,8 @@ impl Compositor {
     pub fn on_event(&mut self, ev: &AppEvent) {
         match ev {
             AppEvent::Thing { watch, thing } => {
-                if Some(*watch) == self.watch_window_buffers {
-                    self.ingest_window_buffer(thing);
+                if Some(*watch) == self.watch_surfaces {
+                    self.ingest_surface(thing);
                 } else if Some(*watch) == self.watch_mouse {
                     if thing.kind == canon::INPUT_EVENT {
                         self.ingest_input_event(thing);
@@ -242,6 +273,8 @@ impl Compositor {
                     if let Some(window) = Window::load(thing) {
                         self.ingest_window(window);
                     }
+                } else if Some(*watch) == self.watch_cursor {
+                    self.ingest_cursor(thing);
                 } else if Some(*watch) == self.watch_fb {
                     if thing.kind == canon::DISPLAY_FRAMEBUFFER {
                         self.fb_id = Some(thing.id);
@@ -275,35 +308,33 @@ impl Compositor {
         self.frame_no = self.frame_no.wrapping_add(1);
     }
 
-    fn ingest_window_buffer(&mut self, thing: &userland::GraphThing) {
-        if thing.kind != canon::WINDOW_BUFFER_UPDATED {
+    fn ingest_surface(&mut self, thing: &userland::GraphThing) {
+        if thing.kind != canon::SURFACE {
             return;
         }
-        let map = &thing.fields;
-        let window_id = map.get(&canon::SRC).and_then(Value::as_uuid);
-        let pixmap = map.get(&canon::TARGET).and_then(Value::as_uuid);
-        let text = map
-            .get(&canon::TEXT)
-            .and_then(extract_text)
-            .unwrap_or_default();
+        let Some(surface) = Surface::load(thing) else {
+            return;
+        };
+        let window_id = surface
+            .window
+            .or_else(|| thing.fields.get(&canon::SRC).and_then(Value::as_uuid));
         let Some(window_id) = window_id else {
             return;
         };
-        let pixmap = pixmap.unwrap_or_else(|| Uuid::nil());
 
         let window = load_thing::<Window>(window_id).unwrap_or_else(|| default_window(window_id));
         let entry = self.windows.entry(window_id).or_insert(WindowSurface {
             window: window.clone(),
-            pixmap,
+            surface_id: None,
             text: String::new(),
             bitmap: None,
         });
         entry.window = window;
-        entry.pixmap = pixmap;
-        entry.text = text;
-        
-        if let Some(Value::Bytes(bytes)) = map.get(&canon::BITMAP) {
-            if let Some(bmp) = decode_bmp(bytes) {
+        entry.surface_id = Some(surface.id);
+        entry.text = surface.text;
+
+        if let Some(bytes) = surface.bitmap {
+            if let Some(bmp) = decode_bmp(&bytes) {
                 entry.bitmap = Some(Arc::new(bmp));
             }
         }
@@ -341,6 +372,22 @@ impl Compositor {
         }
     }
 
+    fn ingest_cursor(&mut self, thing: &userland::GraphThing) {
+        if thing.kind != canon::CURSOR {
+            return;
+        }
+        let x = thing.fields.get(&canon::X).and_then(|v| v.as_i64());
+        let y = thing.fields.get(&canon::Y).and_then(|v| v.as_i64());
+        let visible = thing.fields.get(&canon::VISIBLE).and_then(|v| v.as_bool());
+        self.cursor.set_from_graph(
+            x,
+            y,
+            visible,
+            self.framebuffer.width,
+            self.framebuffer.height,
+        );
+    }
+
     fn ingest_window(&mut self, window: Window) {
         let window_id = window.id;
         if let Some(entry) = self.windows.get_mut(&window_id) {
@@ -350,11 +397,16 @@ impl Compositor {
                 window_id,
                 WindowSurface {
                     window,
-                    pixmap: Uuid::nil(),
+                    surface_id: None,
                     text: String::new(),
                     bitmap: None,
                 },
             );
+        }
+        if let Some(target) = self.windows.get(&window_id).and_then(|w| w.window.target) {
+            if let Some(entry) = self.windows.get_mut(&window_id) {
+                entry.surface_id = Some(target);
+            }
         }
         self.bump_window(window_id);
     }
@@ -377,13 +429,36 @@ impl Compositor {
     }
 
     fn draw_windows(&mut self) {
-        let ordered: Vec<WindowSurface> = self
-            .window_order
+        let mut ordered: Vec<&WindowSurface> = self
+            .windows
             .iter()
-            .filter_map(|id| self.windows.get(id).cloned())
+            .filter_map(|(id, surface)| {
+                if surface.window.visible {
+                    Some((id, surface))
+                } else {
+                    None
+                }
+            })
+            .map(|(_, surface)| surface)
             .collect();
+
+        ordered.sort_by(|a, b| {
+            use core::cmp::Ordering;
+            let z_cmp = a.window.z.cmp(&b.window.z);
+            if z_cmp != Ordering::Equal {
+                return z_cmp;
+            }
+            let idx = |id: Uuid| {
+                self.window_order
+                    .iter()
+                    .position(|w| *w == id)
+                    .unwrap_or(usize::MAX)
+            };
+            idx(a.window.id).cmp(&idx(b.window.id))
+        });
+
         for surface in ordered {
-            self.draw_window(&surface);
+            self.draw_window(surface);
         }
     }
 
@@ -559,6 +634,9 @@ impl Compositor {
     }
 
     fn draw_cursor(&mut self) {
+        if !self.cursor.visible {
+            return;
+        }
         let base_x = clamp_i32(
             self.cursor.x,
             0,
@@ -655,6 +733,9 @@ fn default_window(id: Uuid) -> Window {
         y: 32,
         width: 320,
         height: 200,
+        z: 0,
+        visible: true,
+        target: None,
     }
 }
 
