@@ -77,4 +77,3 @@ fn wait_input_ready() {
 fn wait_output_ready() {
     while unsafe { Port::<u8>::new(0x64).read() } & 0x01 == 0 {}
 }
-

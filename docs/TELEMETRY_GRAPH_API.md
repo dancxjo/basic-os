@@ -163,9 +163,56 @@ See `apps/graph_demo/` for a complete example that demonstrates:
 
 The following syscalls are exposed to userland:
 
-- `SYSCALL_JOURNAL_EMIT` (0x10): Append an event to the journal
-- `SYSCALL_JOURNAL_SNAPSHOT` (0x11): Get a postcard-encoded snapshot of all journal events
-- `SYSCALL_GRAPH_SNAPSHOT` (0x12): Get a postcard-encoded snapshot of the current graph state
+### Graph Operations
+- `SYSCALL_GRAPH_FIAT` (0x01): Create a new Thing in the graph
+- `SYSCALL_GRAPH_LINK` (0x02): Create an edge between two Things
+- `SYSCALL_GRAPH_GET` (0x05): Get a specific Thing by UUID
+- `SYSCALL_GRAPH_FIND_BY_KIND` (0x0B): Find Things by kind
+- `SYSCALL_GRAPH_GET_NODES` (0x0D): Get nodes matching a pattern
+- `SYSCALL_GRAPH_GET_PROPS` (0x0E): Get properties of a node
+- `SYSCALL_GRAPH_SET_PROPS` (0x0F): Set properties on a node
+
+### Watch Operations
+- `SYSCALL_WATCH_REGISTER` (0x06): Register a watch for graph changes
+- `SYSCALL_WATCH_POLL` (0x07): Poll for changes from a registered watch
+
+### Device Access
+- `SYSCALL_KBD_READ` (0x08): Read keyboard scancodes
+- `SYSCALL_FB_INFO` (0x09): Get framebuffer information
+- `SYSCALL_FB_MAP` (0x0A): Map framebuffer into userspace
+- `SYSCALL_MOUSE_READ` (0x0C): Read mouse events
+
+### Capability Management
+- `SYSCALL_GRANT_CAPABILITY` (0x10): Grant a capability to another bundle
+
+## Bundle and Capability Model
+
+ThingOS uses a capability-based security model where:
+
+1. **Bundles** represent units of authority. Each task runs within a bundle context.
+2. **Ownership** is tracked via `OWNS` edges from bundle nodes to Things they own.
+3. **Capabilities** are edges from bundle nodes to Things they can access:
+   - `CAN_READ`: Permission to read a Thing's properties
+   - `CAN_WRITE`: Permission to modify a Thing's properties
+   - `CAN_LINK`: Permission to create edges involving a Thing
+
+### Granting Capabilities
+
+Bundles can delegate their capabilities to other bundles using `SYSCALL_GRANT_CAPABILITY`.
+The granting bundle must either own the target Thing or already have the capability being granted.
+
+```rust
+// Example: Grant read access to another bundle
+use userland::sys::grant_capability_raw;
+
+let request = GrantCapabilityRequest {
+    grantee: other_bundle_id,
+    target: thing_id,
+    capability: canon::CAN_READ,
+};
+let payload = postcard::to_allocvec(&request).unwrap();
+grant_capability_raw(&payload);
+```
 
 ## Future Directions
 

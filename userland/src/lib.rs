@@ -126,6 +126,11 @@ pub mod canon {
     pub const COLOR: Symbol = canon(b'C', b'L', b'R');
     pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
     pub const BITMAP: Symbol = canon(b'B', b'M', b'P');
+
+    // Capability symbols for granting permissions
+    pub const CAN_READ: Symbol = canon(b'C', b'R', b'D');
+    pub const CAN_WRITE: Symbol = canon(b'C', b'W', b'R');
+    pub const CAN_LINK: Symbol = canon(b'C', b'L', b'K');
 }
 
 pub mod prelude {
