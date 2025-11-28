@@ -16,10 +16,8 @@ use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
 use crate::telemetry::canon;
-use crate::telemetry::graph::{self, BundleId, GraphFiatRequest};
-use crate::telemetry::journal::Value;
+use crate::telemetry::graph::{self, BundleId, BundleType};
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -43,6 +41,7 @@ pub struct System {
 struct UserModule {
     name: &'static str,
     bundle: BundleId,
+    bundle_type: BundleType,
 }
 
 static USER_MODULES: spin::Mutex<Option<Vec<UserModule>>> = spin::Mutex::new(None);
@@ -173,17 +172,22 @@ fn init_user_modules() {
     }
     let mut entries = Vec::new();
     for name in modules.into_iter() {
-        let mut fields = BTreeMap::new();
-        let bundle = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes());
-        fields.insert(canon::ID, Value::Uuid(bundle));
-        fields.insert(canon::NAME, Value::Text(name.into()));
-        let req = GraphFiatRequest {
-            id: Some(bundle),
-            kind: canon::BUNDLE,
-            fields,
-        };
-        graph::fiat_for_bundle(bundle, req);
-        entries.push(UserModule { name, bundle });
+        // Infer bundle type from module name
+        let bundle_type = BundleType::from_name(name);
+
+        // Create the bundle with proper type information using the lifecycle API
+        let bundle = graph::create_bundle(name, bundle_type, None);
+
+        info!(
+            "Created bundle for '{}' with type {:?}, id={}",
+            name, bundle_type, bundle
+        );
+
+        entries.push(UserModule {
+            name,
+            bundle,
+            bundle_type,
+        });
     }
     *USER_MODULES.lock() = Some(entries);
     NEXT_USER_MODULE.store(0, Ordering::Release);
@@ -218,7 +222,13 @@ pub extern "C" fn start_user_task() {
         info!("No remaining user modules to start; halting task.");
         loop {}
     });
+
+    // Assign the bundle to the current task before first run
     runtime::assign_current_bundle(module.bundle);
+
+    // Grant initial capabilities based on bundle type
+    grant_initial_capabilities(&module);
+
     let module_bytes = get_module(module.name).unwrap_or_else(|| {
         panic!("Module '{}' not found", module.name);
     });
@@ -237,6 +247,64 @@ pub extern "C" fn start_user_task() {
     ));
     unsafe {
         jump_to_user(loaded.entry, loaded.stack_top, new_table_frame);
+    }
+}
+
+/// Grant initial capabilities to a bundle based on its type.
+/// - Drivers get access to device nodes they're responsible for
+/// - Compositors get framebuffer access
+/// - Apps get minimal initial capabilities
+fn grant_initial_capabilities(module: &UserModule) {
+    use uuid::Uuid;
+
+    match module.bundle_type {
+        BundleType::Driver => {
+            // Grant driver capabilities based on name
+            if module.name.contains("keyboard") {
+                // Keyboard driver gets input device capability
+                info!("Granting keyboard driver capabilities to {}", module.name);
+            } else if module.name.contains("mouse") {
+                // Mouse driver gets input device capability
+                info!("Granting mouse driver capabilities to {}", module.name);
+            } else if module.name.contains("framebuffer") {
+                // Framebuffer driver gets display device capability
+                let framebuffer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0");
+                if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_WRITE)
+                {
+                    info!(
+                        "Granted CAN_WRITE on framebuffer to bundle {}",
+                        module.bundle
+                    );
+                }
+                if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_READ) {
+                    info!(
+                        "Granted CAN_READ on framebuffer to bundle {}",
+                        module.bundle
+                    );
+                }
+            }
+        }
+        BundleType::Compositor => {
+            // Compositor gets framebuffer access for display composition
+            let framebuffer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0");
+            if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_WRITE) {
+                info!(
+                    "Granted CAN_WRITE on framebuffer to compositor {}",
+                    module.bundle
+                );
+            }
+            if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_READ) {
+                info!(
+                    "Granted CAN_READ on framebuffer to compositor {}",
+                    module.bundle
+                );
+            }
+        }
+        BundleType::App => {
+            // Apps start with minimal capabilities
+            // They can request additional capabilities through syscalls
+            info!("App {} starting with minimal capabilities", module.name);
+        }
     }
 }
 

@@ -98,6 +98,11 @@ pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
 pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
 pub const EMITS: Symbol = canon(b'E', b'M', b'T');
 
+// Bundle types - used to classify bundles by their role
+pub const APP: Symbol = canon(b'A', b'P', b'P');
+pub const TYPE: Symbol = canon(b'T', b'Y', b'P');
+pub const VERSION: Symbol = canon(b'V', b'E', b'R');
+
 pub const INPUT_DEVICE_MOUSE: Symbol = canon(b'I', b'D', b'M');
 pub const INPUT_EVENT: Symbol = canon(b'I', b'E', b'V');
 pub const MOVE: Symbol = canon(b'M', b'O', b'V');
@@ -174,6 +179,9 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (DRIVER_STORAGE, "driver_storage"),
         (DRIVER_TIMER, "driver_timer"),
         (DRIVER_OTHER, "driver_other"),
+        (APP, "app"),
+        (TYPE, "type"),
+        (VERSION, "version"),
     ];
     let mut i = 0;
     while i < TBL.len() {
@@ -251,6 +259,9 @@ pub fn from_str(s: &str) -> Option<Symbol> {
         (DRIVER_STORAGE, "driver_storage"),
         (DRIVER_TIMER, "driver_timer"),
         (DRIVER_OTHER, "driver_other"),
+        (APP, "app"),
+        (TYPE, "type"),
+        (VERSION, "version"),
     ];
     let mut i = 0;
     while i < TBL.len() {
