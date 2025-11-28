@@ -55,21 +55,18 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/kernel -ex "target remote 
 
 ## Syscall surface (early)
 
-- `journal_emit(kind, ptr, len)`: append an event to the telemetry journal. The
-  payload is parsed as postcard-serialized `Value` when possible, otherwise as
-  UTF-8 text or raw bytes. `write` events (symbol `WRT`) are also reflected to
-  the console for convenience.
-- `journal_snapshot(out_ptr, out_len)`: copy the postcard-serialized journal
-  into a user buffer. The return value is the required size; if the provided
-  buffer is too small no data is written.
+Userland interacts with the system through graph and device syscalls. The
+telemetry journal stays inside the kernel; user code queries live state via
+graph operations and watches instead of snapshots.
+
 - `graph_find_by_kind(kind_ptr, kind_len, cursor)`: query the graph for things
   of a specific kind. Returns a paginated list of things.
 
 ## Current status
 
-- kernel boots, sets up devices, and exposes journal/graph/dev syscalls
+- kernel boots, sets up devices, and exposes graph/device syscalls
 - compositor launches four sample apps
-- "Everything is a Thing" graph is wired via journal events and snapshots
+- "Everything is a Thing" graph is wired via live graph operations and watches
 - userland `WatchManager` drives app events
 
 This repository is in a very early stage. Persistence and higher level
@@ -80,8 +77,8 @@ bringing up the core kernel.
 ## ThingOS vision (short)
 
 - **Everything is a Thing**: uniform data unit with identity, kind, and fields. Should be declarative, inspectable, and serializable; state comes from events, not in-place mutation. Identities are stable and revisions accumulate (Things never “die”; they gain new versions).
-- **The Graph is the system**: directed, labeled multigraph describing containment, dependencies, supervision, IO, config, and message streams between Things. The graph is not stored — it is derived by replaying the journal, with optional snapshots for faster boot.
-- **The Journal is the CPU**: append-only event log; components react to events and emit new ones. State is reconstructed by replay; persistence is the log.
+- **The Graph is the system**: directed, labeled multigraph describing containment, dependencies, supervision, IO, config, and message streams between Things. The graph is not stored — it is derived by replaying the journal.
+- **The Journal is the CPU**: append-only event log; components react to events and emit new ones. State is reconstructed by replay inside the kernel; userland observes the resulting graph via queries and watches.
 
 Current implementation status:
 

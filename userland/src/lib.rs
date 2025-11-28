@@ -187,8 +187,8 @@ pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
     declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, grant_capability,
     load_thing, load_things_of_kind, map, that, update_queue_state, update_thing, Event,
-    GrantCapabilityRequest, GraphEdge, GraphSnapshot, GraphThing, NodePattern, QueueState,
-    SharedBuffer, Surface, Thingable, Value, Window,
+    GrantCapabilityRequest, GraphEdge, GraphThing, NodePattern, QueueState, SharedBuffer, Surface,
+    Thingable, Value, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 

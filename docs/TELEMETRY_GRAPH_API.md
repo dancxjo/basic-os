@@ -1,12 +1,12 @@
 # Telemetry Graph API
 
-ThingOS uses a versioned graph of "Things" (nodes) and Edges (relationships) as the core data model. All state changes flow through an append-only journal, and the kernel maintains a derived graph view that userland applications can query.
+ThingOS uses a versioned graph of "Things" (nodes) and Edges (relationships) as the core data model. All state changes flow through an append-only journal, and the kernel maintains a derived graph view that userland applications can query. The journal itself stays inside the kernel; userland observes live state through graph queries and watch streams.
 
 ## Overview
 
 The telemetry stack consists of three layers:
 
-1. **Journal** (`kernel/src/graph/journal.rs`, `userland/src/lib.rs`): Append-only event log
+1. **Journal** (`kernel/src/graph/journal.rs`): Append-only event log (kernel-internal)
 2. **Graph** (`kernel/src/graph/store.rs`): Derived view built by replaying journal events
 3. **Userland API** (`userland/src/lib.rs`): High-level typed facade for working with Things
 
@@ -50,6 +50,32 @@ for thing in windows {
 // Load a specific thing by ID
 if let Some(thing) = load_thing::<Window>(some_id) {
     println!("Loaded window: {:?}", thing);
+}
+```
+
+### Watching the Graph
+
+Use watches to react to live graph changes without pulling snapshots:
+
+```rust
+use userland::{canon, watch::{ThingFilter, WatchManager}};
+
+let mut manager = WatchManager::new();
+let app_id = manager.register_app();
+
+// Watch for window updates
+manager.register_graph(
+    app_id,
+    ThingFilter {
+        kind: Some(canon::WINDOW),
+        id: None,
+    },
+);
+
+// Periodically poll for changes
+manager.process_graph(&[app_id]);
+for event in manager.drain_inbox(app_id) {
+    // Handle AppEvent::Thing or AppEvent::Edge
 }
 ```
 
@@ -150,14 +176,16 @@ update_thing(id, &updated);
 3. **No kernel-side pointers**: Only `Value` trees and UUIDs cross the kernel-userland boundary.
 4. **Userland caching is optional**: Applications can query via `find_by_kind()` or maintain their own process-local caches.
 5. **Revisions enable conflict detection**: Each Thing and Edge has a revision number for tracking updates.
+6. **Graph queries and watches are the public surface**: Userland never snapshots the journal; it consumes live graph state via queries and watch subscriptions.
 
 ## Example Application
 
 See `apps/graph_demo/` for a complete example that demonstrates:
 - Creating a Window using `fiat_thing`
-- Querying the graph with `graph_snapshot`
+- Querying the graph with `find_by_kind`
 - Loading all Windows with `load_things_of_kind`
 - Updating a Thing with `update_thing`
+- Reacting to graph changes with `WatchManager`
 
 ## Syscalls
 

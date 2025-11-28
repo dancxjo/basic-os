@@ -150,22 +150,6 @@ pub fn apply_snapshot(snapshot: GraphSnapshot) {
     with_store(|store| store.apply_snapshot(snapshot));
 }
 
-pub fn export_snapshot_bytes() -> Option<Vec<u8>> {
-    let snapshot = snapshot();
-    postcard::to_allocvec(&snapshot).ok()
-}
-
-pub fn import_snapshot_bytes(buf: &[u8]) -> Result<(), postcard::Error> {
-    let snapshot: GraphSnapshot = postcard::from_bytes(buf)?;
-    apply_snapshot(snapshot);
-    Ok(())
-}
-
-pub fn export_changes_since(revision: u64) -> Option<Vec<u8>> {
-    let batch = with_store(|store| store.changes_since(revision));
-    postcard::to_allocvec(&batch).ok()
-}
-
 pub fn export_thing_bytes(id: Uuid) -> Option<Vec<u8>> {
     let thing = get_thing(&id)?;
     postcard::to_allocvec(&thing).ok()
