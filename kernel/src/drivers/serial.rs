@@ -82,5 +82,5 @@ fn write_serial(buf: &[u8]) -> usize {
 
 pub fn init_serial() {
     SERIAL1.lock().init();
-    device::register_device(DeviceKind::Serial, None, Some(write_serial), None);
+    device::register_device(DeviceKind::Serial, None, Some(write_serial), None, None);
 }

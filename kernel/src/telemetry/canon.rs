@@ -39,8 +39,11 @@ pub const fn from_u16(raw: u16) -> Symbol {
 pub const JOURNAL: Symbol = cc('J', 'N');
 pub const KEYBOARD: Symbol = cc('K', 'B');
 pub const KEY_PRESSED: Symbol = cc('K', 'P');
+pub const KEY_EVENT: Symbol = canon(b'K', b'E', b'V');
 pub const MOUSE: Symbol = cc('M', 'S');
 pub const MOUSE_MOVED: Symbol = cc('M', 'V');
+pub const MOUSE_MOVE: Symbol = canon(b'M', b'M', b'V');
+pub const MOUSE_BUTTON: Symbol = canon(b'M', b'B', b'T');
 pub const AT: Symbol = cc('@', ' ');
 pub const INIT: Symbol = cc('I', 'N');
 pub const FAIL: Symbol = cc('F', 'L');
@@ -97,6 +100,17 @@ pub const DRIVER_STORAGE: Symbol = canon(b'S', b'T', b'R');
 pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
 pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
 pub const EMITS: Symbol = canon(b'E', b'M', b'T');
+pub const DEVICE: Symbol = canon(b'D', b'E', b'V');
+pub const FRAMEBUFFER_DEVICE: Symbol = canon(b'F', b'B', b'D');
+pub const KEYBOARD_DEVICE: Symbol = canon(b'K', b'B', b'D');
+pub const MOUSE_DEVICE: Symbol = canon(b'M', b'D', b'V');
+pub const NIC_DEVICE: Symbol = canon(b'N', b'I', b'C');
+pub const IRQ_EVENT: Symbol = canon(b'I', b'R', b'Q');
+pub const DMA_EVENT: Symbol = canon(b'D', b'M', b'A');
+pub const IRQ_LINE: Symbol = canon(b'I', b'Q', b'L');
+pub const BUFFER: Symbol = canon(b'B', b'U', b'F');
+pub const BYTES: Symbol = canon(b'B', b'Y', b'T');
+pub const DONE: Symbol = canon(b'D', b'O', b'N');
 
 // Bundle types - used to classify bundles by their role
 pub const APP: Symbol = canon(b'A', b'P', b'P');
@@ -118,8 +132,11 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (JOURNAL, "journal"),
         (KEYBOARD, "keyboard"),
         (KEY_PRESSED, "key_pressed"),
+        (KEY_EVENT, "key_event"),
         (MOUSE, "mouse"),
         (MOUSE_MOVED, "mouse_moved"),
+        (MOUSE_MOVE, "mouse_move"),
+        (MOUSE_BUTTON, "mouse_button"),
         (INPUT_DEVICE_MOUSE, "input.device.mouse"),
         (INPUT_EVENT, "input.event"),
         (MOVE, "move"),
@@ -179,6 +196,17 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (DRIVER_STORAGE, "driver_storage"),
         (DRIVER_TIMER, "driver_timer"),
         (DRIVER_OTHER, "driver_other"),
+        (DEVICE, "device"),
+        (FRAMEBUFFER_DEVICE, "device.framebuffer"),
+        (KEYBOARD_DEVICE, "device.keyboard"),
+        (MOUSE_DEVICE, "device.mouse"),
+        (NIC_DEVICE, "device.nic"),
+        (IRQ_EVENT, "irq.event"),
+        (DMA_EVENT, "dma.event"),
+        (IRQ_LINE, "irq_line"),
+        (BUFFER, "buffer"),
+        (BYTES, "bytes"),
+        (DONE, "done"),
         (APP, "app"),
         (TYPE, "type"),
         (VERSION, "version"),
@@ -198,8 +226,11 @@ pub fn from_str(s: &str) -> Option<Symbol> {
         (JOURNAL, "journal"),
         (KEYBOARD, "keyboard"),
         (KEY_PRESSED, "key_pressed"),
+        (KEY_EVENT, "key_event"),
         (MOUSE, "mouse"),
         (MOUSE_MOVED, "mouse_moved"),
+        (MOUSE_MOVE, "mouse_move"),
+        (MOUSE_BUTTON, "mouse_button"),
         (INPUT_DEVICE_MOUSE, "input.device.mouse"),
         (INPUT_EVENT, "input.event"),
         (MOVE, "move"),
@@ -259,6 +290,17 @@ pub fn from_str(s: &str) -> Option<Symbol> {
         (DRIVER_STORAGE, "driver_storage"),
         (DRIVER_TIMER, "driver_timer"),
         (DRIVER_OTHER, "driver_other"),
+        (DEVICE, "device"),
+        (FRAMEBUFFER_DEVICE, "device.framebuffer"),
+        (KEYBOARD_DEVICE, "device.keyboard"),
+        (MOUSE_DEVICE, "device.mouse"),
+        (NIC_DEVICE, "device.nic"),
+        (IRQ_EVENT, "irq.event"),
+        (DMA_EVENT, "dma.event"),
+        (IRQ_LINE, "irq_line"),
+        (BUFFER, "buffer"),
+        (BYTES, "bytes"),
+        (DONE, "done"),
         (APP, "app"),
         (TYPE, "type"),
         (VERSION, "version"),

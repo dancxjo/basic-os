@@ -1,4 +1,7 @@
+use alloc::vec::Vec;
 use core::fmt;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Raw syscall entry point (rax, rdi, rsi, rdx, r10).
 #[inline(always)]
@@ -53,6 +56,11 @@ pub const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
 pub const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
 pub const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
 pub const SYSCALL_GRANT_CAPABILITY: u64 = 0x10;
+pub const SYSCALL_IRQ_BIND: u64 = 0x11;
+pub const SYSCALL_IRQ_ACK: u64 = 0x12;
+pub const SYSCALL_DMA_MAP: u64 = 0x13;
+pub const SYSCALL_DMA_SUBMIT: u64 = 0x14;
+pub const SYSCALL_DMA_WAIT: u64 = 0x15;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
@@ -67,6 +75,31 @@ pub struct GraphFindByKind {
 pub struct GraphFindResultHeader {
     pub next_cursor: u64,
     pub count: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct IrqBindRequest {
+    pub device: Uuid,
+    pub irq_line: u8,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct DmaMapRequest {
+    pub buffer: Uuid,
+    pub flags: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct DmaSubmitRequest {
+    pub device: Uuid,
+    pub mapping: u64,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct DmaWaitRequest {
+    pub handle: u64,
+    pub timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -237,6 +270,71 @@ pub fn grant_capability_raw(payload: &[u8]) -> u64 {
             0,
             0,
         )
+    }
+}
+
+fn serialize_request<T: Serialize>(req: &T) -> Option<Vec<u8>> {
+    postcard::to_allocvec(req).ok()
+}
+
+pub fn irq_bind(request: IrqBindRequest) -> Option<u64> {
+    let payload = serialize_request(&request)?;
+    let handle = unsafe {
+        syscall(
+            SYSCALL_IRQ_BIND,
+            payload.as_ptr() as u64,
+            payload.len() as u64,
+            0,
+            0,
+        )
+    };
+    (handle != !0).then_some(handle)
+}
+
+pub fn irq_ack(handle: u64) -> bool {
+    unsafe { syscall(SYSCALL_IRQ_ACK, handle, 0, 0, 0) == 0 }
+}
+
+pub fn dma_map(request: DmaMapRequest) -> Option<u64> {
+    let payload = serialize_request(&request)?;
+    let handle = unsafe {
+        syscall(
+            SYSCALL_DMA_MAP,
+            payload.as_ptr() as u64,
+            payload.len() as u64,
+            0,
+            0,
+        )
+    };
+    (handle != !0).then_some(handle)
+}
+
+pub fn dma_submit(request: DmaSubmitRequest) -> Option<u64> {
+    let payload = serialize_request(&request)?;
+    let handle = unsafe {
+        syscall(
+            SYSCALL_DMA_SUBMIT,
+            payload.as_ptr() as u64,
+            payload.len() as u64,
+            0,
+            0,
+        )
+    };
+    (handle != !0).then_some(handle)
+}
+
+pub fn dma_wait(request: DmaWaitRequest) -> bool {
+    let Some(payload) = serialize_request(&request) else {
+        return false;
+    };
+    unsafe {
+        syscall(
+            SYSCALL_DMA_WAIT,
+            payload.as_ptr() as u64,
+            payload.len() as u64,
+            0,
+            0,
+        ) == 0
     }
 }
 

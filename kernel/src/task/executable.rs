@@ -4,13 +4,11 @@ use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, TaskMode, prepare_context};
-use crate::task::runtime;
-use crate::task::scheduler::Task;
 use core::ptr;
 use goblin::elf::Elf;
 use log::info;
 use x86_64::{
-    PhysAddr, VirtAddr,
+    VirtAddr,
     registers::control::Cr3,
     structures::paging::{
         FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
