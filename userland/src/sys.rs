@@ -15,7 +15,7 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
         out("r11") _,
         out("r8") _,
         out("r9") _,
-        out("r10") _,
+        lateout("r10") _,
         out("xmm0") _,
         out("xmm1") _,
         out("xmm2") _,
@@ -222,6 +222,7 @@ pub fn graph_get_raw(id_bytes: &[u8; 16], out: &mut [u8]) -> u64 {
             id_bytes.as_ptr() as u64,
             out.as_mut_ptr() as u64,
             out.len() as u64,
+            0,
         )
     }
 }
