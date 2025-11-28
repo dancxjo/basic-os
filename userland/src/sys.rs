@@ -15,7 +15,7 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
         out("r11") _,
         out("r8") _,
         out("r9") _,
-        out("r10") _,
+        lateout("r10") _,
         out("xmm0") _,
         out("xmm1") _,
         out("xmm2") _,
@@ -52,6 +52,7 @@ pub const SYSCALL_MOUSE_READ: u64 = 0x0C;
 pub const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
 pub const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
 pub const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
+pub const SYSCALL_GRANT_CAPABILITY: u64 = 0x10;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
@@ -222,6 +223,19 @@ pub fn graph_get_raw(id_bytes: &[u8; 16], out: &mut [u8]) -> u64 {
             id_bytes.as_ptr() as u64,
             out.as_mut_ptr() as u64,
             out.len() as u64,
+            0,
+        )
+    }
+}
+
+pub fn grant_capability_raw(payload: &[u8]) -> u64 {
+    unsafe {
+        syscall(
+            SYSCALL_GRANT_CAPABILITY,
+            payload.as_ptr() as u64,
+            payload.len() as u64,
+            0,
+            0,
         )
     }
 }

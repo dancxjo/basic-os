@@ -4,8 +4,8 @@ use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 use crate::serial_println;
 use crate::task::runtime::current_bundle;
 use crate::telemetry::graph::{
-    self, GraphFiatRequest, GraphFindByKind, GraphPropsGetRequest, GraphPropsRequest,
-    GraphThatRequest, NodePattern, WatchQuery,
+    self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphPropsGetRequest,
+    GraphPropsRequest, GraphThatRequest, NodePattern, WatchQuery,
 };
 
 #[unsafe(no_mangle)]
@@ -36,6 +36,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64
         SYSCALL_GRAPH_GET_NODES => graph_get_nodes(rdi, rsi, rdx, r10),
         SYSCALL_GRAPH_GET_PROPS => graph_get_props(rdi, rsi, rdx, r10),
         SYSCALL_GRAPH_SET_PROPS => graph_set_props(rdi, rsi),
+        SYSCALL_GRANT_CAPABILITY => grant_capability(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -59,6 +60,7 @@ const SYSCALL_MOUSE_READ: u64 = 0x0C;
 const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
 const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
 const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
+const SYSCALL_GRANT_CAPABILITY: u64 = 0x10;
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -256,6 +258,21 @@ fn graph_set_props(req_ptr: u64, req_len: u64) -> u64 {
         return !0;
     };
     if graph::set_props(current_bundle(), request) {
+        0
+    } else {
+        !0
+    }
+}
+
+fn grant_capability(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<GrantCapabilityRequest>(buf) else {
+        return !0;
+    };
+    if graph::grant_capability(current_bundle(), request) {
         0
     } else {
         !0

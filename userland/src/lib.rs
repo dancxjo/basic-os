@@ -126,14 +126,19 @@ pub mod canon {
     pub const COLOR: Symbol = canon(b'C', b'L', b'R');
     pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
     pub const BITMAP: Symbol = canon(b'B', b'M', b'P');
+
+    // Capability symbols for granting permissions
+    pub const CAN_READ: Symbol = canon(b'C', b'R', b'D');
+    pub const CAN_WRITE: Symbol = canon(b'C', b'W', b'R');
+    pub const CAN_LINK: Symbol = canon(b'C', b'L', b'K');
 }
 
 pub mod prelude {
     pub use crate::app::{App, AppContext, WindowHandle};
     pub use crate::app_main;
     pub use crate::graph::{
-        extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that, update_thing,
-        Thingable, Value, Window,
+        extract_text, fiat, fiat_thing, grant_capability, load_thing, load_things_of_kind, map,
+        that, update_thing, Thingable, Value, Window,
     };
     pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
     pub use crate::{print, println};
@@ -141,8 +146,9 @@ pub mod prelude {
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
-    extract_text, fiat, fiat_thing, load_thing, load_things_of_kind, map, that, update_thing,
-    Event, GraphEdge, GraphSnapshot, GraphThing, Thingable, Value, Window,
+    extract_text, fiat, fiat_thing, grant_capability, load_thing, load_things_of_kind, map, that,
+    update_thing, Event, GrantCapabilityRequest, GraphEdge, GraphSnapshot, GraphThing, Thingable,
+    Value, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 
