@@ -1,197 +1,12 @@
-use crate::telemetry::canon;
-use crate::telemetry::canon::Symbol;
-use crate::telemetry::journal::{self, Value};
+use crate::graph::canon;
+use crate::graph::canon::Symbol;
+use crate::graph::events::{emit_edge_event, emit_thing_event, reflect_thing_side_effects};
+use crate::graph::journal::Value;
+use crate::graph::types::*;
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::vec;
 use alloc::vec::Vec;
-use serde::{Deserialize, Serialize};
-use spin::Mutex;
 use uuid::Uuid;
 
-/// Identifier representing a bundle/authority.
-pub type BundleId = Uuid;
-
-/// Stable identifier for the kernel bundle. This bundle implicitly holds
-/// all privileges and is used for early boot declarations.
-pub const KERNEL_BUNDLE_ID: BundleId = Uuid::from_u128(0xfeed_cafe_dead_beef_cafe_babe_0000_0001);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum GraphChange {
-    Thing(GraphThing),
-    Edge(GraphEdge),
-}
-
-impl GraphChange {
-    pub fn revision(&self) -> u64 {
-        match self {
-            GraphChange::Thing(t) => t.revision,
-            GraphChange::Edge(e) => e.revision,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphThing {
-    pub id: Uuid,
-    pub kind: Symbol,
-    pub labels: BTreeSet<Symbol>,
-    pub fields: BTreeMap<Symbol, Value>,
-    pub owner: BundleId,
-    pub revision: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphEdge {
-    pub id: Uuid,
-    pub src: Uuid,
-    pub pred: Symbol,
-    pub dst: Uuid,
-    pub props: BTreeMap<Symbol, Value>,
-    pub owner: BundleId,
-    pub revision: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphSnapshot {
-    pub revision: u64,
-    pub thing_count: usize,
-    pub edge_count: usize,
-    pub things: Vec<GraphThing>,
-    pub edges: Vec<GraphEdge>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphWatchBatch {
-    pub from_revision: u64,
-    pub latest_revision: u64,
-    pub changes: Vec<GraphChange>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphFiatRequest {
-    pub id: Option<Uuid>,
-    pub kind: Symbol,
-    pub fields: BTreeMap<Symbol, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphThatRequest {
-    pub src: Uuid,
-    pub pred: Symbol,
-    pub dst: Uuid,
-    pub revision_hint: u64,
-    #[serde(default)]
-    pub props: BTreeMap<Symbol, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WatchQuery {
-    pub kind: Option<Symbol>,
-    pub src: Option<Uuid>,
-    pub dst: Option<Uuid>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NodePattern {
-    pub labels: Vec<Symbol>,
-    #[serde(default)]
-    pub props: BTreeMap<Symbol, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphNodeRequest {
-    pub id: Option<Uuid>,
-    pub labels: Vec<Symbol>,
-    pub props: BTreeMap<Symbol, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphLinkRequest {
-    pub id: Option<Uuid>,
-    pub kind: Symbol,
-    pub from: Uuid,
-    pub to: Uuid,
-    #[serde(default)]
-    pub props: BTreeMap<Symbol, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphPropsRequest {
-    pub node: Uuid,
-    pub props: BTreeMap<Symbol, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphPropsGetRequest {
-    pub node: Uuid,
-    pub keys: Vec<Symbol>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SharedBufferSpec {
-    pub id: Option<Uuid>,
-    pub size_bytes: u64,
-    pub kind: Symbol,
-    pub usage: Symbol,
-    #[serde(default)]
-    pub addr: Option<u64>,
-    #[serde(default)]
-    pub props: BTreeMap<Symbol, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueStateSpec {
-    pub id: Option<Uuid>,
-    pub buffer: Uuid,
-    pub owner: BundleId,
-    pub head: u64,
-    pub tail: u64,
-    pub has_data: bool,
-    #[serde(default)]
-    pub capacity: Option<u64>,
-    #[serde(default)]
-    pub props: BTreeMap<Symbol, Value>,
-}
-
-/// Request to grant a capability from one bundle to another.
-/// Data capabilities (CAN_READ/CAN_WRITE/CAN_LINK) may be delegated by the
-/// owner of the target Thing. Hardware capabilities (IRQ, DMA, MMIO, PORT IO)
-/// are kernel-only.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GrantCapabilityRequest {
-    /// The bundle receiving the capability
-    pub grantee: BundleId,
-    /// The target node the capability applies to
-    pub target: Uuid,
-    /// The capability being granted (e.g., CAN_READ, CAN_WRITE, CAN_LINK)
-    pub capability: Symbol,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[repr(C)]
-pub struct GraphFindByKind {
-    pub kind_ptr: u64, // *const u8
-    pub kind_len: u64, // usize
-    pub cursor: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[repr(C)]
-pub struct GraphFindResultHeader {
-    pub next_cursor: u64,
-    pub count: u32,
-}
-
-pub type WatchId = u64;
-
-pub struct Watch {
-    id: WatchId,
-    owner: BundleId,
-    pattern: NodePattern,
-    queue: Vec<GraphChange>,
-}
-
-const MAX_CHANGE_LOG: usize = 1024;
 const MAX_WATCH_QUEUE: usize = 1024;
 
 #[derive(Default)]
@@ -201,7 +16,6 @@ pub struct Store {
     edges: Vec<GraphEdge>,
     kind_index: BTreeMap<Symbol, BTreeSet<Uuid>>,
     edges_by_src_pred: BTreeMap<(Uuid, Symbol), Vec<GraphEdge>>,
-    // changes: Vec<GraphChange>, // Removed global firehose
     watches: BTreeMap<WatchId, Watch>,
     next_watch_id: WatchId,
 }
@@ -214,7 +28,6 @@ impl Store {
             edges: Vec::new(),
             kind_index: BTreeMap::new(),
             edges_by_src_pred: BTreeMap::new(),
-            // changes: Vec::new(),
             watches: BTreeMap::new(),
             next_watch_id: 1,
         }
@@ -305,6 +118,7 @@ impl Store {
             None
         }
     }
+
     pub fn fiat(&mut self, owner: BundleId, request: GraphFiatRequest) -> GraphThing {
         let mut labels = BTreeSet::new();
         labels.insert(request.kind);
@@ -502,8 +316,8 @@ impl Store {
             .unwrap_or_else(Vec::new)
     }
 
+    /// Stub implementation returning an empty change batch with the latest revision.
     pub fn changes_since(&self, revision: u64) -> GraphWatchBatch {
-        // Deprecated / Stubbed
         GraphWatchBatch {
             from_revision: revision,
             latest_revision: self.next_revision.saturating_sub(1),
@@ -531,9 +345,7 @@ impl Store {
         self.edges.clear();
         self.kind_index.clear();
         self.edges_by_src_pred.clear();
-        // self.changes.clear();
-        self.watches.clear(); // Clear watches on snapshot apply? Or keep them?
-        // Probably clear since state is reset.
+        self.watches.clear();
 
         for thing in snapshot.things.into_iter() {
             self.insert_thing(thing);
@@ -551,16 +363,6 @@ impl Store {
         self.next_revision = self.next_revision.wrapping_add(1);
         rev
     }
-
-    /*
-    fn record_change(&mut self, change: GraphChange) {
-        self.changes.push(change);
-        if self.changes.len() > MAX_CHANGE_LOG {
-            let overflow = self.changes.len().saturating_sub(MAX_CHANGE_LOG);
-            self.changes.drain(0..overflow);
-        }
-    }
-    */
 
     fn notify_watches(&mut self, change: &GraphChange) {
         let (target, edge) = match change {
@@ -767,221 +569,6 @@ impl Store {
     }
 }
 
-static STORE: Mutex<Option<Store>> = Mutex::new(None);
-
-pub fn init() {
-    let mut s = STORE.lock();
-    if s.is_none() {
-        *s = Some(Store::new());
-    }
-}
-
-pub fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
-    let mut s = STORE.lock();
-    let store = s.get_or_insert_with(Store::new);
-    f(store)
-}
-
-pub fn bundle_has_capability(bundle: BundleId, target: Uuid, capability: Symbol) -> bool {
-    with_store(|store| store.bundle_has_capability(bundle, target, capability))
-}
-
-pub fn fiat(request: GraphFiatRequest) -> GraphThing {
-    fiat_for_bundle(KERNEL_BUNDLE_ID, request)
-}
-
-pub fn fiat_for_bundle(owner: BundleId, request: GraphFiatRequest) -> GraphThing {
-    with_store(|store| store.fiat(owner, request))
-}
-
-pub fn fiat_node(owner: BundleId, request: GraphNodeRequest) -> GraphThing {
-    with_store(|store| store.fiat_node(owner, request))
-}
-
-pub fn that(request: GraphThatRequest) -> u64 {
-    that_for_bundle(KERNEL_BUNDLE_ID, request)
-}
-
-pub fn that_for_bundle(owner: BundleId, request: GraphThatRequest) -> u64 {
-    with_store(|store| store.that(owner, request))
-}
-
-pub fn link(owner: BundleId, request: GraphLinkRequest) -> u64 {
-    with_store(|store| store.link_edge(owner, request))
-}
-
-pub fn get_nodes(owner: BundleId, pattern: NodePattern) -> Vec<GraphThing> {
-    with_store(|store| store.get_nodes(owner, pattern))
-}
-
-pub fn get_props(
-    owner: BundleId,
-    request: GraphPropsGetRequest,
-) -> Option<BTreeMap<Symbol, Value>> {
-    with_store(|store| store.get_props(owner, request))
-}
-
-pub fn set_props(owner: BundleId, request: GraphPropsRequest) -> bool {
-    with_store(|store| store.set_props(owner, request))
-}
-
-pub fn declare_shared_buffer(owner: BundleId, mut spec: SharedBufferSpec) -> GraphThing {
-    let mut fields = spec.props;
-    fields.insert(canon::BYTES, Value::U64(spec.size_bytes));
-    fields.insert(canon::BUFFER_KIND, Value::Symbol(spec.kind));
-    fields.insert(canon::BUFFER_USAGE, Value::Symbol(spec.usage));
-    fields.insert(canon::OWNER, Value::Uuid(owner));
-    if let Some(addr) = spec.addr {
-        fields.insert(canon::ADDR, Value::U64(addr));
-    }
-
-    let request = GraphNodeRequest {
-        id: spec.id,
-        labels: vec![canon::SHARED_BUFFER],
-        props: fields,
-    };
-    fiat_node(owner, request)
-}
-
-pub fn declare_queue_state(mut spec: QueueStateSpec) -> GraphThing {
-    let mut fields = spec.props;
-    fields.insert(canon::BUFFER, Value::Uuid(spec.buffer));
-    fields.insert(canon::HEAD, Value::U64(spec.head));
-    fields.insert(canon::TAIL, Value::U64(spec.tail));
-    fields.insert(canon::HAS_DATA, Value::Bool(spec.has_data));
-    fields.insert(canon::OWNER, Value::Uuid(spec.owner));
-    if let Some(cap) = spec.capacity {
-        fields.insert(canon::CAPACITY, Value::U64(cap));
-    }
-
-    let request = GraphNodeRequest {
-        id: spec.id,
-        labels: vec![canon::QUEUE_STATE],
-        props: fields,
-    };
-    fiat_node(spec.owner, request)
-}
-
-pub fn update_queue_state(
-    owner: BundleId,
-    queue_id: Uuid,
-    head: u64,
-    tail: u64,
-    has_data: bool,
-    capacity: Option<u64>,
-) -> bool {
-    let mut props = BTreeMap::new();
-    props.insert(canon::HEAD, Value::U64(head));
-    props.insert(canon::TAIL, Value::U64(tail));
-    props.insert(canon::HAS_DATA, Value::Bool(has_data));
-    if let Some(cap) = capacity {
-        props.insert(canon::CAPACITY, Value::U64(cap));
-    }
-
-    set_props(
-        owner,
-        GraphPropsRequest {
-            node: queue_id,
-            props,
-        },
-    )
-}
-
-pub fn grant_capability(grantor: BundleId, request: GrantCapabilityRequest) -> bool {
-    with_store(|store| store.grant_capability(grantor, request))
-}
-
-pub fn get_thing(id: &Uuid) -> Option<GraphThing> {
-    with_store(|store| store.latest(id))
-}
-
-pub fn get_things_of_kind(kind: Symbol) -> Vec<GraphThing> {
-    with_store(|store| store.latest_of_kind(kind))
-}
-
-pub fn snapshot() -> GraphSnapshot {
-    with_store(|store| store.snapshot())
-}
-
-pub fn apply_snapshot(snapshot: GraphSnapshot) {
-    with_store(|store| store.apply_snapshot(snapshot));
-}
-
-pub fn export_snapshot_bytes() -> Option<Vec<u8>> {
-    let snapshot = snapshot();
-    postcard::to_allocvec(&snapshot).ok()
-}
-
-pub fn import_snapshot_bytes(buf: &[u8]) -> Result<(), postcard::Error> {
-    let snapshot: GraphSnapshot = postcard::from_bytes(buf)?;
-    apply_snapshot(snapshot);
-    Ok(())
-}
-
-pub fn export_changes_since(revision: u64) -> Option<Vec<u8>> {
-    let batch = with_store(|store| store.changes_since(revision));
-    postcard::to_allocvec(&batch).ok()
-}
-
-pub fn export_thing_bytes(id: Uuid) -> Option<Vec<u8>> {
-    let thing = get_thing(&id)?;
-    postcard::to_allocvec(&thing).ok()
-}
-
-pub fn register_watch(owner: BundleId, query: WatchQuery) -> WatchId {
-    with_store(|store| store.register_watch(owner, query))
-}
-
-pub fn register_watch_pattern(owner: BundleId, pattern: NodePattern) -> WatchId {
-    with_store(|store| store.register_watch_pattern(owner, pattern))
-}
-
-pub fn export_find_by_kind_bytes(owner: BundleId, kind: &str, cursor: u64) -> Option<Vec<u8>> {
-    let (things, next_cursor) = with_store(|store| store.find_by_kind(owner, kind, cursor));
-
-    let header = GraphFindResultHeader {
-        next_cursor,
-        count: things.len() as u32,
-    };
-
-    let mut buf = postcard::to_allocvec(&header).ok()?;
-
-    for thing in things {
-        let mut thing_bytes = postcard::to_allocvec(&thing).ok()?;
-        buf.append(&mut thing_bytes);
-    }
-
-    Some(buf)
-}
-
-pub fn export_watch_events(id: WatchId) -> Option<Vec<u8>> {
-    let events = with_store(|store| store.poll_watch(id));
-    postcard::to_allocvec(&events).ok()
-}
-
-fn emit_thing_event(thing: &GraphThing) {
-    let mut payload = BTreeMap::new();
-    payload.insert(canon::ID, Value::Uuid(thing.id));
-    payload.insert(canon::KIND, Value::Symbol(thing.kind));
-    payload.insert(canon::FIELDS, Value::Map(thing.fields.clone()));
-    payload.insert(canon::OWNER, Value::Uuid(thing.owner));
-    payload.insert(canon::REVISION, Value::U64(thing.revision));
-    let _ = journal::emit_data(canon::THING_CREATED, Value::Map(payload));
-}
-
-fn emit_edge_event(edge: &GraphEdge) {
-    let mut payload = BTreeMap::new();
-    payload.insert(canon::SRC, Value::Uuid(edge.src));
-    payload.insert(canon::DST, Value::Uuid(edge.dst));
-    payload.insert(canon::PREDICATE, Value::Symbol(edge.pred));
-    payload.insert(canon::OWNER, Value::Uuid(edge.owner));
-    if !edge.props.is_empty() {
-        payload.insert(canon::FIELDS, Value::Map(edge.props.clone()));
-    }
-    payload.insert(canon::REVISION, Value::U64(edge.revision));
-    let _ = journal::emit_data(canon::EDGE_ADDED, Value::Map(payload));
-}
-
 fn derive_uuid(kind: Symbol, fields: &BTreeMap<Symbol, Value>) -> Uuid {
     let mut name: Vec<u8> = Vec::new();
     name.extend_from_slice(&kind.0.to_be_bytes());
@@ -989,147 +576,4 @@ fn derive_uuid(kind: Symbol, fields: &BTreeMap<Symbol, Value>) -> Uuid {
         name.extend_from_slice(&buf);
     }
     Uuid::new_v5(&Uuid::NAMESPACE_OID, &name)
-}
-
-fn reflect_thing_side_effects(thing: &GraphThing) {
-    if thing.kind != canon::WRITE {
-        return;
-    }
-
-    if let Some(text) = extract_text(&Value::Map(thing.fields.clone())) {
-        for byte in text.bytes() {
-            crate::drivers::framebuffer::console_write_byte(byte);
-        }
-    }
-}
-
-fn extract_text(value: &Value) -> Option<alloc::string::String> {
-    match value {
-        Value::Text(s) => Some(s.clone()),
-        Value::Bytes(b) => core::str::from_utf8(b)
-            .ok()
-            .map(alloc::string::String::from),
-        Value::Map(m) => m.get(&canon::TEXT).and_then(extract_text),
-        _ => None,
-    }
-}
-
-// ============================================================================
-// Bundle Lifecycle Management
-// ============================================================================
-
-/// Bundle type classification for the bundle lifecycle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BundleType {
-    /// Device driver bundle
-    Driver,
-    /// User application bundle
-    App,
-    /// Window compositor bundle
-    Compositor,
-}
-
-impl BundleType {
-    /// Convert the bundle type to its corresponding symbol.
-    pub fn to_symbol(self) -> Symbol {
-        match self {
-            BundleType::Driver => canon::DRIVER,
-            BundleType::App => canon::APP,
-            BundleType::Compositor => canon::COMPOSITOR,
-        }
-    }
-
-    /// Attempt to infer bundle type from a module name.
-    /// Uses suffix matching for more precise classification:
-    /// - Names ending with "_driver" or "driver" are classified as Driver
-    /// - Names ending with "_compositor" or "compositor" are classified as Compositor
-    /// - Everything else defaults to App
-    pub fn from_name(name: &str) -> Self {
-        // Check for driver suffix patterns (more specific matching)
-        if name.ends_with("_driver") || name == "driver" || name.ends_with("driver") {
-            BundleType::Driver
-        } else if name.ends_with("_compositor")
-            || name == "compositor"
-            || name.ends_with("compositor")
-        {
-            BundleType::Compositor
-        } else {
-            BundleType::App
-        }
-    }
-}
-
-/// Create a new bundle node with proper type information and return its ID.
-/// This is the primary entry point for creating bundles with the full lifecycle.
-pub fn create_bundle(name: &str, bundle_type: BundleType, version: Option<&str>) -> BundleId {
-    let bundle_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
-    create_bundle_with_id(bundle_id, name, bundle_type, version)
-}
-
-/// Create a bundle node with an explicit ID.
-/// Useful when the BundleId has already been determined externally.
-pub fn create_bundle_with_id(
-    bundle_id: BundleId,
-    name: &str,
-    bundle_type: BundleType,
-    version: Option<&str>,
-) -> BundleId {
-    let mut fields = BTreeMap::new();
-    fields.insert(canon::ID, Value::Uuid(bundle_id));
-    fields.insert(canon::NAME, Value::Text(name.into()));
-    fields.insert(canon::TYPE, Value::Symbol(bundle_type.to_symbol()));
-    fields.insert(canon::STATUS, Value::Symbol(canon::INIT));
-    if let Some(v) = version {
-        fields.insert(canon::VERSION, Value::Text(v.into()));
-    }
-
-    let req = GraphFiatRequest {
-        id: Some(bundle_id),
-        kind: canon::BUNDLE,
-        fields,
-    };
-
-    // Use the bundle itself as owner (bundles own themselves)
-    fiat_for_bundle(bundle_id, req);
-    bundle_id
-}
-
-/// Look up an existing bundle by name, returning its BundleId if it exists.
-pub fn lookup_bundle(name: &str) -> Option<BundleId> {
-    let expected_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
-    with_store(|store| {
-        store.latest(&expected_id).map(|thing| {
-            if thing.kind == canon::BUNDLE {
-                Some(thing.id)
-            } else {
-                None
-            }
-        })?
-    })
-}
-
-/// Get or create a bundle by name. If the bundle exists, returns its ID.
-/// If it doesn't exist, creates a new bundle with the inferred type.
-///
-/// Note: This function is not atomic. During kernel boot when bundles are
-/// initialized single-threaded, this is safe. If used in a concurrent context,
-/// callers should ensure proper synchronization.
-pub fn get_or_create_bundle(name: &str) -> BundleId {
-    if let Some(id) = lookup_bundle(name) {
-        return id;
-    }
-    let bundle_type = BundleType::from_name(name);
-    create_bundle(name, bundle_type, None)
-}
-
-/// Grant initial capabilities to a bundle for a target node.
-/// This is used when launching a bundle to give it access to its initial resources.
-pub fn grant_initial_capability(bundle: BundleId, target: Uuid, capability: Symbol) -> bool {
-    let req = GrantCapabilityRequest {
-        grantee: bundle,
-        target,
-        capability,
-    };
-    // Kernel grants the capability
-    grant_capability(KERNEL_BUNDLE_ID, req)
 }

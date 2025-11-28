@@ -1,7 +1,7 @@
+use crate::graph::{BundleId, BundleType, KERNEL_BUNDLE_ID};
 use crate::mm::allocator::{BootFrameAllocator, global_mapper};
 use crate::task::context::TaskMode;
 use crate::task::scheduler::{SCHEDULER, Scheduler};
-use crate::telemetry::graph::{BundleId, BundleType, KERNEL_BUNDLE_ID};
 
 pub type TaskId = usize;
 
@@ -40,7 +40,7 @@ pub fn spawn_kernel_with_bundle(
     bundle_name: &str,
     bundle_type: BundleType,
 ) -> (TaskHandle, BundleId) {
-    use crate::telemetry::graph;
+    use crate::graph;
 
     // Create or get the bundle
     let bundle_id = graph::create_bundle(bundle_name, bundle_type, None);

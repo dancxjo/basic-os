@@ -8,9 +8,7 @@ use spin::Mutex as SpinMutex;
 use x86_64::VirtAddr;
 
 use crate::drivers::device::{self, DeviceKind};
-use crate::telemetry::canon;
-use crate::telemetry::graph::{self, GraphFiatRequest};
-use crate::telemetry::journal::Value;
+use crate::graph::{self, GraphFiatRequest, canon, journal::Value};
 use uuid::Uuid;
 
 static FRAMEBUFFER_VIRT_RANGE: SpinMutex<Option<Range<VirtAddr>>> = SpinMutex::new(None);

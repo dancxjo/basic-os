@@ -3,11 +3,7 @@ use alloc::vec::Vec;
 use spin::Mutex as SpinMutex;
 use uuid::Uuid;
 
-use crate::telemetry::{
-    canon,
-    graph::{self, BundleId, GraphFiatRequest},
-    journal::Value,
-};
+use crate::graph::{self, BundleId, GraphFiatRequest, canon, journal::Value};
 
 pub type IrqHandle = u64;
 pub type DmaMappingHandle = u64;
@@ -271,7 +267,7 @@ pub fn monotonic_ticks() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telemetry::graph::{self, BundleType};
+    use crate::graph::{self, BundleType};
 
     fn new_id(name: &str) -> Uuid {
         Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes())

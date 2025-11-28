@@ -21,9 +21,9 @@
 
 use crate::{
     arch::x86_64::interrupts::end_of_interrupt,
+    graph::{BundleId, KERNEL_BUNDLE_ID},
     mm::allocator::BootFrameAllocator,
     serial_print,
-    telemetry::graph::{BundleId, KERNEL_BUNDLE_ID},
 };
 use alloc::vec::Vec;
 use core::ptr;

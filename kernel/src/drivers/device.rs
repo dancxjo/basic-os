@@ -8,11 +8,7 @@ use lazy_static::lazy_static;
 use spin::Mutex as SpinMutex;
 use uuid::Uuid;
 
-use crate::telemetry::{
-    canon,
-    graph::{self, GraphFiatRequest},
-    journal::Value,
-};
+use crate::graph::{self, GraphFiatRequest, canon, journal::Value};
 
 pub type DeviceHandle = u64;
 

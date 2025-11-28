@@ -3,12 +3,12 @@ use uuid::Uuid;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
 use crate::drivers::irq_dma;
-use crate::serial_println;
-use crate::task::runtime::current_bundle;
-use crate::telemetry::graph::{
+use crate::graph::{
     self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphPropsGetRequest,
     GraphPropsRequest, GraphThatRequest, NodePattern, WatchQuery,
 };
+use crate::serial_println;
+use crate::task::runtime::current_bundle;
 
 #[unsafe(no_mangle)]
 static mut USER_RSP: u64 = 0;
@@ -171,7 +171,7 @@ fn graph_get(id_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
         return !0;
     };
 
-    let bytes = match crate::telemetry::graph::export_thing_bytes(id) {
+    let bytes = match crate::graph::export_thing_bytes(id) {
         Some(buf) => buf,
         None => return !0,
     };
@@ -243,11 +243,7 @@ fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
     };
 
     let bundle = current_bundle();
-    let bytes = match crate::telemetry::graph::export_find_by_kind_bytes(
-        bundle,
-        kind_str,
-        request.cursor,
-    ) {
+    let bytes = match crate::graph::export_find_by_kind_bytes(bundle, kind_str, request.cursor) {
         Some(buf) => buf,
         None => return !0,
     };
@@ -395,14 +391,14 @@ pub fn init_syscall() {
         LStar::write(VirtAddr::new(syscall_entry_asm as *const () as u64));
 
         // Define CS/SS selectors (CS for kernel, SS is unused by sysretq)
-        let kernel_cs = 0x08u16;
+        let _kernel_cs = 0x08u16;
         // For sysretq, we need a base selector such that:
         // CS = base + 16 (0x10)
         // SS = base + 8  (0x08)
         // Our GDT has UserData at 0x28 (Index 5) and UserCode at 0x30 (Index 6).
         // So we need base + 8 = 0x28 => base = 0x20.
         // We use RPL 3 for user segments, so 0x20 | 3 = 0x23.
-        let user_cs = 0x23u16;
+        let _user_cs = 0x23u16;
 
         // Star::write expects: cs_sysret, ss_sysret, cs_syscall, ss_syscall
         // cs_sysret: User Code (0x33 = 0x30 | 3)
