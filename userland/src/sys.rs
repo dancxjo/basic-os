@@ -45,14 +45,13 @@ pub const SYSCALL_GRAPH_LINK: u64 = 0x02;
 // pub const SYSCALL_GRAPH_QUERY: u64 = 0x03;
 // pub const SYSCALL_GRAPH_WATCH: u64 = 0x04;
 pub const SYSCALL_GRAPH_GET: u64 = 0x05;
-pub const SYSCALL_WATCH_REGISTER: u64 = 0x06;
-pub const SYSCALL_WATCH_POLL: u64 = 0x07;
+pub const SYSCALL_GRAPH_WATCH_REGISTER: u64 = 0x06;
+pub const SYSCALL_GRAPH_WATCH_POLL: u64 = 0x07;
 pub const SYSCALL_KBD_READ: u64 = 0x08;
 pub const SYSCALL_FB_INFO: u64 = 0x09;
 pub const SYSCALL_FB_MAP: u64 = 0x0A;
 pub const SYSCALL_GRAPH_FIND_BY_KIND: u64 = 0x0B;
 pub const SYSCALL_MOUSE_READ: u64 = 0x0C;
-pub const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
 pub const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
 pub const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
 pub const SYSCALL_GRANT_CAPABILITY: u64 = 0x10;
@@ -177,18 +176,6 @@ pub fn graph_link_raw(payload: &[u8]) -> u64 {
     }
 }
 
-pub fn graph_get_nodes_raw(pattern: &[u8], out: &mut [u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_GET_NODES,
-            pattern.as_ptr() as u64,
-            pattern.len() as u64,
-            out.as_mut_ptr() as u64,
-            out.len() as u64,
-        )
-    }
-}
-
 pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
     unsafe {
         syscall(
@@ -213,10 +200,10 @@ pub fn graph_set_props_raw(request: &[u8]) -> u64 {
     }
 }
 
-pub fn watch_register_raw(payload: &[u8]) -> u64 {
+pub fn graph_watch_register_raw(payload: &[u8]) -> u64 {
     unsafe {
         syscall(
-            SYSCALL_WATCH_REGISTER,
+            SYSCALL_GRAPH_WATCH_REGISTER,
             payload.as_ptr() as u64,
             payload.len() as u64,
             0,
@@ -225,10 +212,10 @@ pub fn watch_register_raw(payload: &[u8]) -> u64 {
     }
 }
 
-pub fn watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
+pub fn graph_watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
     unsafe {
         syscall(
-            SYSCALL_WATCH_POLL,
+            SYSCALL_GRAPH_WATCH_POLL,
             watch_id,
             out.as_mut_ptr() as u64,
             out.len() as u64,
@@ -249,14 +236,14 @@ pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
     }
 }
 
-pub fn graph_get_raw(id_bytes: &[u8; 16], out: &mut [u8]) -> u64 {
+pub fn graph_get_raw(request: &[u8], out: &mut [u8]) -> u64 {
     unsafe {
         syscall(
             SYSCALL_GRAPH_GET,
-            id_bytes.as_ptr() as u64,
+            request.as_ptr() as u64,
+            request.len() as u64,
             out.as_mut_ptr() as u64,
             out.len() as u64,
-            0,
         )
     }
 }

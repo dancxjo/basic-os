@@ -35,7 +35,7 @@ use alloc::vec::Vec;
 use core::fmt::{self, Write};
 
 use crate::canon;
-use crate::graph::{self, load_thing, update_thing, Thingable, Value, Window};
+use crate::graph::{self, load_thing, update_thing, Value, Window};
 use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 use uuid::Uuid;
 
@@ -222,14 +222,7 @@ struct HostedApp<A: App> {
     state: AppState,
 }
 
-impl<A: App> HostedApp<A> {
-    fn ctx<'a>(&'a mut self, watch_manager: &'a mut WatchManager) -> AppContext<'a> {
-        AppContext {
-            state: &mut self.state,
-            watch_manager,
-        }
-    }
-}
+impl<A: App> HostedApp<A> {}
 
 impl<A: App> AppRunner for HostedApp<A> {
     fn app_id(&self) -> usize {

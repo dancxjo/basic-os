@@ -96,6 +96,12 @@ pub struct NodePattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GraphGetRequest {
+    Thing(Uuid),
+    Pattern(NodePattern),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNodeRequest {
     pub id: Option<Uuid>,
     pub labels: Vec<Symbol>,

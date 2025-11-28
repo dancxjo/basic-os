@@ -33,6 +33,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "app-graph-smoke"
+version = "0.1.0"
+dependencies = [
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "app-keyboard-driver"
 version = "0.1.0"
 dependencies = [

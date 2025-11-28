@@ -1,0 +1,24 @@
+[package]
+name = "app-graph-smoke"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+uuid = { version = "1.10", default-features = false, features = [
+    "v5",
+    "serde",
+] }
+
+[[bin]]
+name = "graph-smoke"
+path = "src/lib.rs"
+
+[profile.release]
+panic = "abort"
+
+[lib]
+path = "src/lib.rs"
+
+[unstable]
+build-std = ["core"]

@@ -6,7 +6,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use crate::graph::{self, GraphChange, GraphEdge, GraphThing};
-use crate::{canon, Symbol};
+use crate::Symbol;
 use uuid::Uuid;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
