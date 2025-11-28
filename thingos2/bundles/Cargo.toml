@@ -1,0 +1,10 @@
+[package]
+name = "thingos2-bundles"
+version = "0.1.0"
+edition = "2021"
+description = "Bundle templates and graph-native protocols"
+license = "MIT"
+
+[dependencies]
+thingos2-core = { path = "../core" }
+thingos2-kernel = { path = "../kernel" }
