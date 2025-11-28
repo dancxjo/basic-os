@@ -127,7 +127,9 @@ pub struct GraphPropsGetRequest {
 }
 
 /// Request to grant a capability from one bundle to another.
-/// The granting bundle must own the target node or have the capability itself.
+/// Data capabilities (CAN_READ/CAN_WRITE/CAN_LINK) may be delegated by the
+/// owner of the target Thing. Hardware capabilities (IRQ, DMA, MMIO, PORT IO)
+/// are kernel-only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantCapabilityRequest {
     /// The bundle receiving the capability
@@ -404,18 +406,21 @@ impl Store {
     /// Returns true if the capability was successfully granted.
     pub fn grant_capability(&mut self, grantor: BundleId, request: GrantCapabilityRequest) -> bool {
         // Validate the capability symbol
-        if request.capability != canon::CAN_READ
-            && request.capability != canon::CAN_WRITE
-            && request.capability != canon::CAN_LINK
+        if !Self::is_data_capability(request.capability)
+            && !Self::is_hardware_capability(request.capability)
         {
             return false;
         }
 
-        // Check that grantor can grant this capability
-        // Kernel can always grant, owners can grant, or must have the capability
-        let can_grant = grantor == KERNEL_BUNDLE_ID
-            || self.owns(grantor, request.target)
-            || self.has_capability(grantor, request.target, request.capability);
+        // Enforce capability delegation policy:
+        // - Hardware capabilities can only be minted by the kernel.
+        // - Data capabilities can be granted by the owner of the target Thing
+        //   (or by the kernel, which owns everything).
+        let can_grant = if Self::is_hardware_capability(request.capability) {
+            grantor == KERNEL_BUNDLE_ID
+        } else {
+            grantor == KERNEL_BUNDLE_ID || self.owns(grantor, request.target)
+        };
 
         if !can_grant {
             return false;
@@ -628,6 +633,20 @@ impl Store {
             .get(&(bundle_node, canon::OWNS))
             .map(|edges| edges.iter().any(|e| e.dst == node))
             .unwrap_or(false)
+    }
+
+    fn is_data_capability(capability: Symbol) -> bool {
+        matches!(
+            capability,
+            canon::CAN_READ | canon::CAN_WRITE | canon::CAN_LINK
+        )
+    }
+
+    fn is_hardware_capability(capability: Symbol) -> bool {
+        matches!(
+            capability,
+            canon::CAN_HANDLE_IRQ | canon::CAN_DMA | canon::CAN_MMIO | canon::CAN_PORT_IO
+        )
     }
 
     fn has_capability(&self, bundle: BundleId, target: Uuid, predicate: Symbol) -> bool {

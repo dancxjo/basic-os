@@ -227,8 +227,9 @@ pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
 }
 
 /// Grant a capability to another bundle.
-/// The calling bundle must own the target or have the capability itself.
-/// Returns true if the capability was successfully granted.
+/// Data capabilities (read/write/link) may be delegated only by the owner of
+/// the target Thing. Hardware capabilities (IRQ/DMA/MMIO/PORT IO) are
+/// kernel-only. Returns true if the capability was successfully granted.
 pub fn grant_capability(grantee: Uuid, target: Uuid, capability: Symbol) -> bool {
     let req = GrantCapabilityRequest {
         grantee,

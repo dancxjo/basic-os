@@ -192,14 +192,26 @@ ThingOS uses a capability-based security model where:
 1. **Bundles** represent units of authority. Each task runs within a bundle context.
 2. **Ownership** is tracked via `OWNS` edges from bundle nodes to Things they own.
 3. **Capabilities** are edges from bundle nodes to Things they can access:
-   - `CAN_READ`: Permission to read a Thing's properties
-   - `CAN_WRITE`: Permission to modify a Thing's properties
-   - `CAN_LINK`: Permission to create edges involving a Thing
+   - *Data capabilities* (delegable by the Thing owner):
+     - `CAN_READ`: Permission to read a Thing's properties
+     - `CAN_WRITE`: Permission to modify a Thing's properties
+     - `CAN_LINK`: Permission to create edges involving a Thing
+   - *Hardware capabilities* (minted by the kernel only):
+     - `CAN_HANDLE_IRQ`: Permission to service an interrupt source
+     - `CAN_DMA`: Permission to set up DMA transfers
+     - `CAN_MMIO`: Permission to perform MMIO operations
+     - `CAN_PORT_IO`: Permission to perform port I/O
 
 ### Granting Capabilities
 
-Bundles can delegate their capabilities to other bundles using `SYSCALL_GRANT_CAPABILITY`.
-The granting bundle must either own the target Thing or already have the capability being granted.
+Bundles can delegate their capabilities to other bundles using
+`SYSCALL_GRANT_CAPABILITY`.
+
+- Data capabilities (`CAN_READ`, `CAN_WRITE`, `CAN_LINK`) may be granted by the
+  owner of the target Thing (or by the kernel, which implicitly owns
+  everything).
+- Hardware capabilities (`CAN_HANDLE_IRQ`, `CAN_DMA`, `CAN_MMIO`,
+  `CAN_PORT_IO`) can only be granted by the kernel.
 
 ```rust
 // Example: Grant read access to another bundle
