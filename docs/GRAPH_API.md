@@ -1,14 +1,14 @@
-# Telemetry Graph API
+# Graph API
 
-ThingOS uses a versioned graph of "Things" (nodes) and Edges (relationships) as the core data model. All state changes flow through an append-only journal, and the kernel maintains a derived graph view that userland applications can query. The journal itself stays inside the kernel; userland observes live state through graph queries and watch streams.
+ThingOS treats the graph of Things (nodes) and Edges (relationships) as the central OS object model. All state changes flow through an append-only journal, and the kernel maintains a derived graph view that userland applications can query. The journal and raw events are kernel-internal; userland only interacts with the derived graph surface via queries, mutations, and watch streams.
 
 ## Overview
 
 The telemetry stack consists of three layers:
 
-1. **Journal** (`kernel/src/graph/journal.rs`): Append-only event log (kernel-internal)
-2. **Graph** (`kernel/src/graph/store.rs`): Derived view built by replaying journal events
-3. **Userland API** (`userland/src/lib.rs`): High-level typed facade for working with Things
+1. **Journal** (`kernel/src/graph/journal.rs`): append-only event log (kernel-internal, not exposed to userland)
+2. **Graph** (`kernel/src/graph/store.rs`): derived view built by replaying journal events
+3. **Userland API** (`userland/src/lib.rs`): high-level typed facade for querying/mutating the graph and registering watches
 
 ## Core Concepts
 
@@ -171,7 +171,7 @@ update_thing(id, &updated);
 
 ## Design Principles
 
-1. **Journal is the source of truth**: All state changes are expressed as events in the append-only journal.
+1. **Journal is the source of truth**: All state changes are expressed as events in the append-only journal, which remains inside the kernel.
 2. **Graph is derived**: The kernel graph is built by replaying journal events; it can be reconstructed at any time.
 3. **No kernel-side pointers**: Only `Value` trees and UUIDs cross the kernel-userland boundary.
 4. **Userland caching is optional**: Applications can query via `find_by_kind()` or maintain their own process-local caches.
@@ -187,84 +187,29 @@ See `apps/graph_demo/` for a complete example that demonstrates:
 - Updating a Thing with `update_thing`
 - Reacting to graph changes with `WatchManager`
 
-## Syscalls
+## Syscalls (public surface)
 
-The following syscalls are exposed to userland:
+Userland touches the graph exclusively through the following syscalls. The journal and event stream backing the graph remain inside the kernel.
 
-### Graph Operations
-- `SYSCALL_GRAPH_FIAT` (0x01): Create a new Thing in the graph
-- `SYSCALL_GRAPH_LINK` (0x02): Create an edge between two Things
-- `SYSCALL_GRAPH_GET` (0x05): Fetch Things by UUID or node pattern
-- `SYSCALL_GRAPH_FIND_BY_KIND` (0x0B): Find Things by kind
-- `SYSCALL_GRAPH_GET_PROPS` (0x0E): Get properties of a node
-- `SYSCALL_GRAPH_SET_PROPS` (0x0F): Set properties on a node
+### Graph operations
+- `SYSCALL_GRAPH_FIAT` (0x01): create a new Thing in the graph
+- `SYSCALL_GRAPH_LINK` (0x02): create an edge between two Things
+- `SYSCALL_GRAPH_GET` (0x05): fetch Things by UUID or node pattern
+- `SYSCALL_GRAPH_FIND_BY_KIND` (0x0B): find Things by kind
+- `SYSCALL_GRAPH_GET_PROPS` (0x0E): get properties of a node
+- `SYSCALL_GRAPH_SET_PROPS` (0x0F): set properties on a node
 
-### Watch Operations
-- `SYSCALL_GRAPH_WATCH_REGISTER` (0x06): Register a watch for graph changes
-- `SYSCALL_GRAPH_WATCH_POLL` (0x07): Poll for changes from a registered watch
+### Watch operations
+- `SYSCALL_GRAPH_WATCH_REGISTER` (0x06): register a watch for graph changes
+- `SYSCALL_GRAPH_WATCH_POLL` (0x07): poll for changes from a registered watch
 
-### Device Access
-- `SYSCALL_KBD_READ` (0x08): Read keyboard scancodes
-- `SYSCALL_FB_INFO` (0x09): Get framebuffer information
-- `SYSCALL_FB_MAP` (0x0A): Map framebuffer into userspace
-- `SYSCALL_MOUSE_READ` (0x0C): Read mouse events
+## Bundle and capability model
 
-### Capability Management
-- `SYSCALL_GRANT_CAPABILITY` (0x10): Grant a capability to another bundle
+ThingOS uses a capability-based security model expressed in the graph:
 
-## Bundle and Capability Model
-
-ThingOS uses a capability-based security model where:
-
-1. **Bundles** represent units of authority. Each task runs within a bundle context.
+1. **Bundles** represent units of authority. Each task runs within a bundle context, and bundles appear as nodes in the graph.
 2. **Ownership** is tracked via `OWNS` edges from bundle nodes to Things they own.
-3. **Capabilities** are edges from bundle nodes to Things they can access:
-   - *Data capabilities* (delegable by the Thing owner):
-     - `CAN_READ`: Permission to read a Thing's properties
-     - `CAN_WRITE`: Permission to modify a Thing's properties
-     - `CAN_LINK`: Permission to create edges involving a Thing
-   - *Hardware capabilities* (minted by the kernel only):
-     - `CAN_HANDLE_IRQ`: Permission to service an interrupt source
-     - `CAN_DMA`: Permission to set up DMA transfers
-     - `CAN_MMIO`: Permission to perform MMIO operations
-     - `CAN_PORT_IO`: Permission to perform port I/O
-
-### Granting Capabilities
-
-Bundles can delegate their capabilities to other bundles using
-`SYSCALL_GRANT_CAPABILITY`.
-
-- Data capabilities (`CAN_READ`, `CAN_WRITE`, `CAN_LINK`) may be granted by the
-  owner of the target Thing (or by the kernel, which implicitly owns
-  everything).
-- Hardware capabilities (`CAN_HANDLE_IRQ`, `CAN_DMA`, `CAN_MMIO`,
-  `CAN_PORT_IO`) can only be granted by the kernel.
-
-```rust
-// Example: Grant read access to another bundle
-use userland::{canon, grant_capability};
-
-// Grant read permission on thing_id to other_bundle_id
-let success = grant_capability(other_bundle_id, thing_id, canon::CAN_READ);
-if success {
-    // Capability was successfully granted
-}
-```
-
-Alternatively, using the low-level API:
-
-```rust
-use userland::{canon, GrantCapabilityRequest};
-use userland::sys::grant_capability_raw;
-
-let request = GrantCapabilityRequest {
-    grantee: other_bundle_id,
-    target: thing_id,
-    capability: canon::CAN_READ,
-};
-let payload = postcard::to_allocvec(&request).unwrap();
-grant_capability_raw(&payload);
-```
+3. **Capabilities** are edges from bundle nodes to Things they can access. Data capabilities (`CAN_READ`, `CAN_WRITE`, `CAN_LINK`) are delegated by owners; hardware-oriented capabilities are minted by the kernel. Userland observes and reasons about these edges via normal graph reads and watches; issuance flows through kernel policy rather than direct journal access.
 
 ## Future Directions
 
