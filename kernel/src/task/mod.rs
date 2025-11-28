@@ -11,5 +11,6 @@
 
 pub mod context;
 pub mod executable;
+pub mod launcher;
 pub mod runtime;
 pub mod scheduler;
