@@ -20,6 +20,7 @@
 //! - Tasks are spaced by stack size
 
 use crate::{
+    arch::x86_64::gdt::SELECTORS,
     arch::x86_64::interrupts::end_of_interrupt,
     graph::{BundleId, KERNEL_BUNDLE_ID},
     mm::allocator::BootFrameAllocator,
@@ -183,11 +184,12 @@ impl Scheduler {
                 CURRENT_TASK = self.tasks[0].as_ref().unwrap() as *const Task as *mut Task;
             }
             info!(
-                "First task context: rip={:#x} cs={:#x} rsp={:#x} ss={:#x}",
+                "First task context: rip={:#x} cs={:#x} rsp={:#x} ss={:#x} mode={:?}",
                 task.context.frame.rip,
                 task.context.frame.cs,
                 task.context.frame.rsp,
-                task.context.frame.ss
+                task.context.frame.ss,
+                task.mode
             );
             serial_print!("]");
             task.context_ptr()
@@ -228,7 +230,20 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
 
             let saved_cs_offset = (15 + 1) * core::mem::size_of::<u64>(); // index 16: after regs + RIP
             let saved_cs = *(current_rsp.add(saved_cs_offset) as *const u64);
-            let words_pushed = if saved_cs & 0x3 == 0 {
+            let incoming_mode = if saved_cs & 0x3 == 0x3 {
+                TaskMode::User
+            } else {
+                TaskMode::Kernel
+            };
+            if task.mode != incoming_mode {
+                info!(
+                    "Task mode transition: {:?} -> {:?} (irq={}, cs={:#x}, rsp={:#x})",
+                    task.mode, incoming_mode, irq, saved_cs, current_rsp as u64
+                );
+                task.mode = incoming_mode;
+            }
+
+            let words_pushed = if incoming_mode == TaskMode::Kernel {
                 // Kernel: CPU pushed RIP/CS/RFLAGS (no SS/RSP)
                 15 + 3
             } else {
@@ -246,7 +261,9 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
             // Reconstruct them so the saved context can restore the proper stack pointer.
             let saved = dst as *mut FullContext;
             if (*saved).frame.cs & 0x3 == 0 {
-                (*saved).frame.ss = crate::arch::x86_64::gdt::KERNEL_DATA_SEG as u64;
+                #[allow(static_mut_refs)]
+                let selectors = SELECTORS.as_ref().expect("GDT not initialized");
+                (*saved).frame.ss = (selectors.data.0 & !0x3) as u64;
                 // Original RSP before the interrupt: 15 registers + RIP/CS/RFLAGS.
                 (*saved).frame.rsp = current_rsp.add((15 + 3) * core::mem::size_of::<u64>()) as u64;
             }
@@ -262,6 +279,19 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 CURRENT_TASK = task_ptr;
 
                 end_of_interrupt(irq);
+                let next_mode = if (*task_ptr).context.frame.cs & 0x3 == 0x3 {
+                    TaskMode::User
+                } else {
+                    TaskMode::Kernel
+                };
+                info!(
+                    "Switching to {:?} task: rip={:#x}, cs={:#x}, rsp={:#x}, ss={:#x}",
+                    next_mode,
+                    (*task_ptr).context.frame.rip,
+                    (*task_ptr).context.frame.cs,
+                    (*task_ptr).context.frame.rsp,
+                    (*task_ptr).context.frame.ss
+                );
                 serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
                 restore_context((*task_ptr).context_ptr())
             }

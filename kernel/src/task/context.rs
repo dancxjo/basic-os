@@ -71,16 +71,13 @@ pub fn prepare_context(entry: extern "C" fn(), stack_top: u64, mode: TaskMode) -
     use crate::arch::x86_64::gdt::SELECTORS;
     #[allow(static_mut_refs)]
     let selectors = unsafe { SELECTORS.as_ref().expect("GDT not initialized") };
-    let (cs, ss) = match mode {
-        TaskMode::Kernel => (selectors.code.0 as u64, selectors.data.0 as u64),
-        TaskMode::User => (
-            (selectors.user_code.0 | 0x3) as u64,
-            (selectors.user_data.0 | 0x3) as u64,
-        ),
-    };
-    let rflags = match mode {
-        TaskMode::Kernel => 0x2, // leave IF cleared during kernel-mode tasks
-        TaskMode::User => 0x202, // enable interrupts for user-mode execution
+    let kernel_cs = (selectors.code.0 & !0x3) as u64;
+    let kernel_ss = (selectors.data.0 & !0x3) as u64;
+    let user_cs = (selectors.user_code.0 | 0x3) as u64;
+    let user_ss = (selectors.user_data.0 | 0x3) as u64;
+    let (cs, ss, rflags) = match mode {
+        TaskMode::Kernel => (kernel_cs, kernel_ss, 0x2),
+        TaskMode::User => (user_cs, user_ss, 0x202),
     };
     FullContext {
         regs: unsafe { core::mem::zeroed() },
