@@ -15,7 +15,11 @@ use crate::drivers::{keyboard, serial};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
+use crate::telemetry::canon;
+use crate::telemetry::graph::{self, BundleId, GraphFiatRequest};
+use crate::telemetry::journal::Value;
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -35,7 +39,13 @@ pub struct System {
     // scheduler: Arc<SpinMutex<crate::scheduler::Scheduler>>,
 }
 
-static USER_MODULES: spin::Mutex<Option<Vec<&'static str>>> = spin::Mutex::new(None);
+#[derive(Clone)]
+struct UserModule {
+    name: &'static str,
+    bundle: BundleId,
+}
+
+static USER_MODULES: spin::Mutex<Option<Vec<UserModule>>> = spin::Mutex::new(None);
 static NEXT_USER_MODULE: AtomicUsize = AtomicUsize::new(0);
 
 impl System {
@@ -161,15 +171,29 @@ fn init_user_modules() {
             info!("Skipping non-ELF module '{}'", name);
         }
     }
-    *USER_MODULES.lock() = Some(modules);
+    let mut entries = Vec::new();
+    for name in modules.into_iter() {
+        let mut fields = BTreeMap::new();
+        let bundle = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes());
+        fields.insert(canon::ID, Value::Uuid(bundle));
+        fields.insert(canon::NAME, Value::Text(name.into()));
+        let req = GraphFiatRequest {
+            id: Some(bundle),
+            kind: canon::BUNDLE,
+            fields,
+        };
+        graph::fiat_for_bundle(bundle, req);
+        entries.push(UserModule { name, bundle });
+    }
+    *USER_MODULES.lock() = Some(entries);
     NEXT_USER_MODULE.store(0, Ordering::Release);
 }
 
-fn next_user_module() -> Option<&'static str> {
+fn next_user_module() -> Option<UserModule> {
     let guard = USER_MODULES.lock();
     let list = guard.as_ref()?;
     let idx = NEXT_USER_MODULE.fetch_add(1, Ordering::AcqRel);
-    list.get(idx).copied()
+    list.get(idx).cloned()
 }
 
 fn user_module_count() -> usize {
@@ -190,20 +214,21 @@ pub extern "C" fn task_entry_trampoline() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
-    let module_name = next_user_module().unwrap_or_else(|| {
+    let module = next_user_module().unwrap_or_else(|| {
         info!("No remaining user modules to start; halting task.");
         loop {}
     });
-    let module = get_module(module_name).unwrap_or_else(|| {
-        panic!("Module '{}' not found", module_name);
+    runtime::assign_current_bundle(module.bundle);
+    let module_bytes = get_module(module.name).unwrap_or_else(|| {
+        panic!("Module '{}' not found", module.name);
     });
     let frame_allocator = BootFrameAllocator::global();
     let (new_l4, mut new_mapper) = create_user_page_table(frame_allocator, get_hhdm_offset());
-    let loaded =
-        load_elf(module, new_l4, &mut new_mapper, frame_allocator).expect("Failed to load ELF");
+    let loaded = load_elf(module_bytes, new_l4, &mut new_mapper, frame_allocator)
+        .expect("Failed to load ELF");
     info!(
         "User entry prepared for {}: rip={:#x} stack_top={:#x}",
-        module_name,
+        module.name,
         loaded.entry.as_u64(),
         loaded.stack_top.as_u64()
     );
