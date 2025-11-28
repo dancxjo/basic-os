@@ -919,10 +919,18 @@ impl BundleType {
     }
 
     /// Attempt to infer bundle type from a module name.
+    /// Uses suffix matching for more precise classification:
+    /// - Names ending with "_driver" or "driver" are classified as Driver
+    /// - Names ending with "_compositor" or "compositor" are classified as Compositor
+    /// - Everything else defaults to App
     pub fn from_name(name: &str) -> Self {
-        if name.contains("driver") {
+        // Check for driver suffix patterns (more specific matching)
+        if name.ends_with("_driver") || name == "driver" || name.ends_with("driver") {
             BundleType::Driver
-        } else if name.contains("compositor") {
+        } else if name.ends_with("_compositor")
+            || name == "compositor"
+            || name.ends_with("compositor")
+        {
             BundleType::Compositor
         } else {
             BundleType::App
@@ -981,6 +989,10 @@ pub fn lookup_bundle(name: &str) -> Option<BundleId> {
 
 /// Get or create a bundle by name. If the bundle exists, returns its ID.
 /// If it doesn't exist, creates a new bundle with the inferred type.
+///
+/// Note: This function is not atomic. During kernel boot when bundles are
+/// initialized single-threaded, this is safe. If used in a concurrent context,
+/// callers should ensure proper synchronization.
 pub fn get_or_create_bundle(name: &str) -> BundleId {
     if let Some(id) = lookup_bundle(name) {
         return id;

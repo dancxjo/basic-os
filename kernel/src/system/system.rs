@@ -250,33 +250,49 @@ pub extern "C" fn start_user_task() {
     }
 }
 
+// Well-known node IDs for device nodes (consistent with framebuffer.rs)
+fn framebuffer_node_id() -> uuid::Uuid {
+    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"framebuffer0")
+}
+
+fn keyboard_node_id() -> uuid::Uuid {
+    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"keyboard0")
+}
+
+fn mouse_node_id() -> uuid::Uuid {
+    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"mouse0")
+}
+
 /// Grant initial capabilities to a bundle based on its type.
 /// - Drivers get access to device nodes they're responsible for
 /// - Compositors get framebuffer access
 /// - Apps get minimal initial capabilities
 fn grant_initial_capabilities(module: &UserModule) {
-    use uuid::Uuid;
-
     match module.bundle_type {
         BundleType::Driver => {
             // Grant driver capabilities based on name
             if module.name.contains("keyboard") {
-                // Keyboard driver gets input device capability
-                info!("Granting keyboard driver capabilities to {}", module.name);
+                // Keyboard driver gets input device read capability
+                let kb_id = keyboard_node_id();
+                if graph::grant_initial_capability(module.bundle, kb_id, canon::CAN_READ) {
+                    info!("Granted CAN_READ on keyboard to bundle {}", module.bundle);
+                }
             } else if module.name.contains("mouse") {
-                // Mouse driver gets input device capability
-                info!("Granting mouse driver capabilities to {}", module.name);
+                // Mouse driver gets input device read capability
+                let mouse_id = mouse_node_id();
+                if graph::grant_initial_capability(module.bundle, mouse_id, canon::CAN_READ) {
+                    info!("Granted CAN_READ on mouse to bundle {}", module.bundle);
+                }
             } else if module.name.contains("framebuffer") {
                 // Framebuffer driver gets display device capability
-                let framebuffer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0");
-                if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_WRITE)
-                {
+                let fb_id = framebuffer_node_id();
+                if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_WRITE) {
                     info!(
                         "Granted CAN_WRITE on framebuffer to bundle {}",
                         module.bundle
                     );
                 }
-                if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_READ) {
+                if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_READ) {
                     info!(
                         "Granted CAN_READ on framebuffer to bundle {}",
                         module.bundle
@@ -286,14 +302,14 @@ fn grant_initial_capabilities(module: &UserModule) {
         }
         BundleType::Compositor => {
             // Compositor gets framebuffer access for display composition
-            let framebuffer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0");
-            if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_WRITE) {
+            let fb_id = framebuffer_node_id();
+            if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_WRITE) {
                 info!(
                     "Granted CAN_WRITE on framebuffer to compositor {}",
                     module.bundle
                 );
             }
-            if graph::grant_initial_capability(module.bundle, framebuffer_id, canon::CAN_READ) {
+            if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_READ) {
                 info!(
                     "Granted CAN_READ on framebuffer to compositor {}",
                     module.bundle
