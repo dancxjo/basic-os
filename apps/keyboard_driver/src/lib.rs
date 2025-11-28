@@ -3,54 +3,68 @@
 
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
 use userland::prelude::*;
-use userland::{canon, fiat, sys, that, Value};
+use userland::{canon, sys};
 use uuid::Uuid;
 
 pub struct KeyboardDriver {
     device_id: Uuid,
+    irq_handle: Option<u64>,
+    watch: WatchId,
 }
 
 impl App for KeyboardDriver {
-    fn init(_ctx: &mut AppContext<'_>) -> Self {
-        let mut fields = BTreeMap::new();
-        fields.insert(canon::KIND, Value::Symbol(canon::KEYBOARD));
-        fields.insert(canon::NAME, Value::Text("ps2-keyboard".into()));
+    fn init(ctx: &mut AppContext<'_>) -> Self {
+        let device_id = device_id();
+        let irq_handle = sys::irq_bind(sys::IrqBindRequest {
+            device: device_id,
+            irq_line: KEYBOARD_IRQ_LINE,
+        });
 
-        // Fiat the keyboard device
-        let device_id = fiat(None, canon::KEYBOARD, fields);
+        let watch = ctx.watch_graph(ThingFilter {
+            kind: Some(canon::KEY_EVENT),
+            id: None,
+        });
 
-        KeyboardDriver { device_id }
+        KeyboardDriver {
+            device_id,
+            irq_handle,
+            watch,
+        }
     }
 
     fn tick(&mut self, _ctx: &mut AppContext<'_>, _tick: u64) {
-        let mut buf = [0u8; 32];
-        let count = sys::kbd_read_raw(&mut buf) as usize;
+        if let Some(handle) = self.irq_handle {
+            let _ = sys::irq_ack(handle);
+        }
+    }
 
-        for i in 0..count {
-            let scancode = buf[i];
-            self.publish_key_event(scancode);
+    fn on_event(&mut self, _ctx: &mut AppContext<'_>, ev: AppEvent) {
+        if let AppEvent::Thing { watch, thing } = ev {
+            if watch == self.watch && thing.kind == canon::KEY_EVENT {
+                let scancode = thing
+                    .fields
+                    .get(&canon::SCANCODE)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let down = thing
+                    .fields
+                    .get(&canon::DOWN)
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                println!("key event: scancode=0x{:02x} down={}", scancode, down);
+            }
         }
     }
 }
 
-impl KeyboardDriver {
-    fn publish_key_event(&self, scancode: u8) {
-        let mut fields = BTreeMap::new();
-        fields.insert(canon::SCANCODE, Value::U64(scancode as u64));
-        // Simple mapping for demo purposes (A=0x1E)
-        let key_char = match scancode {
-            0x1E => "A",
-            0x30 => "B",
-            0x2E => "C",
-            _ => "?",
-        };
-        fields.insert(canon::TEXT, Value::Text(key_char.into()));
+impl KeyboardDriver {}
 
-        let event_id = fiat(None, canon::KEY_PRESSED, fields);
-        that(self.device_id, canon::EMITS, event_id, 0);
-    }
+const KEYBOARD_DEVICE_NAME: &str = "ps2-keyboard0";
+const KEYBOARD_IRQ_LINE: u8 = 1;
+
+fn device_id() -> Uuid {
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, KEYBOARD_DEVICE_NAME.as_bytes())
 }
 
 app_main!(KeyboardDriver);

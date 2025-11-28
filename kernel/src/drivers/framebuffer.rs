@@ -335,12 +335,28 @@ fn read_framebuffer(buf: &mut [u8]) -> usize {
 /// Advertise the framebuffer as a device endpoint so userland drivers can map
 /// or push pixel data directly.
 pub fn register_framebuffer_device(framebuffer: Arc<SpinMutex<Framebuffer>>) {
+    let fb = framebuffer.lock();
+    let mut fields = BTreeMap::new();
+    fields.insert(canon::WIDTH, Value::U64(fb.width as u64));
+    fields.insert(canon::HEIGHT, Value::U64(fb.height as u64));
+    fields.insert(canon::PITCH, Value::U64(fb.pitch as u64));
+    fields.insert(canon::BPP, Value::U64(fb.bpp as u64));
+    if let Some((addr, _len)) = *FRAMEBUFFER_REGION.lock() {
+        fields.insert(canon::ADDR, Value::U64(addr));
+    }
+    let node = device::create_device_node(
+        canon::FRAMEBUFFER_DEVICE,
+        device::FRAMEBUFFER_DEVICE_NAME,
+        fields,
+    );
+    drop(fb);
     *FRAMEBUFFER_DEVICE.lock() = Some(framebuffer);
     device::register_device(
         DeviceKind::Framebuffer,
         Some(read_framebuffer),
         Some(write_framebuffer),
         Some(map_framebuffer),
+        Some(node),
     );
 }
 

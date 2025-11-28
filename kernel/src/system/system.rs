@@ -11,7 +11,7 @@ use crate::bootloader::{get_hhdm_offset, get_module, list_modules};
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::{Framebuffer, init_console, register_framebuffer_device};
-use crate::drivers::{keyboard, serial};
+use crate::drivers::{device, keyboard, mouse, serial};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
@@ -116,7 +116,7 @@ impl System {
         });
 
         bootstrap_step!("mouse driver", {
-            if let Err(err) = crate::drivers::mouse::init() {
+            if let Err(err) = mouse::init() {
                 info!("Mouse driver init failed: {}", err);
             }
         });
@@ -162,7 +162,7 @@ pub fn init_and_run_system() -> ! {
 
 fn init_user_modules() {
     let mut modules: Vec<&'static str> = Vec::new();
-    for (name, data) in crate::bootloader::list_modules().into_iter() {
+    for (name, data) in list_modules().into_iter() {
         if data.starts_with(b"\x7FELF") {
             info!("Queueing user module '{}'", name);
             modules.push(name);
@@ -252,15 +252,15 @@ pub extern "C" fn start_user_task() {
 
 // Well-known node IDs for device nodes (consistent with framebuffer.rs)
 fn framebuffer_node_id() -> uuid::Uuid {
-    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"framebuffer0")
+    device::device_uuid(device::FRAMEBUFFER_DEVICE_NAME)
 }
 
 fn keyboard_node_id() -> uuid::Uuid {
-    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"keyboard0")
+    device::device_uuid(device::KEYBOARD_DEVICE_NAME)
 }
 
 fn mouse_node_id() -> uuid::Uuid {
-    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"mouse0")
+    device::device_uuid(device::MOUSE_DEVICE_NAME)
 }
 
 /// Grant initial capabilities to a bundle based on its type.
@@ -274,52 +274,50 @@ fn grant_initial_capabilities(module: &UserModule) {
             if module.name.contains("keyboard") {
                 // Keyboard driver gets input device read capability
                 let kb_id = keyboard_node_id();
-                if graph::grant_initial_capability(module.bundle, kb_id, canon::CAN_READ) {
-                    info!("Granted CAN_READ on keyboard to bundle {}", module.bundle);
-                }
+                grant_caps(
+                    module.bundle,
+                    kb_id,
+                    &[canon::CAN_READ, canon::CAN_HANDLE_IRQ, canon::CAN_PORT_IO],
+                );
             } else if module.name.contains("mouse") {
                 // Mouse driver gets input device read capability
                 let mouse_id = mouse_node_id();
-                if graph::grant_initial_capability(module.bundle, mouse_id, canon::CAN_READ) {
-                    info!("Granted CAN_READ on mouse to bundle {}", module.bundle);
-                }
+                grant_caps(
+                    module.bundle,
+                    mouse_id,
+                    &[canon::CAN_READ, canon::CAN_HANDLE_IRQ, canon::CAN_PORT_IO],
+                );
             } else if module.name.contains("framebuffer") {
                 // Framebuffer driver gets display device capability
                 let fb_id = framebuffer_node_id();
-                if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_WRITE) {
-                    info!(
-                        "Granted CAN_WRITE on framebuffer to bundle {}",
-                        module.bundle
-                    );
-                }
-                if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_READ) {
-                    info!(
-                        "Granted CAN_READ on framebuffer to bundle {}",
-                        module.bundle
-                    );
-                }
+                grant_caps(
+                    module.bundle,
+                    fb_id,
+                    &[canon::CAN_WRITE, canon::CAN_READ, canon::CAN_MMIO],
+                );
             }
         }
         BundleType::Compositor => {
             // Compositor gets framebuffer access for display composition
             let fb_id = framebuffer_node_id();
-            if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_WRITE) {
-                info!(
-                    "Granted CAN_WRITE on framebuffer to compositor {}",
-                    module.bundle
-                );
-            }
-            if graph::grant_initial_capability(module.bundle, fb_id, canon::CAN_READ) {
-                info!(
-                    "Granted CAN_READ on framebuffer to compositor {}",
-                    module.bundle
-                );
-            }
+            grant_caps(
+                module.bundle,
+                fb_id,
+                &[canon::CAN_WRITE, canon::CAN_READ, canon::CAN_MMIO],
+            );
         }
         BundleType::App => {
             // Apps start with minimal capabilities
             // They can request additional capabilities through syscalls
             info!("App {} starting with minimal capabilities", module.name);
+        }
+    }
+}
+
+fn grant_caps(bundle: BundleId, target: uuid::Uuid, caps: &[canon::Symbol]) {
+    for cap in caps {
+        if graph::grant_initial_capability(bundle, target, *cap) {
+            info!("Granted {:?} on {} to bundle {}", cap, target, bundle);
         }
     }
 }

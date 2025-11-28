@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 
+use crate::drivers::irq_dma;
 use crate::serial_println;
 use crate::task::runtime::current_bundle;
 use crate::telemetry::graph::{
@@ -37,6 +39,11 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64
         SYSCALL_GRAPH_GET_PROPS => graph_get_props(rdi, rsi, rdx, r10),
         SYSCALL_GRAPH_SET_PROPS => graph_set_props(rdi, rsi),
         SYSCALL_GRANT_CAPABILITY => grant_capability(rdi, rsi),
+        SYSCALL_IRQ_BIND => irq_bind(rdi, rsi),
+        SYSCALL_IRQ_ACK => irq_ack(rdi),
+        SYSCALL_DMA_MAP => dma_map(rdi, rsi),
+        SYSCALL_DMA_SUBMIT => dma_submit(rdi, rsi),
+        SYSCALL_DMA_WAIT => dma_wait(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -61,6 +68,36 @@ const SYSCALL_GRAPH_GET_NODES: u64 = 0x0D;
 const SYSCALL_GRAPH_GET_PROPS: u64 = 0x0E;
 const SYSCALL_GRAPH_SET_PROPS: u64 = 0x0F;
 const SYSCALL_GRANT_CAPABILITY: u64 = 0x10;
+const SYSCALL_IRQ_BIND: u64 = 0x11;
+const SYSCALL_IRQ_ACK: u64 = 0x12;
+const SYSCALL_DMA_MAP: u64 = 0x13;
+const SYSCALL_DMA_SUBMIT: u64 = 0x14;
+const SYSCALL_DMA_WAIT: u64 = 0x15;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrqBindRequest {
+    pub device: Uuid,
+    pub irq_line: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DmaMapRequest {
+    pub buffer: Uuid,
+    pub flags: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DmaSubmitRequest {
+    pub device: Uuid,
+    pub mapping: u64,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DmaWaitRequest {
+    pub handle: u64,
+    pub timeout_ms: u64,
+}
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
     if req_ptr == 0 || req_len == 0 {
@@ -273,6 +310,68 @@ fn grant_capability(req_ptr: u64, req_len: u64) -> u64 {
         return !0;
     };
     if graph::grant_capability(current_bundle(), request) {
+        0
+    } else {
+        !0
+    }
+}
+
+fn irq_bind(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<IrqBindRequest>(buf) else {
+        return !0;
+    };
+    irq_dma::irq_bind(current_bundle(), request.device, request.irq_line).unwrap_or(!0)
+}
+
+fn irq_ack(handle: u64) -> u64 {
+    if irq_dma::irq_ack(current_bundle(), handle) {
+        0
+    } else {
+        !0
+    }
+}
+
+fn dma_map(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<DmaMapRequest>(buf) else {
+        return !0;
+    };
+    irq_dma::dma_map(current_bundle(), request.buffer, request.flags).unwrap_or(!0)
+}
+
+fn dma_submit(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<DmaSubmitRequest>(buf) else {
+        return !0;
+    };
+    irq_dma::dma_submit(
+        current_bundle(),
+        request.device,
+        request.mapping,
+        request.bytes,
+    )
+    .unwrap_or(!0)
+}
+
+fn dma_wait(req_ptr: u64, req_len: u64) -> u64 {
+    if req_ptr == 0 || req_len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Ok(request) = postcard::from_bytes::<DmaWaitRequest>(buf) else {
+        return !0;
+    };
+    if irq_dma::dma_wait(current_bundle(), request.handle).is_some() {
         0
     } else {
         !0

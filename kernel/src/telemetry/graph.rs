@@ -657,6 +657,15 @@ impl Store {
             .unwrap_or(false)
     }
 
+    pub fn bundle_has_capability(
+        &self,
+        bundle: BundleId,
+        target: Uuid,
+        capability: Symbol,
+    ) -> bool {
+        self.has_capability(bundle, target, capability)
+    }
+
     fn can_read(&self, bundle: BundleId, node: Uuid) -> bool {
         bundle == KERNEL_BUNDLE_ID
             || self.owns(bundle, node)
@@ -744,6 +753,10 @@ pub fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
     let mut s = STORE.lock();
     let store = s.get_or_insert_with(Store::new);
     f(store)
+}
+
+pub fn bundle_has_capability(bundle: BundleId, target: Uuid, capability: Symbol) -> bool {
+    with_store(|store| store.bundle_has_capability(bundle, target, capability))
 }
 
 pub fn fiat(request: GraphFiatRequest) -> GraphThing {

@@ -58,8 +58,11 @@ pub mod canon {
     pub const JOURNAL: Symbol = cc('J', 'N');
     pub const KEYBOARD: Symbol = cc('K', 'B');
     pub const KEY_PRESSED: Symbol = cc('K', 'P');
+    pub const KEY_EVENT: Symbol = canon(b'K', b'E', b'V');
     pub const MOUSE: Symbol = cc('M', 'S');
     pub const MOUSE_MOVED: Symbol = cc('M', 'V');
+    pub const MOUSE_MOVE: Symbol = canon(b'M', b'M', b'V');
+    pub const MOUSE_BUTTON: Symbol = canon(b'M', b'B', b'T');
     pub const AT: Symbol = cc('@', ' ');
     pub const INIT: Symbol = cc('I', 'N');
     pub const FAIL: Symbol = cc('F', 'L');
@@ -106,6 +109,17 @@ pub mod canon {
     pub const BPP: Symbol = canon(b'B', b'P', b'P');
     pub const ADDR: Symbol = canon(b'A', b'D', b'R');
     pub const EMITS: Symbol = canon(b'E', b'M', b'T');
+    pub const DEVICE: Symbol = canon(b'D', b'E', b'V');
+    pub const FRAMEBUFFER_DEVICE: Symbol = canon(b'F', b'B', b'D');
+    pub const KEYBOARD_DEVICE: Symbol = canon(b'K', b'B', b'D');
+    pub const MOUSE_DEVICE: Symbol = canon(b'M', b'D', b'V');
+    pub const NIC_DEVICE: Symbol = canon(b'N', b'I', b'C');
+    pub const IRQ_EVENT: Symbol = canon(b'I', b'R', b'Q');
+    pub const DMA_EVENT: Symbol = canon(b'D', b'M', b'A');
+    pub const IRQ_LINE: Symbol = canon(b'I', b'Q', b'L');
+    pub const BUFFER: Symbol = canon(b'B', b'U', b'F');
+    pub const BYTES: Symbol = canon(b'B', b'Y', b'T');
+    pub const DONE: Symbol = canon(b'D', b'O', b'N');
 
     pub const INPUT_DEVICE_MOUSE: Symbol = canon(b'I', b'D', b'M');
     pub const INPUT_EVENT: Symbol = canon(b'I', b'E', b'V');

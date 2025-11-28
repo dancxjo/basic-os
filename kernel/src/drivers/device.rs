@@ -2,11 +2,23 @@
 //! Each device is represented by a simple endpoint with optional read/write/map
 //! callbacks so higher-level policy can live in userland drivers.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
 use spin::Mutex as SpinMutex;
+use uuid::Uuid;
+
+use crate::telemetry::{
+    canon,
+    graph::{self, GraphFiatRequest},
+    journal::Value,
+};
 
 pub type DeviceHandle = u64;
+
+pub const KEYBOARD_DEVICE_NAME: &str = "ps2-keyboard0";
+pub const MOUSE_DEVICE_NAME: &str = "ps2-mouse0";
+pub const FRAMEBUFFER_DEVICE_NAME: &str = "framebuffer0_device";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -27,6 +39,7 @@ struct DeviceEndpoint {
     read: Option<ReadFn>,
     write: Option<WriteFn>,
     map: Option<MapFn>,
+    node: Option<Uuid>,
 }
 
 struct DeviceTable {
@@ -54,6 +67,7 @@ impl DeviceTable {
         read: Option<ReadFn>,
         write: Option<WriteFn>,
         map: Option<MapFn>,
+        node: Option<Uuid>,
     ) -> DeviceHandle {
         let handle = self.alloc_handle();
         self.endpoints.push(DeviceEndpoint {
@@ -62,6 +76,7 @@ impl DeviceTable {
             read,
             write,
             map,
+            node,
         });
         handle
     }
@@ -90,8 +105,9 @@ pub fn register_device(
     read: Option<ReadFn>,
     write: Option<WriteFn>,
     map: Option<MapFn>,
+    node: Option<Uuid>,
 ) -> DeviceHandle {
-    DEVICES.lock().register(kind, read, write, map)
+    DEVICES.lock().register(kind, read, write, map, node)
 }
 
 /// Open a device of the requested kind at the given index.
@@ -136,4 +152,32 @@ pub fn dev_map(handle: DeviceHandle) -> Option<(u64, usize)> {
     let endpoint = devices.by_handle(handle)?;
     let map = endpoint.map?;
     map()
+}
+
+pub fn device_node(handle: DeviceHandle) -> Option<Uuid> {
+    DEVICES.lock().by_handle(handle).and_then(|d| d.node)
+}
+
+pub fn device_uuid(name: &str) -> Uuid {
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes())
+}
+
+pub fn create_device_node(
+    kind: canon::Symbol,
+    name: &str,
+    mut fields: BTreeMap<canon::Symbol, Value>,
+) -> Uuid {
+    fields
+        .entry(canon::NAME)
+        .or_insert(Value::Text(name.into()));
+    fields
+        .entry(canon::STATUS)
+        .or_insert(Value::Symbol(canon::INIT));
+    let id = device_uuid(name);
+    let req = GraphFiatRequest {
+        id: Some(id),
+        kind,
+        fields,
+    };
+    graph::fiat_for_bundle(graph::KERNEL_BUNDLE_ID, req).id
 }
