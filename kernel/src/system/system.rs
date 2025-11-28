@@ -31,7 +31,7 @@ impl System {
         info!("Ready? Set? Go!");
 
         let (mut _mapper, mut _frame_allocator) = init_memory_and_heap();
-        init_telemetry_and_syscalls();
+        init_graph_and_syscalls();
         init_interrupts_and_idt();
         let framebuffer = init_framebuffer_and_devices();
         let _clock = init_clock();
@@ -73,7 +73,10 @@ pub extern "C" fn task_entry_trampoline() {
     }
 }
 
-fn init_memory_and_heap() -> (OffsetPageTable, BootFrameAllocator) {
+fn init_memory_and_heap() -> (
+    &'static mut OffsetPageTable<'static>,
+    &'static mut BootFrameAllocator,
+) {
     let mut mapper = bootstrap_step!("paging", {
         let physical_memory_offset = get_hhdm_offset();
         unsafe { init_paging(physical_memory_offset) }
@@ -96,9 +99,9 @@ fn init_memory_and_heap() -> (OffsetPageTable, BootFrameAllocator) {
     (mapper, frame_allocator)
 }
 
-fn init_telemetry_and_syscalls() {
-    bootstrap_step!("telemetry", {
-        crate::telemetry::init();
+fn init_graph_and_syscalls() {
+    bootstrap_step!("graph", {
+        crate::graph::init();
     });
 
     bootstrap_step!("syscalls", {

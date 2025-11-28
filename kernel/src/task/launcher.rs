@@ -7,11 +7,10 @@ use x86_64::structures::paging::PhysFrame;
 
 use crate::bootloader::{get_hhdm_offset, get_module, list_modules};
 use crate::drivers::device;
+use crate::graph::{self, BundleId, BundleType, canon};
 use crate::mm::allocator::BootFrameAllocator;
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
-use crate::telemetry::canon;
-use crate::telemetry::graph::{self, BundleId, BundleType};
 
 #[derive(Clone)]
 struct UserModule {

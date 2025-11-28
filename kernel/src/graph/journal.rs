@@ -1,5 +1,5 @@
+use crate::graph::canon::Symbol;
 use crate::serial_println;
-use crate::telemetry::canon::Symbol;
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use core::fmt;
 use serde::{Deserialize, Serialize};

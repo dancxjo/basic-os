@@ -1,0 +1,19 @@
+//! Graph subsystem: symbols, journaling, and graph storage/manipulation.
+//! This module exposes a first-class graph used throughout the kernel.
+
+pub mod canon;
+pub mod journal;
+
+mod api;
+mod bundle;
+mod events;
+mod store;
+mod types;
+
+pub use api::*;
+#[allow(unused_imports)]
+pub use bundle::{
+    BundleType, create_bundle, create_bundle_with_id, get_or_create_bundle,
+    grant_initial_capability, lookup_bundle,
+};
+pub use types::*;

@@ -10,7 +10,7 @@ This document summarizes the intended architecture so agents can pick up work wi
 
 ## Current implementation (March 2025)
 
-- `kernel/src/telemetry`
+- `kernel/src/graph`
   - `canon`: human-readable symbols (`cc('K','B')`, etc.).
   - `journal`: append-only in-memory log with snapshot/replay hooks (capacity 1024 entries) and postcard export/import.
   - `graph`: Thing store scaffold (UUID-based) with a stub replay interpreter that turns events into symbol Things and edges.

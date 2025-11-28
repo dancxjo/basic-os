@@ -6,8 +6,8 @@ ThingOS uses a versioned graph of "Things" (nodes) and Edges (relationships) as 
 
 The telemetry stack consists of three layers:
 
-1. **Journal** (`kernel/src/telemetry/journal.rs`, `userland/src/lib.rs`): Append-only event log
-2. **Graph** (`kernel/src/telemetry/graph.rs`): Derived view built by replaying journal events
+1. **Journal** (`kernel/src/graph/journal.rs`, `userland/src/lib.rs`): Append-only event log
+2. **Graph** (`kernel/src/graph/store.rs`): Derived view built by replaying journal events
 3. **Userland API** (`userland/src/lib.rs`): High-level typed facade for working with Things
 
 ## Core Concepts

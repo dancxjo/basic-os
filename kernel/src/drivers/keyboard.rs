@@ -2,8 +2,9 @@ use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::device::{self, DeviceKind, KEYBOARD_DEVICE_NAME};
 use crate::drivers::input::InputBuffer;
 use crate::drivers::irq_dma;
-use crate::telemetry::graph::{self, GraphFiatRequest, QueueStateSpec, SharedBufferSpec};
-use crate::telemetry::{canon, journal::Value};
+use crate::graph::{
+    self, GraphFiatRequest, QueueStateSpec, SharedBufferSpec, canon, journal::Value,
+};
 use alloc::collections::BTreeMap;
 use log::warn;
 use spin::Mutex as SpinMutex;

@@ -85,7 +85,7 @@ bringing up the core kernel.
 
 Current implementation status:
 
-- Telemetry core (kernel/src/telemetry): symbols (`canon`), append-only in-memory journal with snapshot/replay, and a Thing store/graph scaffold.
+- Graph core (kernel/src/graph): symbols (`canon`), append-only in-memory journal with snapshot/replay, and a Thing store/graph scaffold.
 - Drivers register declaratively and emit init/fail events; keyboard emits key press events into the journal. Drivers are Things too and should eventually appear as nodes with edges like `implements HardwareThing`, `streams IRQThing`, `depends_on ClockThing`, `supervises TaskThing`.
 - Replay hook is wired but does not yet rebuild the graph from the journal; journal is in-memory only.
 
