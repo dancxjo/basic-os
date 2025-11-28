@@ -74,7 +74,7 @@ enum DmaStatus {
 }
 
 #[derive(Clone)]
-struct DmaSubmission {
+pub(crate) struct DmaSubmission {
     handle: DmaHandle,
     bundle: BundleId,
     device: Uuid,

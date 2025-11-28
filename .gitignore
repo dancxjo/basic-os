@@ -1,18 +1,4 @@
-/limine
-/ovmf
-*.iso
-*.hdd
-/iso_root
-/hello_from.bin
-
-# Cargo build directories (including nested targets)
 /target/
-*/target/
 **/target/
-
-# Tool-generated files
-kernel/target/CACHEDIR.TAG
-
-userland.bin
-compositor/unifont-*.hex.gz
-compositor/unifont-*.hex
+**/flycheck*
+**/.DS_Store

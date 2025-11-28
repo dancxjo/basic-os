@@ -429,36 +429,41 @@ impl Compositor {
     }
 
     fn draw_windows(&mut self) {
-        let mut ordered: Vec<&WindowSurface> = self
+        let mut ordered: Vec<Uuid> = self
             .windows
             .iter()
-            .filter_map(|(id, surface)| {
-                if surface.window.visible {
-                    Some((id, surface))
-                } else {
-                    None
-                }
-            })
-            .map(|(_, surface)| surface)
+            .filter_map(|(id, surface)| surface.window.visible.then_some(*id))
             .collect();
 
         ordered.sort_by(|a, b| {
             use core::cmp::Ordering;
-            let z_cmp = a.window.z.cmp(&b.window.z);
+            let a_surface = self
+                .windows
+                .get(a)
+                .expect("ordered window missing from compositor state");
+            let b_surface = self
+                .windows
+                .get(b)
+                .expect("ordered window missing from compositor state");
+
+            let z_cmp = a_surface.window.z.cmp(&b_surface.window.z);
             if z_cmp != Ordering::Equal {
                 return z_cmp;
             }
-            let idx = |id: Uuid| {
+
+            let idx = |id: &Uuid| {
                 self.window_order
                     .iter()
-                    .position(|w| *w == id)
+                    .position(|w| w == id)
                     .unwrap_or(usize::MAX)
             };
-            idx(a.window.id).cmp(&idx(b.window.id))
+            idx(a).cmp(&idx(b))
         });
 
-        for surface in ordered {
-            self.draw_window(surface);
+        for id in ordered {
+            if let Some(surface) = self.windows.get(&id).cloned() {
+                self.draw_window(&surface);
+            }
         }
     }
 

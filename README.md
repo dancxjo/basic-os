@@ -21,14 +21,14 @@ make run
 Run `make run-debug` to launch QEMU paused with a GDB stub on TCP port 1234. In
 VS Code you can create a `launch.json` entry that attaches to this stub. Use a
 `gdb-multiarch` or `gdb` executable and specify the kernel debug binary, e.g.
-`kernel/target/x86_64-unknown-none/debug/thingos`, as the program. The debugger
+`kernel/target/x86_64-unknown-none/debug/kernel`, as the program. The debugger
 should connect to `localhost:1234`.
 
 Example terminal invocation:
 
 ```bash
 make run-debug &
-gdb-multiarch kernel/target/x86_64-unknown-none/debug/thingos -ex "target remote :1234"
+gdb-multiarch kernel/target/x86_64-unknown-none/debug/kernel -ex "target remote :1234"
 ```
 
 ## Code overview
