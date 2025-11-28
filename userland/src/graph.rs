@@ -274,15 +274,6 @@ pub struct GraphEdge {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphSnapshot {
-    pub revision: u64,
-    pub thing_count: usize,
-    pub edge_count: usize,
-    pub things: Vec<GraphThing>,
-    pub edges: Vec<GraphEdge>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GraphChange {
     Thing(GraphThing),
     Edge(GraphEdge),

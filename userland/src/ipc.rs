@@ -1,12 +1,9 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::graph::{map, Event, Value};
+use crate::graph::{map, Value};
 use crate::{canon, sys, Symbol};
 use uuid::Uuid;
-
-// Journal snapshots are small; bail out rather than trying to allocate nonsense sizes.
-const MAX_JOURNAL_BYTES: usize = 1 << 20; // 1 MiB upper bound
 
 fn emit(kind: Symbol, data: Value) {
     if let Ok(buf) = postcard::to_allocvec(&data) {
@@ -61,23 +58,4 @@ pub fn emit_window_buffer_updated(window: Uuid, pixmap: Uuid, revision: u64, tex
     payload.insert(canon::REVISION, Value::U64(revision));
     payload.insert(canon::TEXT, Value::Bytes(text.to_vec()));
     emit(canon::WINDOW_BUFFER_UPDATED, Value::Map(payload));
-}
-
-pub fn fetch_journal_events() -> Option<Vec<Event>> {
-    let mut buf = vec![0u8; 4096];
-    let needed = sys::journal_snapshot_raw(&mut buf) as usize;
-    if needed == 0 {
-        return Some(Vec::new());
-    }
-    if needed > MAX_JOURNAL_BYTES {
-        return None;
-    }
-    if needed > buf.len() {
-        buf.resize(needed, 0);
-    }
-    let written = sys::journal_snapshot_raw(&mut buf) as usize;
-    if written == 0 || written > buf.len() {
-        return None;
-    }
-    postcard::from_bytes::<Vec<Event>>(&buf[..written]).ok()
 }
