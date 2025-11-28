@@ -5,7 +5,8 @@ This document summarizes the intended architecture so agents can pick up work wi
 ## Pillars
 
 - **Everything is a Thing**: uniform data unit with stable ID, kind, fields, and externalized state (no in-place mutation). Declarative, inspectable, serializable.
-- **The Graph is the system**: a directed, labeled multigraph; nodes are Things, edges capture containment, dependencies, supervision, IO streams, configuration, and subscriptions.
+- **Bundles own capabilities**: user-visible authority is expressed as bundles with graph-tracked capabilities to read/write/link Things or access devices. Bundles are the unit of execution and delegation.
+- **The Graph is the system**: a directed, labeled multigraph; nodes are Things, edges capture containment, dependencies, supervision, IO streams, configuration, and subscriptions. All userland interactions happen as graph reads/writes.
 - **The Journal is the CPU**: append-only event log; components react to events and emit new ones. State is reconstructed by replay; persistence is the log.
 
 ## Current implementation (March 2025)
@@ -17,7 +18,7 @@ This document summarizes the intended architecture so agents can pick up work wi
 - Drivers
   - Declarative descriptors in `drivers/registry.rs`; emit init/fail events to the journal.
   - Keyboard emits key press events (with scancode payloads); mouse emits move events (dx/dy/buttons payloads).
-- System init (`system/inner.rs`) initializes telemetry after the heap and replays the journal stub into the graph.
+- System init (`system/inner.rs`) initializes telemetry after the heap and replays the journal stub into the graph. The kernel boots drivers, the compositor bundle, and a single app selected by the launcher.
 
 ## Gaps vs. vision
 
@@ -53,5 +54,10 @@ This document summarizes the intended architecture so agents can pick up work wi
 6) **Driver eventing**
    - Emit structured events for mouse moves, framebuffer init/flush, etc.
    - Consume events where applicable instead of direct globals.
+
+## Definition of done (high level)
+
+- **Kernel responsibilities**: memory and paging, scheduler, graph engine, device registry, and syscall surface. Boots drivers, the compositor bundle, and one simple app.
+- **Userland responsibilities**: everything is expressed via graph reads/writes plus IPC nodes (queues or shared buffers). No direct access to the journal or other kernel internals; capabilities flow through bundles.
 
 Please keep edits aligned with these pillars: prefer declarative descriptors, event emission, and graph edges over bespoke mutable state.***
