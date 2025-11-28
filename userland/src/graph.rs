@@ -8,6 +8,9 @@ use crate::{canon, sys, Symbol};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[cfg(test)]
+extern crate std;
+
 pub type Map = BTreeMap<Symbol, Value>;
 
 // Snapshot buffers are small; guard against bogus sizes coming from the kernel.
@@ -359,6 +362,167 @@ pub fn set_props(request: GraphPropsRequest) -> bool {
     false
 }
 
+#[derive(Debug, Clone)]
+pub struct SharedBuffer {
+    pub id: Uuid,
+    pub size_bytes: u64,
+    pub kind: Symbol,
+    pub usage: Symbol,
+    pub addr: Option<u64>,
+    pub owner: Option<Uuid>,
+    pub props: Map,
+}
+
+impl SharedBuffer {
+    pub fn to_fields(&self) -> Map {
+        let mut fields = self.props.clone();
+        fields.insert(canon::BYTES, Value::U64(self.size_bytes));
+        fields.insert(canon::BUFFER_KIND, Value::Symbol(self.kind));
+        fields.insert(canon::BUFFER_USAGE, Value::Symbol(self.usage));
+        if let Some(addr) = self.addr {
+            fields.insert(canon::ADDR, Value::U64(addr));
+        }
+        if let Some(owner) = self.owner {
+            fields.insert(canon::OWNER, Value::Uuid(owner));
+        }
+        fields
+    }
+}
+
+impl Thingable for SharedBuffer {
+    fn kind() -> &'static str {
+        "buffer.shared"
+    }
+
+    fn load(thing: &GraphThing) -> Option<Self> {
+        if thing.kind != canon::SHARED_BUFFER {
+            return None;
+        }
+        let size_bytes = thing
+            .fields
+            .get(&canon::BYTES)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let kind = thing
+            .fields
+            .get(&canon::BUFFER_KIND)
+            .and_then(|v| v.as_symbol())?;
+        let usage = thing
+            .fields
+            .get(&canon::BUFFER_USAGE)
+            .and_then(|v| v.as_symbol())?;
+        let addr = thing.fields.get(&canon::ADDR).and_then(|v| v.as_u64());
+        let owner = thing.fields.get(&canon::OWNER).and_then(|v| v.as_uuid());
+
+        Some(SharedBuffer {
+            id: thing.id,
+            size_bytes,
+            kind,
+            usage,
+            addr,
+            owner,
+            props: thing.fields.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct QueueState {
+    pub id: Uuid,
+    pub buffer: Uuid,
+    pub owner: Option<Uuid>,
+    pub head: u64,
+    pub tail: u64,
+    pub has_data: bool,
+    pub capacity: Option<u64>,
+    pub props: Map,
+}
+
+impl QueueState {
+    pub fn to_fields(&self) -> Map {
+        let mut fields = self.props.clone();
+        fields.insert(canon::BUFFER, Value::Uuid(self.buffer));
+        fields.insert(canon::HEAD, Value::U64(self.head));
+        fields.insert(canon::TAIL, Value::U64(self.tail));
+        fields.insert(canon::HAS_DATA, Value::Bool(self.has_data));
+        if let Some(capacity) = self.capacity {
+            fields.insert(canon::CAPACITY, Value::U64(capacity));
+        }
+        if let Some(owner) = self.owner {
+            fields.insert(canon::OWNER, Value::Uuid(owner));
+        }
+        fields
+    }
+}
+
+impl Thingable for QueueState {
+    fn kind() -> &'static str {
+        "queue.state"
+    }
+
+    fn load(thing: &GraphThing) -> Option<Self> {
+        if thing.kind != canon::QUEUE_STATE {
+            return None;
+        }
+        let buffer = thing.fields.get(&canon::BUFFER)?.as_uuid()?;
+        let owner = thing.fields.get(&canon::OWNER).and_then(|v| v.as_uuid());
+        let head = thing
+            .fields
+            .get(&canon::HEAD)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let tail = thing
+            .fields
+            .get(&canon::TAIL)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let has_data = thing
+            .fields
+            .get(&canon::HAS_DATA)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let capacity = thing.fields.get(&canon::CAPACITY).and_then(|v| v.as_u64());
+
+        Some(QueueState {
+            id: thing.id,
+            buffer,
+            owner,
+            head,
+            tail,
+            has_data,
+            capacity,
+            props: thing.fields.clone(),
+        })
+    }
+}
+
+pub fn declare_shared_buffer(buffer: SharedBuffer) -> Uuid {
+    let fields = buffer.to_fields();
+    fiat(Some(buffer.id), canon::SHARED_BUFFER, fields)
+}
+
+pub fn declare_queue_state(queue: QueueState) -> Uuid {
+    let fields = queue.to_fields();
+    fiat(Some(queue.id), canon::QUEUE_STATE, fields)
+}
+
+pub fn update_queue_state(
+    node: Uuid,
+    head: u64,
+    tail: u64,
+    has_data: bool,
+    capacity: Option<u64>,
+) -> bool {
+    let mut props = map();
+    props.insert(canon::HEAD, Value::U64(head));
+    props.insert(canon::TAIL, Value::U64(tail));
+    props.insert(canon::HAS_DATA, Value::Bool(has_data));
+    if let Some(cap) = capacity {
+        props.insert(canon::CAPACITY, Value::U64(cap));
+    }
+    set_props(GraphPropsRequest { node, props })
+}
+
 pub trait Thingable: Sized {
     fn kind() -> &'static str;
     fn load(thing: &GraphThing) -> Option<Self>;
@@ -544,7 +708,7 @@ pub fn poll_watch(handle: &WatchHandle) -> Vec<GraphChange> {
     postcard::from_bytes(&buf[..len as usize]).unwrap_or_default()
 }
 
-pub fn fiat_thing<T>(thing: &T) -> Uuid {
+pub fn fiat_thing<T>(_thing: &T) -> Uuid {
     // Placeholder
     Uuid::nil()
 }
@@ -560,6 +724,68 @@ pub fn load_things_of_kind<T: Thingable>() -> Vec<(Uuid, T)> {
     results
 }
 
-pub fn log_args(args: fmt::Arguments) {
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::collections::BTreeSet;
+
+    #[test]
+    #[ignore = "requires heap initialization in kernel context"]
+    fn shared_buffer_round_trips_through_thingable() {
+        crate::heap::init_heap();
+        let mut fields = map();
+        fields.insert(canon::BYTES, Value::U64(128));
+        fields.insert(canon::BUFFER_KIND, Value::Symbol(canon::RING));
+        fields.insert(canon::BUFFER_USAGE, Value::Symbol(canon::PIPE_USAGE));
+        fields.insert(canon::ADDR, Value::U64(0xdead_beefu64));
+
+        let thing = GraphThing {
+            id: Uuid::nil(),
+            kind: canon::SHARED_BUFFER,
+            labels: BTreeSet::new(),
+            fields: fields.clone(),
+            owner: Uuid::nil(),
+            revision: 1,
+        };
+
+        let loaded = SharedBuffer::load(&thing).expect("shared buffer should decode");
+        assert_eq!(loaded.size_bytes, 128);
+        assert_eq!(loaded.kind, canon::RING);
+        assert_eq!(loaded.usage, canon::PIPE_USAGE);
+        assert_eq!(loaded.addr, Some(0xdead_beefu64));
+        assert!(loaded.props.contains_key(&canon::BYTES));
+    }
+
+    #[test]
+    #[ignore = "requires heap initialization in kernel context"]
+    fn queue_state_round_trips_through_thingable() {
+        crate::heap::init_heap();
+        let mut fields = map();
+        fields.insert(canon::BUFFER, Value::Uuid(Uuid::nil()));
+        fields.insert(canon::HEAD, Value::U64(4));
+        fields.insert(canon::TAIL, Value::U64(2));
+        fields.insert(canon::HAS_DATA, Value::Bool(true));
+        fields.insert(canon::CAPACITY, Value::U64(256));
+        fields.insert(canon::OWNER, Value::Uuid(Uuid::nil()));
+
+        let thing = GraphThing {
+            id: Uuid::from_u128(2),
+            kind: canon::QUEUE_STATE,
+            labels: BTreeSet::new(),
+            fields: fields.clone(),
+            owner: Uuid::nil(),
+            revision: 1,
+        };
+
+        let loaded = QueueState::load(&thing).expect("queue state should decode");
+        assert_eq!(loaded.head, 4);
+        assert_eq!(loaded.tail, 2);
+        assert_eq!(loaded.capacity, Some(256));
+        assert!(loaded.has_data);
+        assert_eq!(loaded.buffer, Uuid::nil());
+    }
+}
+
+pub fn log_args(_args: fmt::Arguments) {
     // Placeholder for logging
 }

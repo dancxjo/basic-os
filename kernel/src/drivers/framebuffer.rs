@@ -371,9 +371,30 @@ pub fn publish_framebuffer_node(framebuffer: Arc<SpinMutex<Framebuffer>>) {
     fields.insert(canon::HEIGHT, Value::U64(fb.height as u64));
     fields.insert(canon::PITCH, Value::U64(fb.pitch as u64));
     fields.insert(canon::BPP, Value::U64(fb.bpp as u64));
-    if let Some((addr, _len)) = *FRAMEBUFFER_REGION.lock() {
+
+    let mut buffer_props = BTreeMap::new();
+    buffer_props.insert(canon::NAME, Value::Text("framebuffer0.buffer".into()));
+    buffer_props.insert(canon::STATUS, Value::Symbol(canon::INIT));
+
+    if let Some((addr, len)) = *FRAMEBUFFER_REGION.lock() {
         fields.insert(canon::ADDR, Value::U64(addr));
+        buffer_props.insert(canon::ADDR, Value::U64(addr));
+        buffer_props.insert(canon::BYTES, Value::U64(len as u64));
     }
+
+    let buffer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0.buffer");
+    let shared_buffer = graph::declare_shared_buffer(
+        graph::KERNEL_BUNDLE_ID,
+        graph::SharedBufferSpec {
+            id: Some(buffer_id),
+            size_bytes: (fb.fb_len() * core::mem::size_of::<u32>()) as u64,
+            kind: canon::LINEAR,
+            usage: canon::SURFACE_USAGE,
+            addr: buffer_props.get(&canon::ADDR).and_then(|v| v.as_u64()),
+            props: buffer_props,
+        },
+    );
+    fields.insert(canon::BUFFER, Value::Uuid(shared_buffer.id));
 
     let framebuffer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"framebuffer0");
     let req = GraphFiatRequest {

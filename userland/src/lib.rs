@@ -137,7 +137,8 @@ pub mod canon {
     pub const CURRENT_FRAME: Symbol = canon(b'C', b'U', b'R');
     pub const SEQ: Symbol = canon(b'S', b'E', b'Q');
     pub const APP: Symbol = canon(b'A', b'P', b'P');
-    pub const OWNS: Symbol = canon(b'O', b'W', b'N');
+    pub const OWNER: Symbol = canon(b'O', b'W', b'N');
+    pub const OWNS: Symbol = canon(b'O', b'W', b'S');
     pub const HAS_CONTENT: Symbol = canon(b'H', b'C', b'T');
     pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
     pub const COLOR: Symbol = canon(b'C', b'L', b'R');
@@ -146,6 +147,19 @@ pub mod canon {
     pub const DIRTY: Symbol = canon(b'D', b'R', b'T');
     pub const HAS_SURFACE: Symbol = canon(b'H', b'S', b'F');
     pub const PRESENTS: Symbol = canon(b'P', b'R', b'S');
+    pub const SHARED_BUFFER: Symbol = canon(b'S', b'B', b'F');
+    pub const QUEUE_STATE: Symbol = canon(b'Q', b'S', b'T');
+    pub const BUFFER_KIND: Symbol = canon(b'B', b'K', b'D');
+    pub const BUFFER_USAGE: Symbol = canon(b'B', b'U', b'G');
+    pub const RING: Symbol = canon(b'R', b'I', b'N');
+    pub const LINEAR: Symbol = canon(b'L', b'I', b'N');
+    pub const PIPE_USAGE: Symbol = canon(b'P', b'I', b'P');
+    pub const SURFACE_USAGE: Symbol = canon(b'S', b'R', b'F');
+    pub const RX_RING_USAGE: Symbol = canon(b'R', b'X', b'R');
+    pub const HEAD: Symbol = canon(b'H', b'E', b'A');
+    pub const TAIL: Symbol = canon(b'T', b'A', b'I');
+    pub const HAS_DATA: Symbol = canon(b'H', b'D', b'T');
+    pub const CAPACITY: Symbol = canon(b'C', b'A', b'P');
 
     // Capability symbols for granting permissions
     pub const CAN_READ: Symbol = canon(b'C', b'R', b'D');
@@ -161,8 +175,9 @@ pub mod prelude {
     pub use crate::app::{App, AppContext, WindowHandle};
     pub use crate::app_main;
     pub use crate::graph::{
-        extract_text, fiat, fiat_thing, grant_capability, load_thing, load_things_of_kind, map,
-        that, update_thing, Surface, Thingable, Value, Window,
+        declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing,
+        grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state,
+        update_thing, QueueState, SharedBuffer, Surface, Thingable, Value, Window,
     };
     pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
     pub use crate::{print, println};
@@ -170,9 +185,10 @@ pub mod prelude {
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
-    extract_text, fiat, fiat_thing, grant_capability, load_thing, load_things_of_kind, map, that,
-    update_thing, Event, GrantCapabilityRequest, GraphEdge, GraphSnapshot, GraphThing, NodePattern,
-    Surface, Thingable, Value, Window,
+    declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, grant_capability,
+    load_thing, load_things_of_kind, map, that, update_queue_state, update_thing, Event,
+    GrantCapabilityRequest, GraphEdge, GraphSnapshot, GraphThing, NodePattern, QueueState,
+    SharedBuffer, Surface, Thingable, Value, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 

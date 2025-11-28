@@ -80,4 +80,11 @@ impl<T: Copy + Default, const N: usize> InputBuffer<T, N> {
             N - tail + head
         }
     }
+
+    /// Return the raw head/tail offsets. Useful for diagnostics and telemetry.
+    pub fn positions(&self) -> (usize, usize) {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Relaxed);
+        (head, tail)
+    }
 }
