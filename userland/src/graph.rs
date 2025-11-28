@@ -386,6 +386,9 @@ pub struct Window {
     pub title: String,
     pub x: u64,
     pub y: u64,
+    pub z: i64,
+    pub visible: bool,
+    pub target: Option<Uuid>,
 }
 
 impl Thingable for Window {
@@ -422,6 +425,17 @@ impl Thingable for Window {
             .get(&canon::Y)
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
+        let z = thing
+            .fields
+            .get(&canon::Z)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let visible = thing
+            .fields
+            .get(&canon::VISIBLE)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let target = thing.fields.get(&canon::TARGET).and_then(|v| v.as_uuid());
         Some(Window {
             id: thing.id,
             width,
@@ -429,6 +443,9 @@ impl Thingable for Window {
             title,
             x,
             y,
+            z,
+            visible,
+            target,
         })
     }
 }
@@ -441,12 +458,75 @@ impl Window {
         map.insert(canon::TITLE, Value::Text(self.title.clone()));
         map.insert(canon::X, Value::U64(self.x));
         map.insert(canon::Y, Value::U64(self.y));
+        map.insert(canon::Z, Value::I64(self.z));
+        map.insert(canon::VISIBLE, Value::Bool(self.visible));
+        if let Some(target) = self.target {
+            map.insert(canon::TARGET, Value::Uuid(target));
+        }
         map
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Surface {
+    pub id: Uuid,
+    pub window: Option<Uuid>,
+    pub dirty: bool,
+    pub text: String,
+    pub bitmap: Option<Vec<u8>>,
+}
+
+impl Thingable for Surface {
+    fn kind() -> &'static str {
+        "surface"
+    }
+
+    fn load(thing: &GraphThing) -> Option<Self> {
+        if thing.kind != canon::SURFACE {
+            return None;
+        }
+        let window = thing.fields.get(&canon::SRC).and_then(|v| v.as_uuid());
+        let dirty = thing
+            .fields
+            .get(&canon::DIRTY)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let text = thing
+            .fields
+            .get(&canon::TEXT)
+            .and_then(extract_text)
+            .unwrap_or_default();
+        let bitmap_bytes = match thing.fields.get(&canon::BITMAP) {
+            Some(Value::Bytes(buf)) => Some(buf.clone()),
+            _ => None,
+        };
+
+        Some(Surface {
+            id: thing.id,
+            window,
+            dirty,
+            text,
+            bitmap: bitmap_bytes,
+        })
+    }
+}
+
 pub fn watch(query: WatchQuery) -> Option<WatchHandle> {
-    if let Ok(buf) = postcard::to_allocvec(&query) {
+    let mut pattern = NodePattern::default();
+    if let Some(kind) = query.kind {
+        pattern.labels.push(kind);
+    }
+    if let Some(src) = query.src {
+        pattern.props.insert(canon::SRC, Value::Uuid(src));
+    }
+    if let Some(dst) = query.dst {
+        pattern.props.insert(canon::DST, Value::Uuid(dst));
+    }
+    watch_pattern(pattern)
+}
+
+pub fn watch_pattern(pattern: NodePattern) -> Option<WatchHandle> {
+    if let Ok(buf) = postcard::to_allocvec(&pattern) {
         let id = sys::watch_register_raw(&buf);
         if id != !0 {
             return Some(WatchHandle { id });

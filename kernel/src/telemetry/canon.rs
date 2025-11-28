@@ -81,6 +81,9 @@ pub const CAN_DMA: Symbol = canon(b'C', b'D', b'M');
 pub const CAN_MMIO: Symbol = canon(b'C', b'M', b'M');
 pub const CAN_PORT_IO: Symbol = canon(b'C', b'P', b'O');
 pub const ADDR: Symbol = canon(b'A', b'D', b'R');
+pub const X: Symbol = canon(b'X', b' ', b' ');
+pub const Y: Symbol = canon(b'Y', b' ', b' ');
+pub const Z: Symbol = canon(b'Z', b'I', b'N');
 pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
 pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
 pub const PITCH: Symbol = canon(b'P', b'T', b'H');
@@ -93,6 +96,8 @@ pub const COMPOSED_BY: Symbol = canon(b'C', b'M', b'B');
 pub const WINDOW_CREATED: Symbol = canon(b'W', b'C', b'R');
 pub const WINDOW_BUFFER_UPDATED: Symbol = canon(b'W', b'B', b'U');
 pub const FRAME_READY: Symbol = canon(b'F', b'R', b'M');
+pub const SURFACE: Symbol = canon(b'S', b'F', b'C');
+pub const CURSOR: Symbol = canon(b'C', b'R', b'S');
 
 pub const DRIVER_INPUT: Symbol = canon(b'I', b'N', b'P');
 pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
@@ -111,6 +116,13 @@ pub const IRQ_LINE: Symbol = canon(b'I', b'Q', b'L');
 pub const BUFFER: Symbol = canon(b'B', b'U', b'F');
 pub const BYTES: Symbol = canon(b'B', b'Y', b'T');
 pub const DONE: Symbol = canon(b'D', b'O', b'N');
+pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
+pub const COLOR: Symbol = canon(b'C', b'L', b'R');
+pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
+pub const BITMAP: Symbol = canon(b'B', b'M', b'P');
+pub const DIRTY: Symbol = canon(b'D', b'R', b'T');
+pub const HAS_SURFACE: Symbol = canon(b'H', b'S', b'F');
+pub const PRESENTS: Symbol = canon(b'P', b'R', b'S');
 
 // Bundle types - used to classify bundles by their role
 pub const APP: Symbol = canon(b'A', b'P', b'P');
@@ -207,6 +219,18 @@ pub fn sym_name(code: Symbol) -> &'static str {
         (BUFFER, "buffer"),
         (BYTES, "bytes"),
         (DONE, "done"),
+        (WINDOW_RECT, "window_rect"),
+        (COLOR, "color"),
+        (VISIBLE, "visible"),
+        (BITMAP, "bitmap"),
+        (DIRTY, "dirty"),
+        (HAS_SURFACE, "has_surface"),
+        (PRESENTS, "presents"),
+        (SURFACE, "surface"),
+        (CURSOR, "cursor"),
+        (X, "x"),
+        (Y, "y"),
+        (Z, "z"),
         (APP, "app"),
         (TYPE, "type"),
         (VERSION, "version"),
@@ -301,6 +325,18 @@ pub fn from_str(s: &str) -> Option<Symbol> {
         (BUFFER, "buffer"),
         (BYTES, "bytes"),
         (DONE, "done"),
+        (WINDOW_RECT, "window_rect"),
+        (COLOR, "color"),
+        (VISIBLE, "visible"),
+        (BITMAP, "bitmap"),
+        (DIRTY, "dirty"),
+        (HAS_SURFACE, "has_surface"),
+        (PRESENTS, "presents"),
+        (SURFACE, "surface"),
+        (CURSOR, "cursor"),
+        (X, "x"),
+        (Y, "y"),
+        (Z, "z"),
         (APP, "app"),
         (TYPE, "type"),
         (VERSION, "version"),

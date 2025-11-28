@@ -129,6 +129,9 @@ fn watch_register(req_ptr: u64, req_len: u64) -> u64 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    if let Ok(pattern) = postcard::from_bytes::<NodePattern>(buf) {
+        return graph::register_watch_pattern(current_bundle(), pattern);
+    }
     let Ok(query) = postcard::from_bytes::<WatchQuery>(buf) else {
         return !0;
     };

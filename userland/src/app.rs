@@ -109,6 +109,9 @@ impl<'a> AppContext<'a> {
             y: 0,
             width: 320,
             height: 200,
+            z: 0,
+            visible: true,
+            target: None,
         };
         self.create_window_with(window_fields)
     }
@@ -122,12 +125,16 @@ impl<'a> AppContext<'a> {
             window.x = offset;
             window.y = offset;
         }
+        window.z = index as i64;
+        window.visible = true;
         let title = window.title.clone();
 
         let window_name = format!("window-{title}-{index}");
         let pixmap_name = format!("pixmap-{title}-{index}");
         let window_id = crate::simple_uuid(window_name.as_bytes());
         let pixmap = crate::simple_uuid(pixmap_name.as_bytes());
+
+        window.target = Some(pixmap);
 
         let mut fields = window.to_fields();
         fields.insert(canon::NAME, graph::Value::Text(title.clone()));
@@ -181,12 +188,15 @@ impl<'a> AppContext<'a> {
                 payload.insert(canon::TARGET, Value::Uuid(*pixmap));
                 payload.insert(canon::REVISION, Value::U64(tick));
                 payload.insert(canon::TEXT, Value::Bytes(text.as_bytes().to_vec()));
+                payload.insert(canon::DIRTY, Value::Bool(true));
+                payload.insert(canon::VISIBLE, Value::Bool(true));
 
                 if let Some(bmp) = self.state.bitmaps.remove(window) {
                     payload.insert(canon::BITMAP, Value::Bytes(bmp));
                 }
 
-                graph::fiat(None, canon::WINDOW_BUFFER_UPDATED, payload);
+                graph::fiat(Some(*pixmap), canon::SURFACE, payload);
+                graph::that(*window, canon::HAS_SURFACE, *pixmap, 0);
             }
         }
         self.state.buffers.clear();

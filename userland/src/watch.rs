@@ -6,7 +6,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use crate::graph::{self, GraphChange, GraphEdge, GraphThing};
-use crate::Symbol;
+use crate::{canon, Symbol};
 use uuid::Uuid;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -67,15 +67,22 @@ impl WatchManager {
     }
 
     pub fn register_graph(&mut self, app_id: usize, filter: ThingFilter) -> WatchId {
+        let mut pattern = graph::NodePattern::default();
+        if let Some(kind) = filter.kind {
+            pattern.labels.push(kind);
+        }
+        if let Some(id) = filter.id {
+            pattern
+                .props
+                .insert(crate::canon::SRC, graph::Value::Uuid(id));
+        }
+        self.register_pattern(app_id, pattern)
+    }
+
+    pub fn register_pattern(&mut self, app_id: usize, pattern: graph::NodePattern) -> WatchId {
         let watch_id = self.alloc_watch();
 
-        let query = graph::WatchQuery {
-            kind: filter.kind,
-            src: filter.id,
-            dst: None,
-        };
-
-        if let Some(handle) = graph::watch(query) {
+        if let Some(handle) = graph::watch_pattern(pattern) {
             self.app_watches
                 .entry(app_id)
                 .or_default()
