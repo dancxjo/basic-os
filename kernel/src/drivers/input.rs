@@ -50,6 +50,7 @@ impl<T: Copy + Default, const N: usize> InputBuffer<T, N> {
     }
 
     pub fn pop(&self) -> Option<T> {
+        let mut buf = self.buf.lock();
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Relaxed);
 
@@ -57,7 +58,6 @@ impl<T: Copy + Default, const N: usize> InputBuffer<T, N> {
             return None;
         }
 
-        let mut buf = self.buf.lock();
         let value = buf[tail];
         buf[tail] = self.default;
         self.tail.store((tail + 1) % N, Ordering::Release);
