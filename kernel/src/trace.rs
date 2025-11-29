@@ -49,27 +49,31 @@ pub enum TraceKind {
 pub fn trace_event(kind: TraceKind, task_id: u16, arg: u64) {
     let timestamp = unsafe { core::arch::x86_64::_rdtsc() };
     unsafe {
-        let idx = TRACE_BUFFER.head.load(Ordering::Relaxed);
-        TRACE_BUFFER.events[idx] = TraceEvent {
+        let head_ptr = core::ptr::addr_of_mut!(TRACE_BUFFER.head);
+        let idx = (*head_ptr).load(Ordering::Relaxed);
+
+        let events_ptr = core::ptr::addr_of_mut!(TRACE_BUFFER.events);
+        (*events_ptr)[idx] = TraceEvent {
             timestamp,
             kind: kind as u16,
             task_id,
             arg,
         };
-        TRACE_BUFFER
-            .head
-            .store((idx + 1) % TRACE_LEN, Ordering::Relaxed);
+        (*head_ptr).store((idx + 1) % TRACE_LEN, Ordering::Relaxed);
     }
 }
 
 pub fn dump_trace() {
     unsafe {
         crate::klog_raw!("--- TRACE DUMP ---\r\n");
-        let head = TRACE_BUFFER.head.load(Ordering::Relaxed);
+        let head_ptr = core::ptr::addr_of_mut!(TRACE_BUFFER.head);
+        let head = (*head_ptr).load(Ordering::Relaxed);
+
+        let events_ptr = core::ptr::addr_of_mut!(TRACE_BUFFER.events);
 
         for i in 0..TRACE_LEN {
             let idx = (head + i) % TRACE_LEN;
-            let evt = &TRACE_BUFFER.events[idx];
+            let evt = &(*events_ptr)[idx];
             if evt.timestamp == 0 {
                 continue;
             }
