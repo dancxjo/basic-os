@@ -28,6 +28,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::ptr;
+use core::sync::atomic::{AtomicBool, Ordering};
 use log::{error, info};
 use spin::Mutex;
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, PhysFrame};
@@ -153,6 +154,9 @@ pub struct Scheduler {
     pub now_fn: fn() -> u64,
 }
 
+const BTREE_WATCH_FN_START: u64 = 0xffffffff8004c830;
+const BTREE_WATCH_FN_END: u64 = 0xffffffff8004c900;
+
 impl Scheduler {
     pub const fn new(now_fn: fn() -> u64) -> Self {
         Scheduler {
@@ -176,6 +180,16 @@ impl Scheduler {
     }
 
     pub fn next_ready_task(&mut self, _now: u64) -> Option<&mut Task> {
+        if SCHED_SINGLE_TASK.load(Ordering::Relaxed) {
+            if !self.tasks.is_empty() {
+                if let Some(ref mut task) = self.tasks[0] {
+                    self.current = 0;
+                    return Some(task);
+                }
+            }
+            return None;
+        }
+
         let index = (self.current + 1) % self.tasks.len();
         serial_print!("\n\r@{}:", index);
         if self.tasks.is_empty() {
@@ -246,6 +260,8 @@ pub static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new(crate::clock:
 #[unsafe(no_mangle)]
 pub static mut CURRENT_TASK: *mut Task = core::ptr::null_mut();
 
+pub static SCHED_SINGLE_TASK: AtomicBool = AtomicBool::new(false);
+
 unsafe extern "C" {
     fn restore_context(ctx: *const u8) -> !;
 }
@@ -285,6 +301,18 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
             }
 
             let saved = dst as *mut FullContext;
+            let saved_ctx = current_rsp as *const FullContext;
+            if let Some(ctx) = unsafe { saved_ctx.as_ref() } {
+                let rip = ctx.frame.rip;
+                if rip >= BTREE_WATCH_FN_START && rip < BTREE_WATCH_FN_END {
+                    log::error!(
+                        "Saving context in btree watch fn: rip={:#x} rsi={:#x} rsp={:#x}",
+                        rip,
+                        ctx.regs.rsi,
+                        ctx.frame.rsp
+                    );
+                }
+            }
 
             info!(
                 "Saved context for task {:?}: rip={:#x} cs={:#x} rsp={:#x}",
@@ -313,6 +341,18 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 } else {
                     TaskMode::Kernel
                 };
+                if (*task_ptr).context.frame.rip >= BTREE_WATCH_FN_START
+                    && (*task_ptr).context.frame.rip < BTREE_WATCH_FN_END
+                {
+                    let regs = &(*task_ptr).context.regs;
+                    log::error!(
+                        "Restoring context in btree watch fn: rip={:#x} rsi={:#x} rdi={:#x} rsp={:#x}",
+                        (*task_ptr).context.frame.rip,
+                        regs.rsi,
+                        regs.rdi,
+                        (*task_ptr).context.frame.rsp
+                    );
+                }
                 info!(
                     "Switching to {:?} task: rip={:#x}, cs={:#x}, rsp={:#x}, ss={:#x}",
                     next_mode,
@@ -321,6 +361,13 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     (*task_ptr).context.frame.rsp,
                     (*task_ptr).context.frame.ss
                 );
+
+                crate::trace::trace_event(
+                    crate::trace::TraceKind::SwitchTo,
+                    scheduler.current as u16,
+                    (*task_ptr).cr3
+                );
+
                 serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
                 set_kernel_stack((*task_ptr).stack_top);
 

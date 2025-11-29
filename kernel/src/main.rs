@@ -17,6 +17,7 @@ mod logging;
 mod mm;
 mod system;
 mod task;
+pub mod trace;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {

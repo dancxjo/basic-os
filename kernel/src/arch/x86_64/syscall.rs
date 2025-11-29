@@ -15,6 +15,7 @@ static mut USER_RSP: u64 = 0;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
+    crate::trace::trace_event(crate::trace::TraceKind::SyscallEnter, 0, rax);
     // serial_println!("SYSCALL: {:#x} arg0={:#x} arg1={:#x} arg2={:#x}", rax, rdi, rsi, rdx);
     let ret = match rax {
         SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),

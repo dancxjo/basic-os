@@ -25,6 +25,16 @@ extern "x86-interrupt" fn page_fault_handler(
     let faulting_address = Cr2::read();
     let (cr3_frame, _) = Cr3::read();
 
+    crate::trace::trace_event(
+        crate::trace::TraceKind::PageFault,
+        0,
+        faulting_address.as_u64(),
+    );
+
+    crate::klog_raw!("\nEXCEPTION: PAGE FAULT\r\n");
+    // We can't easily print formatted strings with klog_raw!, so we rely on panic dumping trace.
+    // But we can print some hex values if we want.
+    
     error!("\nEXCEPTION: PAGE FAULT");
     error!("Accessed Address: {:#018x}", faulting_address.as_u64());
     error!("Current Bundle: {}", runtime::current_bundle());
@@ -48,6 +58,7 @@ extern "x86-interrupt" fn page_fault_handler(
         error!("During: INSTRUCTION FETCH");
     }
 
+    crate::trace::dump_trace();
     panic!("Unhandled page fault");
 }
 
@@ -55,6 +66,13 @@ extern "x86-interrupt" fn double_fault_handler(
     stack_frame: InterruptStackFrame,
     _error_code: u64,
 ) -> ! {
+    crate::trace::trace_event(
+        crate::trace::TraceKind::DoubleFault,
+        0,
+        0,
+    );
+    crate::klog_raw!("\nEXCEPTION: DOUBLE FAULT\r\n");
+    crate::trace::dump_trace();
     error!("Double fault! Frame: {:?}", stack_frame);
     loop {}
 }

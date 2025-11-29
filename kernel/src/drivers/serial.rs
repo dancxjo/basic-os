@@ -64,12 +64,50 @@ macro_rules! serial_println {
     ($fmt:expr, $($arg:tt)*) => ($crate::serial_print!(concat!($fmt, "\r\n"), $($arg)*));
 }
 
+#[macro_export]
+macro_rules! klog {
+    ($($arg:tt)*) => {
+        $crate::serial_println!($($arg)*);
+    };
+}
+
+#[macro_export]
+macro_rules! klog_raw {
+    ($msg:expr) => {
+        unsafe { $crate::drivers::serial::raw_write($msg.as_bytes()) };
+    };
+}
+
 #[doc(hidden)]
 pub fn _print(args: core::fmt::Arguments) {
     use core::fmt::Write;
     if let Some(mut serial) = SERIAL1.try_lock() {
         let _ = serial.write_fmt(args);
     }
+}
+
+/// Unsafe raw write to serial port, bypassing locks.
+/// Useful for panic handlers and low-level debugging.
+pub unsafe fn raw_write(buf: &[u8]) {
+    let mut port = Port::<u8>::new(0x3F8);
+    let mut status = Port::<u8>::new(0x3F8 + 5);
+    for &b in buf {
+        // Wait for THRE (Transmitter Holding Register Empty)
+        while status.read() & 0x20 == 0 {}
+        port.write(b);
+    }
+}
+
+pub unsafe fn raw_write_hex(mut val: u64) {
+    let mut buf = [0u8; 18]; // "0x" + 16 digits
+    buf[0] = b'0';
+    buf[1] = b'x';
+    let hex = b"0123456789ABCDEF";
+    for i in (0..16).rev() {
+        buf[2 + i] = hex[(val & 0xF) as usize];
+        val >>= 4;
+    }
+    raw_write(&buf);
 }
 
 fn write_serial(buf: &[u8]) -> usize {

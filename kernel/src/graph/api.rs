@@ -195,7 +195,7 @@ pub fn export_watch_events(id: WatchId) -> Option<Vec<u8>> {
                 Ok(data) => {
                     log::info!("Exported {} bytes", data.len());
                     return Some(data);
-                },
+                }
                 Err(e) => {
                     log::error!("Serialization error: {:?}", e);
                     return None;
