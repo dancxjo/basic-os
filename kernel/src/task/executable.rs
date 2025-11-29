@@ -11,7 +11,7 @@ use x86_64::{
     VirtAddr,
     registers::control::Cr3,
     structures::paging::{
-        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
+        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate,
     },
 };
 
@@ -98,6 +98,12 @@ pub fn create_user_page_table(
         frame_allocator,
         (VirtAddr::new(HPET_BASE)..VirtAddr::new(HPET_BASE + 0x1000)).into(),
     );
+
+    // Verify kernel mapping
+    let kernel_func_addr = VirtAddr::new(create_user_page_table as usize as u64);
+    if offset_page_table.translate_addr(kernel_func_addr).is_none() {
+        panic!("Kernel code not mapped in user page table!");
+    }
 
     (l4_table, offset_page_table)
 }

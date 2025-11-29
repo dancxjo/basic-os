@@ -46,11 +46,13 @@ pub struct Task {
     pub mode: TaskMode,
     pub bundle: BundleId,
     pub cr3: u64,
+    pub magic: u64,
 }
 
 impl Task {
     const STACK_PAGES: u64 = 16;
     const STACK_SIZE: u64 = 4096 * Self::STACK_PAGES;
+    const MAGIC: u64 = 0x5441534B5F4D4147;
 
     pub fn new(
         entry: extern "C" fn(),
@@ -67,6 +69,7 @@ impl Task {
             mode,
             bundle: KERNEL_BUNDLE_ID,
             cr3: Cr3::read().0.start_address().as_u64(),
+            magic: Self::MAGIC,
         };
 
         task.allocate_stack_if_needed(mapper, frame_allocator, index);
@@ -234,6 +237,9 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
     unsafe {
         if !CURRENT_TASK.is_null() {
             let task = &mut *CURRENT_TASK;
+            if task.magic != Task::MAGIC {
+                panic!("Current task magic corrupted: {:#x}", task.magic);
+            }
 
             let saved_cs_offset = (15 + 1) * core::mem::size_of::<u64>(); // index 16: after regs + RIP
             let saved_cs = *(current_rsp.add(saved_cs_offset) as *const u64);
@@ -291,6 +297,9 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
         drop(scheduler);
         match next {
             Some(task_ptr) => {
+                if (*task_ptr).magic != Task::MAGIC {
+                    panic!("Next task magic corrupted: {:#x}", (*task_ptr).magic);
+                }
                 CURRENT_TASK = task_ptr;
 
                 end_of_interrupt(irq);
@@ -320,6 +329,14 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                         new_cr3.start_address().as_u64()
                     );
                     Cr3::write(new_cr3, Cr3::read().1);
+                    let actual_cr3 = Cr3::read().0;
+                    if actual_cr3 != new_cr3 {
+                        panic!(
+                            "CR3 switch failed: expected {:#x}, got {:#x}",
+                            new_cr3.start_address().as_u64(),
+                            actual_cr3.start_address().as_u64()
+                        );
+                    }
                 }
 
                 restore_context((*task_ptr).context_ptr())
