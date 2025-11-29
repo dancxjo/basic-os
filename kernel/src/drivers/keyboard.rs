@@ -129,18 +129,15 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
 
 pub fn process_events() {
     // crate::serial_println!("KBD: process_events start");
-    let bindings = irq_dma::bindings_for_irq(1);
-    if bindings.is_empty() {
-        // crate::serial_println!("KBD: no bindings");
-        return;
-    }
 
     loop {
         let scancode = KEYBOARD_BUFFER.pop();
         match scancode {
             Some(c) => {
                 // crate::serial_println!("KBD: got scancode {:02x}", c);
-                emit_key_events(c, &bindings);
+                irq_dma::for_each_binding(1, |binding| {
+                    emit_key_event(c, binding);
+                });
                 // crate::serial_println!("KBD: skipped emit");
             }
             None => break,
@@ -148,6 +145,34 @@ pub fn process_events() {
     }
     refresh_keyboard_queue_state();
     // crate::serial_println!("KBD: process_events end");
+}
+
+fn emit_key_event(scancode: u8, binding: &irq_dma::IrqBindingInfo) {
+    let device = keyboard_device_id();
+    if binding.device != device {
+        return;
+    }
+
+    let (code, down) = decode_scancode(scancode);
+    let key_text = scancode_text(code);
+    let ts = irq_dma::monotonic_ticks();
+
+    let mut fields = BTreeMap::new();
+    fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
+    fields.insert(canon::SCANCODE, Value::U64(code as u64));
+    fields.insert(canon::DOWN, Value::Bool(down));
+    fields.insert(canon::TS, Value::U64(ts));
+    // if let Some(text) = key_text {
+    //     fields.insert(canon::TEXT, Value::Text(text.into()));
+    // }
+
+    let req = GraphFiatRequest {
+        id: None,
+        kind: canon::KEY_EVENT,
+        fields,
+    };
+
+    let _ = graph::fiat_for_bundle(binding.bundle, req);
 }
 
 pub fn read_scancodes(buf: &mut [u8]) -> usize {
@@ -163,36 +188,6 @@ pub fn read_scancodes(buf: &mut [u8]) -> usize {
     }
     refresh_keyboard_queue_state();
     written
-}
-
-fn emit_key_events(scancode: u8, bindings: &[irq_dma::IrqBindingInfo]) {
-    if bindings.is_empty() {
-        return;
-    }
-
-    let (code, down) = decode_scancode(scancode);
-    let key_text = scancode_text(code);
-    let ts = irq_dma::monotonic_ticks();
-    let device = keyboard_device_id();
-
-    for binding in bindings.iter().filter(|b| b.device == device) {
-        let mut fields = BTreeMap::new();
-        fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
-        fields.insert(canon::SCANCODE, Value::U64(code as u64));
-        fields.insert(canon::DOWN, Value::Bool(down));
-        fields.insert(canon::TS, Value::U64(ts));
-        // if let Some(text) = key_text {
-        //     fields.insert(canon::TEXT, Value::Text(text.into()));
-        // }
-
-        let req = GraphFiatRequest {
-            id: None,
-            kind: canon::KEY_EVENT,
-            fields,
-        };
-
-        let _ = graph::fiat_for_bundle(binding.bundle, req);
-    }
 }
 
 fn decode_scancode(scancode: u8) -> (u8, bool) {

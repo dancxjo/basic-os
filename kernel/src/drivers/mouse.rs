@@ -57,11 +57,6 @@ pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptSta
 }
 
 pub fn process_events() {
-    let bindings = irq_dma::bindings_for_irq(12);
-    if bindings.is_empty() {
-        return;
-    }
-
     loop {
         let packet = MOUSE_RAW_BYTES.pop();
         match packet {
@@ -71,12 +66,53 @@ pub fn process_events() {
                     decoder.feed(p)
                 };
                 if let Some(event) = decoded {
-                    // emit_mouse_events(event, &bindings);
-                    crate::serial_println!("MOUSE: skipped emit");
+                    irq_dma::for_each_binding(12, |binding| {
+                        emit_mouse_event(event, binding);
+                    });
                 }
             }
             None => break,
         }
+    }
+}
+
+fn emit_mouse_event(event: MouseEvent, binding: &irq_dma::IrqBindingInfo) {
+    let device = mouse_device_id();
+    if binding.device != device {
+        return;
+    }
+
+    let ts = irq_dma::monotonic_ticks();
+
+    let mut move_fields = BTreeMap::new();
+    move_fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
+    move_fields.insert(canon::DX, Value::I64(event.dx as i64));
+    move_fields.insert(canon::DY, Value::I64(event.dy as i64));
+    move_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
+    move_fields.insert(canon::TS, Value::U64(ts));
+
+    let move_req = GraphFiatRequest {
+        id: None,
+        kind: canon::MOUSE_MOVE,
+        fields: move_fields,
+    };
+
+    let _ = graph::fiat_for_bundle(binding.bundle, move_req);
+
+    if event.buttons_changed {
+        let mut button_fields = BTreeMap::new();
+        button_fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
+        button_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
+        button_fields.insert(canon::DOWN, Value::Bool(event.buttons != 0));
+        button_fields.insert(canon::TS, Value::U64(ts));
+
+        let button_req = GraphFiatRequest {
+            id: None,
+            kind: canon::MOUSE_BUTTON,
+            fields: button_fields,
+        };
+
+        let _ = graph::fiat_for_bundle(binding.bundle, button_req);
     }
 }
 
@@ -114,48 +150,6 @@ fn wait_input_ready() {
 
 fn wait_output_ready() {
     while unsafe { Port::<u8>::new(0x64).read() } & 0x01 == 0 {}
-}
-
-fn emit_mouse_events(event: MouseEvent, bindings: &[irq_dma::IrqBindingInfo]) {
-    if bindings.is_empty() {
-        return;
-    }
-
-    let ts = irq_dma::monotonic_ticks();
-    let device = mouse_device_id();
-
-    for binding in bindings.iter().filter(|b| b.device == device) {
-        let mut move_fields = BTreeMap::new();
-        move_fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
-        move_fields.insert(canon::DX, Value::I64(event.dx as i64));
-        move_fields.insert(canon::DY, Value::I64(event.dy as i64));
-        move_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
-        move_fields.insert(canon::TS, Value::U64(ts));
-
-        let move_req = GraphFiatRequest {
-            id: None,
-            kind: canon::MOUSE_MOVE,
-            fields: move_fields,
-        };
-
-        let _ = graph::fiat_for_bundle(binding.bundle, move_req);
-
-        if event.buttons_changed {
-            let mut button_fields = BTreeMap::new();
-            button_fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
-            button_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
-            button_fields.insert(canon::DOWN, Value::Bool(event.buttons != 0));
-            button_fields.insert(canon::TS, Value::U64(ts));
-
-            let button_req = GraphFiatRequest {
-                id: None,
-                kind: canon::MOUSE_BUTTON,
-                fields: button_fields,
-            };
-
-            let _ = graph::fiat_for_bundle(binding.bundle, button_req);
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
