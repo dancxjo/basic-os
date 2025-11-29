@@ -128,10 +128,10 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
 }
 
 pub fn process_events() {
-    crate::serial_println!("KBD: process_events start");
+    // crate::serial_println!("KBD: process_events start");
     let bindings = irq_dma::bindings_for_irq(1);
     if bindings.is_empty() {
-        crate::serial_println!("KBD: no bindings");
+        // crate::serial_println!("KBD: no bindings");
         return;
     }
 
@@ -139,7 +139,7 @@ pub fn process_events() {
         let scancode = KEYBOARD_BUFFER.pop();
         match scancode {
             Some(c) => {
-                crate::serial_println!("KBD: got scancode {:02x}", c);
+                // crate::serial_println!("KBD: got scancode {:02x}", c);
                 emit_key_events(c, &bindings);
                 // crate::serial_println!("KBD: skipped emit");
             }
@@ -147,7 +147,7 @@ pub fn process_events() {
         }
     }
     refresh_keyboard_queue_state();
-    crate::serial_println!("KBD: process_events end");
+    // crate::serial_println!("KBD: process_events end");
 }
 
 pub fn read_scancodes(buf: &mut [u8]) -> usize {
