@@ -146,7 +146,7 @@ fn kbd_read(out_ptr: u64, out_len: u64) -> u64 {
         return 0;
     }
     let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
-    crate::drivers::keyboard::read_scancodes(buf) as u64
+    crate::drivers::keyboard::read_keyboard(buf) as u64
 }
 
 fn mouse_read(out_ptr: u64, out_len: u64) -> u64 {
@@ -328,8 +328,6 @@ fn irq_bind(req_ptr: u64, req_len: u64) -> u64 {
 
 fn irq_ack(handle: u64) -> u64 {
     if irq_dma::irq_ack(current_bundle(), handle) {
-        crate::drivers::keyboard::process_events();
-        crate::drivers::mouse::process_events();
         0
     } else {
         !0

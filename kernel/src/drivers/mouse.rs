@@ -1,11 +1,9 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::device::{self, DeviceKind, MOUSE_DEVICE_NAME};
 use crate::drivers::input::InputBuffer;
-use crate::drivers::irq_dma;
-use crate::graph::{self, GraphFiatRequest, canon, journal::Value};
+use crate::graph::{canon, journal::Value};
 use alloc::collections::BTreeMap;
 use log::warn;
-use spin::Mutex as SpinMutex;
 use uuid::Uuid;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::InterruptStackFrame;
@@ -13,7 +11,6 @@ use x86_64::structures::idt::InterruptStackFrame;
 pub const MOUSE_RAW_CAPACITY: usize = 4096;
 
 pub static MOUSE_RAW_BYTES: InputBuffer<u8, MOUSE_RAW_CAPACITY> = InputBuffer::new(0);
-static MOUSE_DECODER: SpinMutex<PacketDecoder> = SpinMutex::new(PacketDecoder::new());
 
 fn mouse_device_id() -> Uuid {
     device::device_uuid(MOUSE_DEVICE_NAME)
@@ -56,68 +53,6 @@ pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptSta
     end_of_interrupt(12);
 }
 
-pub fn process_events() {
-    loop {
-        let packet = MOUSE_RAW_BYTES.pop();
-        match packet {
-            Some(p) => {
-                let decoded = {
-                    let mut decoder = MOUSE_DECODER.lock();
-                    decoder.feed(p)
-                };
-                if let Some(event) = decoded {
-                    irq_dma::for_each_binding(12, |binding| {
-                        emit_mouse_event(event, binding);
-                    });
-                }
-            }
-            None => break,
-        }
-    }
-}
-
-fn emit_mouse_event(event: MouseEvent, binding: &irq_dma::IrqBindingInfo) {
-    let device = mouse_device_id();
-    if binding.device != device {
-        return;
-    }
-
-    log::info!("emit_mouse_event: device={}", binding.device);
-
-    let ts = irq_dma::monotonic_ticks();
-
-    let mut move_fields = BTreeMap::new();
-    move_fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
-    move_fields.insert(canon::DX, Value::I64(event.dx as i64));
-    move_fields.insert(canon::DY, Value::I64(event.dy as i64));
-    move_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
-    move_fields.insert(canon::TS, Value::U64(ts));
-
-    let move_req = GraphFiatRequest {
-        id: None,
-        kind: canon::MOUSE_MOVE,
-        fields: move_fields,
-    };
-
-    let _ = graph::fiat_for_bundle(binding.bundle, move_req);
-
-    if event.buttons_changed {
-        let mut button_fields = BTreeMap::new();
-        button_fields.insert(canon::DEVICE_ID, Value::Uuid(binding.device));
-        button_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
-        button_fields.insert(canon::DOWN, Value::Bool(event.buttons != 0));
-        button_fields.insert(canon::TS, Value::U64(ts));
-
-        let button_req = GraphFiatRequest {
-            id: None,
-            kind: canon::MOUSE_BUTTON,
-            fields: button_fields,
-        };
-
-        let _ = graph::fiat_for_bundle(binding.bundle, button_req);
-    }
-}
-
 fn enable_irq() {
     unsafe {
         wait_input_ready();
@@ -152,61 +87,4 @@ fn wait_input_ready() {
 
 fn wait_output_ready() {
     while unsafe { Port::<u8>::new(0x64).read() } & 0x01 == 0 {}
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct MouseEvent {
-    dx: i8,
-    dy: i8,
-    buttons: u8,
-    buttons_changed: bool,
-}
-
-#[derive(Clone, Copy)]
-struct PacketDecoder {
-    packet: [u8; 3],
-    index: usize,
-    buttons: u8,
-}
-
-impl PacketDecoder {
-    const fn new() -> Self {
-        Self {
-            packet: [0; 3],
-            index: 0,
-            buttons: 0,
-        }
-    }
-
-    fn feed(&mut self, byte: u8) -> Option<MouseEvent> {
-        if self.index == 0 && byte & 0x08 == 0 {
-            return None;
-        }
-
-        self.packet[self.index] = byte;
-        self.index = (self.index + 1) % 3;
-
-        if self.index != 0 {
-            return None;
-        }
-
-        let flags = self.packet[0];
-        let dx = self.packet[1] as i8;
-        let dy = (self.packet[2] as i8).wrapping_neg();
-
-        if flags & 0x40 != 0 || flags & 0x80 != 0 {
-            return None;
-        }
-
-        let buttons = flags & 0x07;
-        let buttons_changed = buttons != self.buttons;
-        self.buttons = buttons;
-
-        Some(MouseEvent {
-            dx,
-            dy,
-            buttons,
-            buttons_changed,
-        })
-    }
 }

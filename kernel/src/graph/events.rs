@@ -32,11 +32,8 @@ pub(crate) fn reflect_thing_side_effects(thing: &GraphThing) {
         return;
     }
 
-    if let Some(text) = extract_text(&Value::Map(thing.fields.clone())) {
-        for byte in text.bytes() {
-            crate::drivers::framebuffer::console_write_byte(byte);
-        }
-    }
+    // Console writing has been moved to userland.
+    // This function can be extended for other kernel-side side effects if needed.
 }
 
 pub(crate) fn extract_text(value: &Value) -> Option<String> {

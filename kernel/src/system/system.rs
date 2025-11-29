@@ -10,7 +10,7 @@ use crate::arch::x86_64::stack::init_kernel_stack;
 use crate::bootloader::get_hhdm_offset;
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
-use crate::drivers::framebuffer::{Framebuffer, init_console, register_framebuffer_device};
+use crate::drivers::framebuffer::{Framebuffer, register_framebuffer_device};
 use crate::drivers::{keyboard, mouse, serial};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
 use crate::task::{launcher, runtime};
@@ -128,13 +128,8 @@ fn init_framebuffer_and_devices() -> Arc<SpinMutex<Framebuffer>> {
         let fb = Arc::new(SpinMutex::new(
             Framebuffer::new().expect("Framebuffer not available"),
         ));
-        init_console(fb.clone());
         register_framebuffer_device(fb.clone());
         fb
-    });
-
-    bootstrap_step!("framebuffer graph", {
-        crate::drivers::framebuffer::publish_framebuffer_node(framebuffer.clone());
     });
 
     let _mouse = bootstrap_step!("PS/2 devices", {
