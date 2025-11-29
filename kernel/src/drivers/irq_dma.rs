@@ -168,22 +168,14 @@ static DMA_STATE: SpinMutex<DmaState> = SpinMutex::new(DmaState {
     submissions: BTreeMap::new(),
 });
 
-pub fn register_irq(
-    bundle: BundleId,
-    device: Uuid,
-    irq_line: u8,
-) -> Option<IrqHandle> {
-    interrupts::without_interrupts(|| {
-        let mut state = IRQ_STATE.lock();
-        state.bind(bundle, device, irq_line)
-    })
+pub fn register_irq(bundle: BundleId, device: Uuid, irq_line: u8) -> Option<IrqHandle> {
+    let mut state = IRQ_STATE.lock();
+    state.bind(bundle, device, irq_line)
 }
 
 pub fn unregister_irq(handle: IrqHandle) -> bool {
-    interrupts::without_interrupts(|| {
-        let mut state = IRQ_STATE.lock();
-        state.unregister(handle)
-    })
+    let mut state = IRQ_STATE.lock();
+    state.unregister(handle)
 }
 
 pub fn irq_bind(bundle: BundleId, device: Uuid, irq_line: u8) -> Option<IrqHandle> {
@@ -198,17 +190,15 @@ pub fn irq_ack(_bundle: BundleId, _handle: IrqHandle) -> bool {
 }
 
 pub fn bindings_for_irq(irq_line: u8) -> Vec<IrqBindingInfo> {
-    interrupts::without_interrupts(|| {
-        let state = IRQ_STATE.lock();
-        state
-            .by_line(irq_line)
-            .map(|b| IrqBindingInfo {
-                bundle: b.bundle,
-                device: b.device,
-                irq_line: b.irq_line,
-            })
-            .collect()
-    })
+    let state = IRQ_STATE.lock();
+    state
+        .by_line(irq_line)
+        .map(|b| IrqBindingInfo {
+            bundle: b.bundle,
+            device: b.device,
+            irq_line: b.irq_line,
+        })
+        .collect()
 }
 
 pub fn notify_irq(irq_line: u8) -> Vec<IrqBindingInfo> {
