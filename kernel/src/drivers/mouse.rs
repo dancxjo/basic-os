@@ -53,17 +53,31 @@ pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptSta
         warn!("Mouse packet buffer overflow");
     }
 
-    let decoded = {
-        let mut decoder = MOUSE_DECODER.lock();
-        decoder.feed(packet)
-    };
+    end_of_interrupt(12);
+}
 
-    let bindings = irq_dma::notify_irq(12);
-    if let Some(event) = decoded {
-        emit_mouse_events(event, &bindings);
+pub fn process_events() {
+    let bindings = irq_dma::bindings_for_irq(12);
+    if bindings.is_empty() {
+        return;
     }
 
-    end_of_interrupt(12);
+    loop {
+        let packet = MOUSE_RAW_BYTES.pop();
+        match packet {
+            Some(p) => {
+                let decoded = {
+                    let mut decoder = MOUSE_DECODER.lock();
+                    decoder.feed(p)
+                };
+                if let Some(event) = decoded {
+                    // emit_mouse_events(event, &bindings);
+                    crate::serial_println!("MOUSE: skipped emit");
+                }
+            }
+            None => break,
+        }
+    }
 }
 
 fn enable_irq() {

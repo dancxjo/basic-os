@@ -820,6 +820,12 @@ fn decode_bmp(data: &[u8]) -> Option<Bitmap> {
     }
 
     let mut pixels = vec![0u32; width_u * height_u];
+    userland::println!(
+        "Allocated pixels at {:p} size {}x{}",
+        pixels.as_ptr(),
+        width_u,
+        height_u
+    );
     for row in 0..height_u {
         let src_row = if height > 0 { height_u - 1 - row } else { row };
         let src_start = data_offset + src_row * stride;

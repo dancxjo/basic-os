@@ -55,6 +55,7 @@ pub fn init_heap() {
     unsafe {
         let start = HEAP_SPACE.0.as_mut_ptr();
         let len = HEAP_SPACE.0.len();
+        crate::println!("Initializing user heap at {:p} with size {}", start, len);
         ALLOCATOR.inner.lock().init(start, len);
     }
 }

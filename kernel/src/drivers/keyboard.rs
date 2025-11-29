@@ -122,14 +122,32 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
             "Keyboard buffer overflow, dropping scancode 0x{:02X}",
             scancode
         );
-    } else {
-        refresh_keyboard_queue_state();
     }
 
-    let bindings = irq_dma::notify_irq(1);
-    emit_key_events(scancode, &bindings);
-
     end_of_interrupt(1);
+}
+
+pub fn process_events() {
+    crate::serial_println!("KBD: process_events start");
+    let bindings = irq_dma::bindings_for_irq(1);
+    if bindings.is_empty() {
+        crate::serial_println!("KBD: no bindings");
+        return;
+    }
+
+    loop {
+        let scancode = KEYBOARD_BUFFER.pop();
+        match scancode {
+            Some(c) => {
+                crate::serial_println!("KBD: got scancode {:02x}", c);
+                emit_key_events(c, &bindings);
+                // crate::serial_println!("KBD: skipped emit");
+            }
+            None => break,
+        }
+    }
+    refresh_keyboard_queue_state();
+    crate::serial_println!("KBD: process_events end");
 }
 
 pub fn read_scancodes(buf: &mut [u8]) -> usize {
@@ -163,9 +181,9 @@ fn emit_key_events(scancode: u8, bindings: &[irq_dma::IrqBindingInfo]) {
         fields.insert(canon::SCANCODE, Value::U64(code as u64));
         fields.insert(canon::DOWN, Value::Bool(down));
         fields.insert(canon::TS, Value::U64(ts));
-        if let Some(text) = key_text {
-            fields.insert(canon::TEXT, Value::Text(text.into()));
-        }
+        // if let Some(text) = key_text {
+        //     fields.insert(canon::TEXT, Value::Text(text.into()));
+        // }
 
         let req = GraphFiatRequest {
             id: None,

@@ -106,17 +106,25 @@ impl Store {
     }
 
     pub fn poll_watch(&mut self, id: WatchId) -> Option<GraphWatchBatch> {
-        if let Some(watch) = self.watches.get_mut(&id) {
-            let events = watch.queue.clone();
-            watch.queue.clear();
-            Some(GraphWatchBatch {
-                from_revision: events.first().map_or(0, |e| e.revision()),
-                latest_revision: events.last().map_or(0, |e| e.revision()),
-                changes: events,
-            })
-        } else {
-            None
+        let watch = self.watches.get_mut(&id)?;
+        if watch.queue.is_empty() {
+            return None;
         }
+
+        let mut changes = Vec::new();
+        let count = watch.queue.len().min(100);
+        for _ in 0..count {
+            changes.push(watch.queue.remove(0));
+        }
+
+        let from_revision = changes.first().map(|c| c.revision()).unwrap_or(0);
+        let latest_revision = changes.last().map(|c| c.revision()).unwrap_or(0);
+
+        Some(GraphWatchBatch {
+            from_revision,
+            latest_revision,
+            changes,
+        })
     }
 
     pub fn fiat(&mut self, owner: BundleId, request: GraphFiatRequest) -> GraphThing {

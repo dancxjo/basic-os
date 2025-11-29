@@ -15,6 +15,7 @@ static mut USER_RSP: u64 = 0;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
+    // serial_println!("SYSCALL: {:#x} arg0={:#x} arg1={:#x} arg2={:#x}", rax, rdi, rsi, rdx);
     let ret = match rax {
         SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),
         SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
@@ -133,6 +134,7 @@ fn watch_poll(watch_id: u64, out_ptr: u64, out_len: u64) -> u64 {
         Some(buf) => buf,
         None => return !0,
     };
+    // serial_println!("watch_poll: id={} out_ptr={:#x} out_len={} bytes_len={}", watch_id, out_ptr, out_len, bytes.len());
     copy_out_slice(&bytes, out_ptr, out_len)
 }
 
@@ -199,6 +201,7 @@ fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
         return required;
     }
 
+    // serial_println!("copy_out: src={:p} dst={:#x} len={}", buf.as_ptr(), out_ptr, buf.len());
     unsafe {
         core::ptr::copy_nonoverlapping(buf.as_ptr(), out_ptr as *mut u8, buf.len());
     }
@@ -322,6 +325,8 @@ fn irq_bind(req_ptr: u64, req_len: u64) -> u64 {
 
 fn irq_ack(handle: u64) -> u64 {
     if irq_dma::irq_ack(current_bundle(), handle) {
+        crate::drivers::keyboard::process_events();
+        crate::drivers::mouse::process_events();
         0
     } else {
         !0

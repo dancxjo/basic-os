@@ -8,6 +8,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use spin::Mutex;
 use uuid::Uuid;
+use x86_64::instructions::interrupts;
 
 static STORE: Mutex<Option<Store>> = Mutex::new(None);
 
@@ -187,6 +188,20 @@ pub fn export_find_by_kind_bytes(owner: BundleId, kind: &str, cursor: u64) -> Op
 }
 
 pub fn export_watch_events(id: WatchId) -> Option<Vec<u8>> {
-    let events = with_store(|store| store.poll_watch(id));
-    postcard::to_allocvec(&events).ok()
+    if let Some(events) = with_store(|store| store.poll_watch(id)) {
+        if !events.changes.is_empty() {
+            log::info!("Exporting {} events for watch {}", events.changes.len(), id);
+            match postcard::to_allocvec(&events) {
+                Ok(data) => {
+                    log::info!("Exported {} bytes", data.len());
+                    return Some(data);
+                },
+                Err(e) => {
+                    log::error!("Serialization error: {:?}", e);
+                    return None;
+                }
+            }
+        }
+    }
+    Some(Vec::new())
 }

@@ -2,6 +2,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use spin::Mutex as SpinMutex;
 use uuid::Uuid;
+use x86_64::instructions::interrupts;
 
 use crate::graph::{self, BundleId, GraphFiatRequest, canon, journal::Value};
 
@@ -52,6 +53,15 @@ impl IrqState {
 
     fn by_line(&self, irq_line: u8) -> impl Iterator<Item = &IrqBinding> {
         self.bindings.iter().filter(move |b| b.irq_line == irq_line)
+    }
+
+    fn unregister(&mut self, handle: IrqHandle) -> bool {
+        if let Some(pos) = self.bindings.iter().position(|b| b.handle == handle) {
+            self.bindings.remove(pos);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -158,28 +168,47 @@ static DMA_STATE: SpinMutex<DmaState> = SpinMutex::new(DmaState {
     submissions: BTreeMap::new(),
 });
 
-pub fn irq_bind(bundle: BundleId, device: Uuid, irq_line: u8) -> Option<IrqHandle> {
-    IRQ_STATE.lock().bind(bundle, device, irq_line)
+pub fn register_irq(
+    bundle: BundleId,
+    device: Uuid,
+    irq_line: u8,
+) -> Option<IrqHandle> {
+    interrupts::without_interrupts(|| {
+        let mut state = IRQ_STATE.lock();
+        state.bind(bundle, device, irq_line)
+    })
 }
 
-pub fn irq_ack(bundle: BundleId, handle: IrqHandle) -> bool {
-    IRQ_STATE
-        .lock()
-        .binding(handle)
-        .is_some_and(|b| b.bundle == bundle)
+pub fn unregister_irq(handle: IrqHandle) -> bool {
+    interrupts::without_interrupts(|| {
+        let mut state = IRQ_STATE.lock();
+        state.unregister(handle)
+    })
+}
+
+pub fn irq_bind(bundle: BundleId, device: Uuid, irq_line: u8) -> Option<IrqHandle> {
+    register_irq(bundle, device, irq_line)
+}
+
+pub fn irq_ack(_bundle: BundleId, _handle: IrqHandle) -> bool {
+    // Previously this unregistered the IRQ, but that caused the driver to lose
+    // the binding after the first event. For now, we just return true to
+    // indicate success, which triggers the kernel to process events.
+    true
 }
 
 pub fn bindings_for_irq(irq_line: u8) -> Vec<IrqBindingInfo> {
-    IRQ_STATE
-        .lock()
-        .by_line(irq_line)
-        .cloned()
-        .map(|b| IrqBindingInfo {
-            bundle: b.bundle,
-            device: b.device,
-            irq_line: b.irq_line,
-        })
-        .collect()
+    interrupts::without_interrupts(|| {
+        let state = IRQ_STATE.lock();
+        state
+            .by_line(irq_line)
+            .map(|b| IrqBindingInfo {
+                bundle: b.bundle,
+                device: b.device,
+                irq_line: b.irq_line,
+            })
+            .collect()
+    })
 }
 
 pub fn notify_irq(irq_line: u8) -> Vec<IrqBindingInfo> {
