@@ -375,7 +375,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 let rsp = (*task_ptr).context.frame.rsp;
                 let is_canonical = rsp < 0x0000_8000_0000_0000 || rsp >= 0xFFFF_8000_0000_0000;
                 if !is_canonical {
-                     panic!("Non-canonical RSP detected before switch: {:#x}", rsp);
+                    panic!("Non-canonical RSP detected before switch: {:#x}", rsp);
                 }
 
                 crate::trace::trace_event(
