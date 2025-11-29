@@ -116,6 +116,20 @@ unsafe extern "C" {
     fn yield_now_raw();
 }
 
+/// Update the CR3 (page table) for the current task.
+/// This is used when a task transitions from kernel to user mode and gets a new page table.
+pub fn set_current_cr3(cr3: u64) {
+    unsafe {
+        let task_ptr = crate::task::scheduler::CURRENT_TASK;
+        if !task_ptr.is_null() {
+            log::info!("Updating CR3 for task {:p} to {:#x}", task_ptr, cr3);
+            (*task_ptr).cr3 = cr3;
+        } else {
+            log::error!("Cannot update CR3: CURRENT_TASK is null");
+        }
+    }
+}
+
 #[cfg(debug_assertions)]
 pub fn debug_dump_current_task() {
     unsafe {

@@ -133,6 +133,7 @@ pub extern "C" fn start_user_task() {
     let new_table_frame = PhysFrame::containing_address(PhysAddr::new(
         new_l4 as *const _ as u64 - get_hhdm_offset().as_u64(),
     ));
+    runtime::set_current_cr3(new_table_frame.start_address().as_u64());
     unsafe {
         jump_to_user(loaded.entry, loaded.stack_top, new_table_frame);
     }

@@ -4,8 +4,16 @@
 .type syscall_entry_asm, @function
 
 syscall_entry_asm:
+    # Interrupts are disabled here (SFMASK)
+
+    # Save user RSP temporarily
     mov [USER_RSP], rsp
-    lea rsp, [SYSCALL_KERNEL_STACK + 16384]
+    
+    # Switch to per-task kernel stack
+    mov rsp, [KERNEL_STACK_PTR]
+
+    # Push user RSP onto kernel stack so it survives context switches
+    push [USER_RSP]
 
     push rbx
     push rbp
@@ -23,7 +31,13 @@ syscall_entry_asm:
     mov rsi, rdi
     mov rdi, rax
 
+    # Enable interrupts to allow preemption/blocking
+    sti
+
     call syscall_entry
+
+    # Disable interrupts before restoring stack
+    cli
 
     pop r11
     pop rcx
@@ -35,7 +49,8 @@ syscall_entry_asm:
     pop rbp
     pop rbx
 
-    mov rsp, [USER_RSP]
+    # Restore user RSP from stack
+    pop rsp
 
     sysretq
 

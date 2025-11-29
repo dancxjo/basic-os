@@ -20,7 +20,7 @@
 //! - Tasks are spaced by stack size
 
 use crate::{
-    arch::x86_64::gdt::SELECTORS,
+    arch::x86_64::gdt::{SELECTORS, set_kernel_stack},
     arch::x86_64::interrupts::end_of_interrupt,
     graph::{BundleId, KERNEL_BUNDLE_ID},
     mm::allocator::BootFrameAllocator,
@@ -30,7 +30,8 @@ use alloc::vec::Vec;
 use core::ptr;
 use log::{error, info};
 use spin::Mutex;
-use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable};
+use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, PhysFrame};
+use x86_64::{PhysAddr, registers::control::Cr3};
 
 use crate::task::context::{FullContext, TaskMode, prepare_context};
 
@@ -44,6 +45,7 @@ pub struct Task {
     pub initialized: bool,
     pub mode: TaskMode,
     pub bundle: BundleId,
+    pub cr3: u64,
 }
 
 impl Task {
@@ -64,10 +66,15 @@ impl Task {
             initialized: false,
             mode,
             bundle: KERNEL_BUNDLE_ID,
+            cr3: Cr3::read().0.start_address().as_u64(),
         };
 
         task.allocate_stack_if_needed(mapper, frame_allocator, index);
         task.prepare_if_needed();
+        info!(
+            "Task {} created: entry={:#x} stack_top={:#x} mode={:?}",
+            index, task.entry_point as u64, task.stack_top, mode
+        );
         task
     }
 
@@ -267,6 +274,11 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 // Original RSP before the interrupt: 15 registers + RIP/CS/RFLAGS.
                 (*saved).frame.rsp = current_rsp.add((15 + 3) * core::mem::size_of::<u64>()) as u64;
             }
+
+            info!(
+                "Saved context for task {:?}: rip={:#x} cs={:#x} rsp={:#x}",
+                task.mode, (*saved).frame.rip, (*saved).frame.cs, (*saved).frame.rsp
+            );
         }
 
         let mut scheduler = SCHEDULER.lock();
@@ -293,6 +305,16 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     (*task_ptr).context.frame.ss
                 );
                 serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
+                set_kernel_stack((*task_ptr).stack_top);
+
+                // Switch CR3
+                let new_cr3 = PhysFrame::containing_address(PhysAddr::new((*task_ptr).cr3));
+                let current_cr3 = Cr3::read().0;
+                if new_cr3 != current_cr3 {
+                    info!("Switching CR3: {:#x} -> {:#x}", current_cr3.start_address().as_u64(), new_cr3.start_address().as_u64());
+                    Cr3::write(new_cr3, Cr3::read().1);
+                }
+
                 restore_context((*task_ptr).context_ptr())
             }
             None => {

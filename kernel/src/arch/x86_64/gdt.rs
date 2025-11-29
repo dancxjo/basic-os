@@ -31,6 +31,19 @@ pub struct Selectors {
 
 pub static mut SELECTORS: Option<Selectors> = None;
 
+#[unsafe(no_mangle)]
+pub static mut KERNEL_STACK_PTR: u64 = 0;
+
+pub fn set_kernel_stack(stack_top: u64) {
+    unsafe {
+        KERNEL_STACK_PTR = stack_top;
+        #[allow(static_mut_refs)]
+        if let Some(tss) = TSS.as_mut() {
+            tss.privilege_stack_table[0] = VirtAddr::new(stack_top);
+        }
+    }
+}
+
 pub const KERNEL_CODE_SEG: u16 = 0x08;
 pub const KERNEL_DATA_SEG: u16 = 0x10;
 // Note: the TSS descriptor occupies two entries, so user segments start after it.

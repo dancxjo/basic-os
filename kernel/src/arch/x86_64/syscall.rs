@@ -13,14 +13,6 @@ use crate::task::runtime::current_bundle;
 #[unsafe(no_mangle)]
 static mut USER_RSP: u64 = 0;
 
-const KERNEL_STACK_SIZE: usize = 16 * 1024; // 16 KiB
-
-#[repr(C, align(16))]
-struct AlignedStack([u8; KERNEL_STACK_SIZE]);
-
-#[unsafe(no_mangle)]
-static mut SYSCALL_KERNEL_STACK: AlignedStack = AlignedStack([0; KERNEL_STACK_SIZE]);
-
 #[unsafe(no_mangle)]
 pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     let ret = match rax {

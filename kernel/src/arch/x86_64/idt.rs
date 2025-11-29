@@ -3,6 +3,7 @@
 use crate::{
     arch::x86_64::interrupts::{end_of_interrupt, init_io_apic_irq},
     drivers::{keyboard::keyboard_interrupt_handler, mouse::mouse_interrupt_handler},
+    task::runtime,
 };
 use core::sync::atomic::{AtomicU64, Ordering};
 use log::error;
@@ -15,16 +16,19 @@ pub const DOUBLE_FAULT_IST_INDEX: u16 = 1;
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
-use x86_64::registers::control::Cr2;
+use x86_64::registers::control::{Cr2, Cr3};
 
 extern "x86-interrupt" fn page_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: PageFaultErrorCode,
 ) {
     let faulting_address = Cr2::read();
+    let (cr3_frame, _) = Cr3::read();
 
     error!("\nEXCEPTION: PAGE FAULT");
     error!("Accessed Address: {:#018x}", faulting_address.as_u64());
+    error!("Current Bundle: {}", runtime::current_bundle());
+    error!("CR3: {:#x}", cr3_frame.start_address().as_u64());
     error!("Error Code: {:?}", error_code);
     error!("Stack Frame: {:#?}", stack_frame);
 
