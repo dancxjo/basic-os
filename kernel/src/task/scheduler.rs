@@ -50,7 +50,7 @@ pub struct Task {
 }
 
 impl Task {
-    const STACK_PAGES: u64 = 32;
+    const STACK_PAGES: u64 = 64; // Increased from 32 to 64 (256KB)
     const STACK_SIZE: u64 = 4096 * Self::STACK_PAGES;
     const MAGIC: u64 = 0x5441534B5F4D4147;
 
