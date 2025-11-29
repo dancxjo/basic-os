@@ -105,6 +105,14 @@ subject: keyboard0   predicate: pressed   object: key='a', scancode=0x1e
 - Snapshots: optional graph snapshots for faster boot, with journal replay for convergence.
 
 Contributors/agents: please keep these pillars in mind when adding drivers or services. Emit events instead of mutating globals; register Things and edges where possible; prefer declarative descriptors over bespoke wiring.
+
+## Recent Fixes & Findings (Nov 2025)
+
+- **Userland Logging**: Implemented `SYSCALL_LOG` (0x99) to enable `println!` in userland. This bridges userland logs to the kernel serial output, essential for debugging.
+- **Framebuffer Info Fix**: Fixed a bug in `userland::sys::fb_info` where the syscall return value (struct size) was incorrectly checked against 0, causing `framebuffer_driver` to panic.
+- **Compositor Crash Resolved**: Fixed a User Mode Page Fault in `compositor`. The crash was due to a combination of silent allocation failures and the `fb_info` bug.
+- **Allocation Error Handling**: Added `#[alloc_error_handler]` to userland to ensure Out-Of-Memory (OOM) conditions cause an explicit panic instead of silent failure.
+
 ## License
 
 MIT
