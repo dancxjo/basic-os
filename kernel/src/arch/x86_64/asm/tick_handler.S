@@ -7,7 +7,50 @@
 .extern rust_schedule_and_switch
 
 tick_handler:
-    // Save general-purpose registers
+    # Check if we came from user or kernel
+    # Stack: [RIP][CS][RFLAGS]...
+    testb $3, 8(%rsp)
+    jnz .user_entry
+
+.kernel_entry:
+    # We are in Kernel mode. CPU pushed 3 words.
+    # We need to expand to 5 words.
+    
+    subq $16, %rsp
+    # Stack: [Empty][Empty][RIP][CS][RFLAGS]
+    # We want: [RIP][CS][RFLAGS][RSP][SS]
+
+    # Move RIP, CS, RFLAGS down
+    pushq %rax # Save RAX temporarily
+    
+    movq 24(%rsp), %rax  # Load RIP (8+16)
+    movq %rax, 8(%rsp)
+    
+    movq 32(%rsp), %rax  # Load CS (8+24)
+    movq %rax, 16(%rsp)
+    
+    movq 40(%rsp), %rax  # Load RFLAGS (8+32)
+    movq %rax, 24(%rsp)
+    
+    # Calculate original RSP
+    # Original RSP = RSP (current) + 8 (pushed RAX) + 16 (sub) + 24 (3 words pushed by CPU) = RSP + 48
+    leaq 48(%rsp), %rax
+    movq %rax, 32(%rsp)  # Store RSP
+    
+    movq $0x10, %rax       # SS = 0x10
+    movq %rax, 40(%rsp)  # Store SS
+    
+    popq %rax # Restore RAX
+    
+    # Now stack has 5 words: [RIP][CS][RFLAGS][RSP][SS]
+    jmp .push_gprs
+
+.user_entry:
+    # User mode. CPU pushed 5 words.
+    # Stack: [RIP][CS][RFLAGS][RSP][SS]
+
+.push_gprs:
+    # Save general-purpose registers
     pushq %rax
     pushq %rbx
     pushq %rcx
@@ -24,7 +67,7 @@ tick_handler:
     pushq %r14
     pushq %r15
 
-    // Print tick character
+    # Print tick character
     movb $'.', %al
     movw $0x3F8, %dx
     outb %al, %dx
@@ -75,7 +118,38 @@ tick_handler:
 .type yield_now, @function
 
 yield_now:
-    # Save registers like in tick_handler
+    # Save RAX temporarily
+    pushq %rax
+    # Stack: [Saved RAX][RIP]
+    
+    subq $32, %rsp
+    # Stack: [Gap...][Saved RAX][RIP]
+    
+    # Move RIP
+    movq 40(%rsp), %rax
+    movq %rax, 0(%rsp)
+    
+    # Construct frame
+    movq $0x8, 8(%rsp)   # CS
+    
+    pushfq
+    popq %rax
+    movq %rax, 16(%rsp)  # RFLAGS
+    
+    # RSP
+    # Original RSP = Current RSP + 32 + 8 (Saved RAX) + 8 (RIP) = RSP + 48
+    leaq 48(%rsp), %rax
+    movq %rax, 24(%rsp)
+    
+    # SS
+    movq $0x10, 32(%rsp)
+    
+    # Now stack: [RIP][CS][RFLAGS][RSP][SS][Saved RAX]
+    
+    # Retrieve Saved RAX
+    movq 40(%rsp), %rax
+    
+    # Push GPRs (RAX first, R15 last)
     pushq %rax
     pushq %rbx
     pushq %rcx

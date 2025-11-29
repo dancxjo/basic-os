@@ -215,10 +215,30 @@ pub fn start_first() -> ! {
     }
 
     info!("Starting first task");
-    let ctx = {
+    let (ctx, stack_top) = {
         let scheduler = SCHEDULER.lock();
-        scheduler.first_task_context()
+        if let Some(task) = scheduler.tasks[0].as_ref() {
+            unsafe {
+                CURRENT_TASK = scheduler.tasks[0].as_ref().unwrap() as *const Task as *mut Task;
+            }
+            info!(
+                "First task context: rip={:#x} cs={:#x} rsp={:#x} ss={:#x} mode={:?}",
+                task.context.frame.rip,
+                task.context.frame.cs,
+                task.context.frame.rsp,
+                task.context.frame.ss,
+                task.mode
+            );
+            serial_print!("]");
+            (task.context_ptr(), task.stack_top)
+        } else {
+            panic!("No task in slot 0 to start");
+        }
     };
+
+    // Ensure the kernel stack is set for the first task
+    set_kernel_stack(stack_top);
+
     unsafe { restore_context(ctx) }
 }
 
@@ -256,13 +276,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 task.mode = incoming_mode;
             }
 
-            let words_pushed = if incoming_mode == TaskMode::Kernel {
-                // Kernel: CPU pushed RIP/CS/RFLAGS (no SS/RSP)
-                15 + 3
-            } else {
-                // User: CPU pushed RIP/CS/RFLAGS/RSP/SS
-                15 + 5
-            };
+            let words_pushed = 15 + 5; // Always 5 words (RIP, CS, RFLAGS, RSP, SS) + 15 regs
             let context_size = words_pushed * core::mem::size_of::<u64>();
             let dst = task.context_mut_ptr();
 
@@ -270,16 +284,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 ptr::copy_nonoverlapping(current_rsp, dst, context_size);
             }
 
-            // For kernel-mode contexts, the CPU doesn't push SS/RSP on interrupt entry.
-            // Reconstruct them so the saved context can restore the proper stack pointer.
             let saved = dst as *mut FullContext;
-            if (*saved).frame.cs & 0x3 == 0 {
-                #[allow(static_mut_refs)]
-                let selectors = SELECTORS.as_ref().expect("GDT not initialized");
-                (*saved).frame.ss = (selectors.data.0 & !0x3) as u64;
-                // Original RSP before the interrupt: 15 registers + RIP/CS/RFLAGS.
-                (*saved).frame.rsp = current_rsp.add((15 + 3) * core::mem::size_of::<u64>()) as u64;
-            }
 
             info!(
                 "Saved context for task {:?}: rip={:#x} cs={:#x} rsp={:#x}",

@@ -205,20 +205,14 @@ pub fn for_each_binding<F>(irq_line: u8, mut f: F)
 where
     F: FnMut(&IrqBindingInfo),
 {
-    let bindings: Vec<IrqBindingInfo> = {
-        let state = IRQ_STATE.lock();
-        state
-            .by_line(irq_line)
-            .map(|b| IrqBindingInfo {
-                bundle: b.bundle,
-                device: b.device,
-                irq_line: b.irq_line,
-            })
-            .collect()
-    };
-
-    for binding in bindings {
-        f(&binding);
+    let state = IRQ_STATE.lock();
+    for binding in state.by_line(irq_line) {
+        let info = IrqBindingInfo {
+            bundle: binding.bundle,
+            device: binding.device,
+            irq_line: binding.irq_line,
+        };
+        f(&info);
     }
 }
 fn emit_irq_event(binding: &IrqBinding) {
