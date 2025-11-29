@@ -14,6 +14,12 @@ make
 make run
 ```
 
+Important: When running `make run`, prefer to run it with a timeout so QEMU exits automatically and you don't have to manually close or kill the QEMU window. Example:
+
+```
+timeout 300 make run
+```
+
 `KARCH` can be set to `x86_64` (default) or other architectures supported by the Makefile such as `aarch64` and `riscv64`.
 
 ## Debugging with GDB

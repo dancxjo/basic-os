@@ -15,6 +15,8 @@
 - Run `make run` to boot the ISO in QEMU.  The variable `KARCH` selects the architecture (default `x86_64`).
 - Run `make clean` to remove build artifacts.
 
+Important: When running `make run`, prefer to run it with a timeout so QEMU exits automatically and you don't have to manually close or kill the QEMU window. Example: `timeout 300 make run`.
+
 ## Repository layout
 - `kernel/` – Rust kernel crate.  `kmain` in `src/main.rs` is the entry point.
 - `compositor/` – userland compositor binary and library.

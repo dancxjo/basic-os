@@ -55,3 +55,5 @@ The variable `KARCH` selects the architecture (default `x86_64`).
 
 - Always run `make` from the repository root to verify builds succeed.
 - Test changes with `make run` when possible (requires QEMU).
+
+Note: When running `make run`, prefer running it with a timeout so QEMU exits automatically and you don't need to manually close or kill the QEMU window. Example: `timeout 300 make run`.
