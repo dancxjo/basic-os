@@ -62,3 +62,10 @@ pub fn init_heap() {
 
 #[cfg(test)]
 pub fn init_heap() {}
+
+#[cfg(not(test))]
+#[alloc_error_handler]
+fn alloc_error_handler(layout: Layout) -> ! {
+    crate::println!("ALLOCATION FAILED: layout={:?}", layout);
+    loop {}
+}

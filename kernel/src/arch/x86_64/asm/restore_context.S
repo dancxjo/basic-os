@@ -44,15 +44,19 @@ print_qword:
 # ----------------------------------------
 restore_context:
     # Mark entry
-    movb $'$', %al
-    call print_al
+    # movb $'$', %al
+    # call print_al
 
     # Set stack pointer to saved context
     movq %rdi, %rsp       # rdi points to context buffer
 
+    # Check CS (offset 128) to see if we are returning to User or Kernel
+    movq 128(%rsp), %rax
+    testb $3, %al
+    jz .kernel_restore
+
+.user_restore:
     # Restore general-purpose registers from context
-    # Order must match GeneralRegisters struct layout:
-    # r15 at offset 0, r14 at offset 8, ..., rax at offset 112
     popq %r15
     popq %r14
     popq %r13
@@ -70,28 +74,70 @@ restore_context:
     popq %rax
 
     # Print marker before iretq
-    movb $'>', %al
-    call print_al
+    # movb $'>', %al
+    # call print_al
 
-    # RSP now points to the saved IretFrame: [rip][cs][rflags][rsp][ss]
-    # If returning to ring 0, the CPU won't pop rsp/ss, so move to the
-    # recorded kernel stack pointer and rebuild a minimal frame.
-    movq 8(%rsp), %rax        # saved CS
-    testb $0x3, %al
-    jnz 1f                    # non-zero CPL -> user return, fall through
+    iretq
 
-    movq 0(%rsp), %rcx        # saved RIP
-    movq 16(%rsp), %rsi       # saved RFLAGS
-    movq 24(%rsp), %rdi       # saved RSP
+.kernel_restore:
+    # We are returning to Kernel Mode.
+    # iretq will pop [RIP, CS, RFLAGS] but NOT [RSP, SS].
+    # So we must manually switch to the target stack.
+    # We construct an iretq frame [RIP, CS, RFLAGS] on the target stack.
+
+    # Target RSP is at offset 144
+    movq 144(%rsp), %rax
+
+    # Copy RIP (120), CS (128), RFLAGS (136) to Target Stack
+    # Target Stack Layout:
+    # [ ... ] <--- Target RSP
+    # [ RIP ] <--- Target RSP - 24
+    # [ CS  ] <--- Target RSP - 16
+    # [RFLAGS]<--- Target RSP - 8
+    # Wait, stack grows down.
+    # Top of stack (lowest address) should be RIP.
+    # So:
+    # -24: RIP
+    # -16: CS
+    # -8:  RFLAGS
     
-    movq %rdi, %rsp           # switch to the saved kernel stack
+    movq 120(%rsp), %rbx
+    movq %rbx, -24(%rax)
 
-    pushq %rsi                # push rflags to new stack
-    popfq                     # restore rflags
+    movq 128(%rsp), %rbx
+    movq %rbx, -16(%rax)
 
-    jmp *%rcx                 # jump to rip
+    movq 136(%rsp), %rbx
+    movq %rbx, -8(%rax)
 
-1:
+    # Update the RSP slot in the Context Buffer to point to the new stack top
+    subq $24, %rax
+    movq %rax, 144(%rsp)
+
+    # Restore GPRs
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rsi
+    popq %rdi
+    popq %rbp
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+
+    # Switch to the target stack
+    # The RSP slot (offset 144) was updated to point to the new stack top.
+    # Since we popped 15 regs (120 bytes), rsp is now at offset 120 (RIP).
+    # So offset 144 is now at 24(%rsp).
+    movq 24(%rsp), %rsp
+
+    # Now rsp points to [RIP, CS, RFLAGS] on the target kernel stack.
     iretq
 
 .halt:

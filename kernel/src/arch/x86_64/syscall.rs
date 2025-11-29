@@ -36,6 +36,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64
         SYSCALL_DMA_MAP => dma_map(rdi, rsi),
         SYSCALL_DMA_SUBMIT => dma_submit(rdi, rsi),
         SYSCALL_DMA_WAIT => dma_wait(rdi, rsi),
+        SYSCALL_LOG => sys_log(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
             !0
@@ -64,6 +65,7 @@ const SYSCALL_IRQ_ACK: u64 = 0x12;
 const SYSCALL_DMA_MAP: u64 = 0x13;
 const SYSCALL_DMA_SUBMIT: u64 = 0x14;
 const SYSCALL_DMA_WAIT: u64 = 0x15;
+const SYSCALL_LOG: u64 = 0x99;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IrqBindRequest {
@@ -374,6 +376,17 @@ fn dma_wait(req_ptr: u64, req_len: u64) -> u64 {
     } else {
         !0
     }
+}
+
+fn sys_log(ptr: u64, len: u64) -> u64 {
+    if ptr == 0 || len == 0 {
+        return !0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    if let Ok(s) = core::str::from_utf8(buf) {
+        crate::serial_print!("{}", s);
+    }
+    0
 }
 
 unsafe extern "C" {

@@ -82,6 +82,8 @@ fn emit_mouse_event(event: MouseEvent, binding: &irq_dma::IrqBindingInfo) {
         return;
     }
 
+    log::info!("emit_mouse_event: device={}", binding.device);
+
     let ts = irq_dma::monotonic_ticks();
 
     let mut move_fields = BTreeMap::new();

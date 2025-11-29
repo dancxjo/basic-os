@@ -41,14 +41,19 @@ pub fn create_user_page_table(
         table.zero();
         table
     };
-    // Reuse the existing HHDM PML4 entry so kernel code running with the user
-    // address space still has the higher-half direct map available.
-    let hhdm_index = hhdm_offset.p4_index();
+    // Copy all higher-half kernel mappings (indices 256-511) to ensure the kernel
+    // has full access to its address space (HHDM, kernel code, etc.) while running
+    // in the user's context.
     let active_cr3 = Cr3::read().0.start_address();
     let active_l4_virt = hhdm_offset + active_cr3.as_u64();
     let active_l4: &PageTable = unsafe { &*active_l4_virt.as_ptr() };
-    l4_table[hhdm_index] = active_l4[hhdm_index].clone();
 
+    for i in 256..512 {
+        l4_table[i] = active_l4[i].clone();
+    }
+
+    // Verify HHDM is present (it should be in the copied range)
+    let hhdm_index = hhdm_offset.p4_index();
     if !l4_table[hhdm_index]
         .flags()
         .contains(PageTableFlags::PRESENT)

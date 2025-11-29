@@ -60,6 +60,7 @@ pub const SYSCALL_IRQ_ACK: u64 = 0x12;
 pub const SYSCALL_DMA_MAP: u64 = 0x13;
 pub const SYSCALL_DMA_SUBMIT: u64 = 0x14;
 pub const SYSCALL_DMA_WAIT: u64 = 0x15;
+pub const SYSCALL_LOG: u64 = 0x99;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
@@ -128,7 +129,7 @@ pub fn fb_info() -> Option<FramebufferInfo> {
             0,
         )
     };
-    if ret == 0 {
+    if ret == core::mem::size_of::<FramebufferInfo>() as u64 {
         Some(info)
     } else {
         None
