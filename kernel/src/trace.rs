@@ -11,7 +11,12 @@ pub struct TraceEvent {
 
 impl Default for TraceEvent {
     fn default() -> Self {
-        Self { timestamp: 0, kind: 0, task_id: 0, arg: 0 }
+        Self {
+            timestamp: 0,
+            kind: 0,
+            task_id: 0,
+            arg: 0,
+        }
     }
 }
 
@@ -24,7 +29,12 @@ pub struct TraceBuffer {
 
 pub static mut TRACE_BUFFER: TraceBuffer = TraceBuffer {
     head: AtomicUsize::new(0),
-    events: [TraceEvent { timestamp: 0, kind: 0, task_id: 0, arg: 0 }; TRACE_LEN],
+    events: [TraceEvent {
+        timestamp: 0,
+        kind: 0,
+        task_id: 0,
+        arg: 0,
+    }; TRACE_LEN],
 };
 
 #[repr(u16)]
@@ -40,8 +50,15 @@ pub fn trace_event(kind: TraceKind, task_id: u16, arg: u64) {
     let timestamp = unsafe { core::arch::x86_64::_rdtsc() };
     unsafe {
         let idx = TRACE_BUFFER.head.load(Ordering::Relaxed);
-        TRACE_BUFFER.events[idx] = TraceEvent { timestamp, kind: kind as u16, task_id, arg };
-        TRACE_BUFFER.head.store((idx + 1) % TRACE_LEN, Ordering::Relaxed);
+        TRACE_BUFFER.events[idx] = TraceEvent {
+            timestamp,
+            kind: kind as u16,
+            task_id,
+            arg,
+        };
+        TRACE_BUFFER
+            .head
+            .store((idx + 1) % TRACE_LEN, Ordering::Relaxed);
     }
 }
 
@@ -49,12 +66,14 @@ pub fn dump_trace() {
     unsafe {
         crate::klog_raw!("--- TRACE DUMP ---\r\n");
         let head = TRACE_BUFFER.head.load(Ordering::Relaxed);
-        
+
         for i in 0..TRACE_LEN {
             let idx = (head + i) % TRACE_LEN;
             let evt = &TRACE_BUFFER.events[idx];
-            if evt.timestamp == 0 { continue; }
-            
+            if evt.timestamp == 0 {
+                continue;
+            }
+
             crate::drivers::serial::raw_write_hex(evt.timestamp);
             crate::klog_raw!(": ");
             crate::drivers::serial::raw_write_hex(evt.kind as u64);

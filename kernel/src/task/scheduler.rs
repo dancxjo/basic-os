@@ -268,7 +268,7 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> ! {
-    serial_print!("S");
+    crate::klog_raw!("S");
 
     unsafe {
         if !CURRENT_TASK.is_null() {
@@ -276,136 +276,28 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
             if task.magic != Task::MAGIC {
                 panic!("Current task magic corrupted: {:#x}", task.magic);
             }
-
-            let saved_cs_offset = (15 + 1) * core::mem::size_of::<u64>(); // index 16: after regs + RIP
-            let saved_cs = *(current_rsp.add(saved_cs_offset) as *const u64);
-            let incoming_mode = if saved_cs & 0x3 == 0x3 {
-                TaskMode::User
-            } else {
-                TaskMode::Kernel
-            };
-            if task.mode != incoming_mode {
-                info!(
-                    "Task mode transition: {:?} -> {:?} (irq={}, cs={:#x}, rsp={:#x})",
-                    task.mode, incoming_mode, irq, saved_cs, current_rsp as u64
-                );
-                task.mode = incoming_mode;
-            }
-
-            let words_pushed = 15 + 5; // Always 5 words (RIP, CS, RFLAGS, RSP, SS) + 15 regs
-            let context_size = words_pushed * core::mem::size_of::<u64>();
-            let dst = task.context_mut_ptr();
-
-            if current_rsp != dst {
-                ptr::copy_nonoverlapping(current_rsp, dst, context_size);
-            }
-
-            let saved = dst as *mut FullContext;
-            let saved_ctx = current_rsp as *const FullContext;
-            if let Some(ctx) = unsafe { saved_ctx.as_ref() } {
-                let rip = ctx.frame.rip;
-                if rip >= BTREE_WATCH_FN_START && rip < BTREE_WATCH_FN_END {
-                    log::error!(
-                        "Saving context in btree watch fn: rip={:#x} rsi={:#x} rsp={:#x}",
-                        rip,
-                        ctx.regs.rsi,
-                        ctx.frame.rsp
-                    );
-                }
-            }
-
-            info!(
-                "Saved context for task {:?}: rip={:#x} cs={:#x} rsp={:#x}",
-                task.mode,
-                (*saved).frame.rip,
-                (*saved).frame.cs,
-                (*saved).frame.rsp
-            );
-        }
-
-        let mut scheduler = SCHEDULER.lock();
-        let now = (scheduler.now_fn)();
-        let next = scheduler.next_ready_task(now).map(|t| t as *mut Task);
-        let current = CURRENT_TASK;
-        drop(scheduler);
-        match next {
-            Some(task_ptr) => {
-                if (*task_ptr).magic != Task::MAGIC {
-                    panic!("Next task magic corrupted: {:#x}", (*task_ptr).magic);
-                }
-                CURRENT_TASK = task_ptr;
-
-                end_of_interrupt(irq);
-                let next_mode = if (*task_ptr).context.frame.cs & 0x3 == 0x3 {
-                    TaskMode::User
-                } else {
-                    TaskMode::Kernel
-                };
-                if (*task_ptr).context.frame.rip >= BTREE_WATCH_FN_START
-                    && (*task_ptr).context.frame.rip < BTREE_WATCH_FN_END
-                {
-                    let regs = &(*task_ptr).context.regs;
-                    log::error!(
-                        "Restoring context in btree watch fn: rip={:#x} rsi={:#x} rdi={:#x} rsp={:#x}",
-                        (*task_ptr).context.frame.rip,
-                        regs.rsi,
-                        regs.rdi,
-                        (*task_ptr).context.frame.rsp
-                    );
-                }
-                info!(
-                    "Switching to {:?} task: rip={:#x}, cs={:#x}, rsp={:#x}, ss={:#x}",
-                    next_mode,
-                    (*task_ptr).context.frame.rip,
-                    (*task_ptr).context.frame.cs,
-                    (*task_ptr).context.frame.rsp,
-                    (*task_ptr).context.frame.ss
-                );
-
+// ...existing code...
                 crate::trace::trace_event(
                     crate::trace::TraceKind::SwitchTo,
                     scheduler.current as u16,
                     (*task_ptr).cr3
                 );
 
-                serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
+                // serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
+                crate::klog_raw!("[");
+                crate::drivers::serial::raw_write_hex(task_ptr as u64);
+                crate::klog_raw!(":");
+                crate::drivers::serial::raw_write_hex((*task_ptr).context_ptr() as u64);
+                crate::klog_raw!("]> ");
+
                 set_kernel_stack((*task_ptr).stack_top);
 
                 // Switch CR3
-                let new_cr3 = PhysFrame::containing_address(PhysAddr::new((*task_ptr).cr3));
-                let current_cr3 = Cr3::read().0;
-                if new_cr3 != current_cr3 {
-                    info!(
-                        "Switching CR3: {:#x} -> {:#x}",
-                        current_cr3.start_address().as_u64(),
-                        new_cr3.start_address().as_u64()
-                    );
-                    Cr3::write(new_cr3, Cr3::read().1);
-                    let actual_cr3 = Cr3::read().0;
-                    if actual_cr3 != new_cr3 {
-                        panic!(
-                            "CR3 switch failed: expected {:#x}, got {:#x}",
-                            new_cr3.start_address().as_u64(),
-                            actual_cr3.start_address().as_u64()
-                        );
-                    }
-                }
-
-                restore_context((*task_ptr).context_ptr())
-            }
+// ...existing code...
             None => {
-                serial_print!("!");
+                crate::klog_raw!("!");
 
                 end_of_interrupt(irq);
                 let ctx = if !current.is_null() {
-                    (*current).context_ptr()
-                } else {
-                    error!("No current task; esperante.");
-                    rust_schedule_and_switch(current_rsp, irq);
-                };
-                CURRENT_TASK = current;
-                restore_context(ctx)
-            }
-        }
-    }
-}
+// ...existing code...
+
