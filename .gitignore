@@ -1,3 +1,32 @@
+# Build artifacts
+/iso_root/
+*.iso
+*.hdd
+
+# Rust build directories
+/target/
+**/target/
+
+# Limine and OVMF downloads
+/limine/
+/ovmf/
+
+# Per-crate cargo targets (redundant with /target but explicit)
+/compositor/target/
+/kernel/target/
+/userland/target/
+/apps/*/target/
+/drivers/*/target/
+
+# Temporary and editor files
+*.swp
+*.swo
+*.bak
+.vscode/
+.idea/
+
+# Other
+/build/
 /target/
 **/target/
 **/flycheck*

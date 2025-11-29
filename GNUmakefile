@@ -336,9 +336,18 @@ endif
 clean:
 	$(MAKE) -C kernel clean
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
-	rm -rf limine compositor/target ovmf
+	# Remove downloaded or generated tooling and rust build artifacts
+	rm -rf limine ovmf
+	rm -rf target
+	rm -rf compositor/target
+	rm -rf userland/target
+	rm -rf apps/*/target
+	rm -rf drivers/*/target
+	rm -rf drivers/*/target/*
+	rm -rf */target
+	rm -rf build
 
 .PHONY: distclean
 distclean: clean
 	$(MAKE) -C kernel distclean
-	rm -rf limine ovmf
+	rm -rf limine ovmf target
