@@ -83,6 +83,14 @@ restore_context:
     # We are returning to Kernel Mode.
     # iretq will pop [RIP, CS, RFLAGS] but NOT [RSP, SS].
     # So we must manually switch to the target stack.
+
+    # Ensure data segments are valid (SS=0x10, DS=0x10, ES=0x10)
+    # This prevents issues if SS was somehow corrupted or 0.
+    mov $0x10, %ax
+    mov %ax, %ds
+    mov %ax, %es
+    mov %ax, %ss
+
     # We construct an iretq frame [RIP, CS, RFLAGS] on the target stack.
 
     # Target RSP is at offset 144

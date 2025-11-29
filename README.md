@@ -2,6 +2,13 @@
 
 An experimental Rust operating system. It currently boots with the Limine bootloader, sets up basic x86_64 hardware, and runs a toy user program. Persistence and other advanced services are still to come.
 
+> **Current Architectural Direction (Nov 2025)**
+>
+> - The kernel is a *hardware and scheduling micro-core only*.
+> - All input decoding, rendering, and I/O semantics live in userland.
+> - The graph and journal remain kernel-resident data systems, but never mediate hardware directly.
+> - Every user task runs in an independent address space with its own CR3 and kernel stack.
+
 ## Building and running
 
 The top level `GNUmakefile` builds an ISO image and runs it under QEMU.
@@ -39,36 +46,40 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/kernel -ex "target remote 
 
 ## Code overview
 
-- **kernel/** – the Rust kernel crate. `system.rs` performs initialization:
-  - sets up the GDT, paging, kernel stack and heap
+**kernel/** – the Rust kernel crate. `system.rs` performs initialization:
+  - sets up the GDT, paging, per-task kernel stacks, and heap
   - enables the syscall mechanism and interrupt handling
-  - initializes the framebuffer and PS/2 devices
-  - creates an HPET/RTC based `Clock`
-  - loads userland ELF modules (drivers, compositor, and a demo app)
+  - initializes low-level hardware shims (PS/2, framebuffer, serial) as raw devices
+  - creates the system clock
+  - loads userland ELF modules as independent tasks (drivers first, then compositor, then apps)
 
-  After these steps the kernel enables interrupts and starts a small
-  cooperative scheduler. Modules listed in `limine.conf` are pulled in
-  as separate tasks (drivers first, then compositor, then an app).
-  Press `Scroll Lock` or rely on timer ticks to yield execution.
-  Function keys `F1`–`F12` select which task runs next.
+  After initialization the kernel enables interrupts and enters a preemptive round-robin scheduler.
+  Each ELF module runs in its own address space with an independent CR3 and kernel stack.
+  Timer interrupts drive task preemption; no task may assume exclusive CPU ownership.
 
 - **compositor/** – userland compositor binary/library. It ingests app
   `window_buffer_updated` events and produces composed frames. Shipped
   as its own ELF module instead of a combined `userland.bin`.
-- **drivers/** – user-space device drivers (keyboard, mouse, framebuffer),
-  each built as its own ELF module that the kernel loads directly.
+- **drivers/** – *userland* device interpreters (keyboard, mouse, framebuffer).
+  These consume **raw kernel devices** via generic device syscalls and translate byte streams
+  and memory mappings into graph events and high-level behavior. Each is built as an independent ELF module.
 - **apps/** – small demo apps (clouds, hello, clock). Each builds as a
   standalone ELF module that the kernel loads directly.
 - **userland/** – shared userland support library (syscalls/graph helpers).
 
-## Syscall surface (early)
+## Syscall Surface (Current)
 
-Userland interacts with the system through graph and device syscalls. The
-The journal stays inside the kernel; user code queries live state via
-graph operations and watches instead of snapshots.
+Userland interacts with the kernel exclusively through:
 
-- `graph_find_by_kind(kind_ptr, kind_len, cursor)`: query the graph for things
-  of a specific kind. Returns a paginated list of things.
+- **Generic device syscalls** (`dev_open`, `dev_read`, `dev_write`, `dev_map`)
+- **Task and scheduling syscalls**
+- **Graph operations and watches** (purely as *data services*, not hardware mediation)
+
+The kernel only exposes **raw byte streams and memory regions** for hardware devices.
+All decoding, interpretation, buffering, and policy live entirely in userland drivers.
+
+The journal remains an internal kernel implementation detail.
+Userland never appends to or reads the journal directly.
 
 ## Current status
 
@@ -91,7 +102,9 @@ bringing up the core kernel.
 Current implementation status:
 
 - Graph core (kernel/src/graph): symbols (`canon`), append-only in-memory journal with snapshot/replay, and a Thing store/graph scaffold.
-- Drivers register declaratively and emit init/fail events; keyboard emits key press events into the journal. Drivers are Things too and should eventually appear as nodes with edges like `implements HardwareThing`, `streams IRQThing`, `depends_on ClockThing`, `supervises TaskThing`.
+- Drivers register as Things and may emit init/fail events.
+- **Kernel device shims never emit semantic events.**
+- Userland drivers (e.g., keyboard driver) decode raw device streams and emit all semantic events (keypresses, mouse movement, etc.) into the graph and journal. Drivers are Things too and should eventually appear as nodes with edges like `implements HardwareThing`, `streams IRQThing`, `depends_on ClockThing`, `supervises TaskThing`.
 - Replay hook is wired but does not yet rebuild the graph from the journal; journal is in-memory only.
 
 Example event (journal proposition):

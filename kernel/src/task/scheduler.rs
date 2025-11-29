@@ -133,7 +133,13 @@ impl Task {
                 page = page + 1;
             }
 
-            self.stack_top = base_virt + Self::STACK_SIZE - 128;
+            // Reserve space at the top of the stack.
+            // We subtract 128 bytes for red zone / safety.
+            // We also subtract 8 bytes to ensure 16-byte alignment for the entry point.
+            // The x86_64 System V ABI requires (rsp + 8) to be 16-byte aligned on function entry.
+            // Since we jump directly via iretq, rsp will be exactly stack_top.
+            // So we want stack_top % 16 == 8.
+            self.stack_top = base_virt + Self::STACK_SIZE - 128 - 8;
         }
         info!("Stack allocated for task {}", index);
     }
