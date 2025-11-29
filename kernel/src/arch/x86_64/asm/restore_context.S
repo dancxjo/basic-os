@@ -43,86 +43,83 @@ print_qword:
 #   - executes iretq
 # ----------------------------------------
 restore_context:
-    # Mark entry
-    # movb $'$', %al
-    # call print_al
-
-    # Set stack pointer to saved context
-    movq %rdi, %rsp       # rdi points to context buffer
-
-    # Check CS (offset 128) to see if we are returning to User or Kernel
-    movq 128(%rsp), %rax
-    testb $3, %al
-    jz .kernel_restore
-
-.user_restore:
-    # Restore general-purpose registers from context
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rsi
-    popq %rdi
-    popq %rbp
+    # DEBUG: Entry
+    pushq %rax
+    pushq %rdx
+    movb $'R', %al
+    call print_al
     popq %rdx
-    popq %rcx
-    popq %rbx
     popq %rax
 
-    # Print marker before iretq
-    # movb $'>', %al
-    # call print_al
+    # %rdi points to FullContext
+    movq %rdi, %rsp
 
-    iretq
+    # Check CS (offset 128) to see if we are returning to User Mode
+    movq 128(%rsp), %rax
+    testq $3, %rax
+    jnz .user_return
 
-.kernel_restore:
-    # We are returning to Kernel Mode.
-    # iretq will pop [RIP, CS, RFLAGS] but NOT [RSP, SS].
-    # So we must manually switch to the target stack.
-
-    # Ensure data segments are valid (SS=0x10, DS=0x10, ES=0x10)
-    # This prevents issues if SS was somehow corrupted or 0.
-    mov $0x10, %ax
-    mov %ax, %ds
-    mov %ax, %es
-    mov %ax, %ss
-
-    # We construct an iretq frame [RIP, CS, RFLAGS] on the target stack.
-
-    # Target RSP is at offset 144
-    movq 144(%rsp), %rax
-
-    # Copy RIP (120), CS (128), RFLAGS (136) to Target Stack
-    # Target Stack Layout:
-    # [ ... ] <--- Target RSP
-    # [ RIP ] <--- Target RSP - 24
-    # [ CS  ] <--- Target RSP - 16
-    # [RFLAGS]<--- Target RSP - 8
-    # Wait, stack grows down.
-    # Top of stack (lowest address) should be RIP.
-    # So:
-    # -24: RIP
-    # -16: CS
-    # -8:  RFLAGS
+.kernel_return:
+    # Returning to Kernel Mode (CS & 3 == 0).
+    # iretq will NOT pop RSP/SS, so we must switch stack manually.
     
-    movq 120(%rsp), %rbx
-    movq %rbx, -24(%rax)
-
-    movq 128(%rsp), %rbx
-    movq %rbx, -16(%rax)
-
+    # Load Target RSP from Context (offset 144)
+    movq 144(%rsp), %rax
+    
+    # We need to construct [RIP, CS, RFLAGS] on the Target Stack.
+    # We also push RAX temporarily so we can restore it after stack switch.
+    
+    # Push RFLAGS (offset 136)
     movq 136(%rsp), %rbx
     movq %rbx, -8(%rax)
+    
+    # Push CS (offset 128)
+    movq 128(%rsp), %rbx
+    movq %rbx, -16(%rax)
+    
+    # Push RIP (offset 120)
+    movq 120(%rsp), %rbx
+    movq %rbx, -24(%rax)
+    
+    # Push RAX (offset 112)
+    movq 112(%rsp), %rbx
+    movq %rbx, -32(%rax)
+    
+    # Adjust Target RSP to point to the new top (RAX)
+    subq $32, %rax
+    
+    # Restore GPRs (except RAX)
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rsi
+    popq %rdi
+    popq %rbp
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    
+    # Skip RAX on the Context stack (we pushed it to Target Stack)
+    addq $8, %rsp
+    
+    # Switch to Target Stack
+    movq %rax, %rsp
+    
+    # Restore RAX
+    popq %rax
+    
+    # Stack is now [RIP, CS, RFLAGS]
+    iretq
 
-    # Update the RSP slot in the Context Buffer to point to the new stack top
-    subq $24, %rax
-    movq %rax, 144(%rsp)
-
-    # Restore GPRs
+.user_return:
+    # Returning to User Mode (CS & 3 == 3).
+    # iretq WILL pop RSP/SS automatically.
+    
     popq %r15
     popq %r14
     popq %r13
@@ -138,14 +135,8 @@ restore_context:
     popq %rcx
     popq %rbx
     popq %rax
-
-    # Switch to the target stack
-    # The RSP slot (offset 144) was updated to point to the new stack top.
-    # Since we popped 15 regs (120 bytes), rsp is now at offset 120 (RIP).
-    # So offset 144 is now at 24(%rsp).
-    movq 24(%rsp), %rsp
-
-    # Now rsp points to [RIP, CS, RFLAGS] on the target kernel stack.
+    
+    # Stack is now [RIP, CS, RFLAGS, RSP, SS]
     iretq
 
 .halt:

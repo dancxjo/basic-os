@@ -274,6 +274,9 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> ! {
+    if (current_rsp as u64) % 8 != 0 {
+        panic!("Unaligned RSP: {:p}", current_rsp);
+    }
     crate::klog_raw!("S");
 
     unsafe {
@@ -367,6 +370,14 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     (*task_ptr).context.frame.rsp,
                     (*task_ptr).context.frame.ss
                 );
+
+                // Step 2: Assert canonical RSP
+                let rsp = (*task_ptr).context.frame.rsp;
+                let is_canonical = rsp < 0x0000_8000_0000_0000 || rsp >= 0xFFFF_8000_0000_0000;
+                if !is_canonical {
+                     panic!("Non-canonical RSP detected before switch: {:#x}", rsp);
+                }
+
                 crate::trace::trace_event(
                     crate::trace::TraceKind::SwitchTo,
                     current_idx as u16,

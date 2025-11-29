@@ -49,6 +49,7 @@ impl Store {
 
     pub fn register_watch_pattern(&mut self, owner: BundleId, pattern: NodePattern) -> WatchId {
         let id = self.next_watch_id;
+        crate::serial_println!("Store::register_watch: id={} owner={}", id, owner);
         self.next_watch_id += 1;
         self.watches.insert(
             id,
@@ -106,6 +107,11 @@ impl Store {
     }
 
     pub fn poll_watch(&mut self, id: WatchId) -> Option<GraphWatchBatch> {
+        crate::serial_println!("Store::poll_watch: id={}", id);
+        if !self.watches.contains_key(&id) {
+             crate::serial_println!("Store::poll_watch: id={} NOT FOUND", id);
+             return None;
+        }
         let watch = self.watches.get_mut(&id)?;
         if watch.queue.is_empty() {
             return None;

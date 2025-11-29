@@ -5,7 +5,8 @@ use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 use crate::drivers::irq_dma;
 use crate::graph::{
     self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphGetRequest,
-    GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, NodePattern, WatchQuery,
+    GraphLinkRequest, GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, NodePattern,
+    WatchQuery,
 };
 use crate::serial_println;
 use crate::task::runtime::current_bundle;
@@ -100,32 +101,41 @@ pub struct DmaWaitRequest {
 }
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
+    // crate::serial_println!("graph_fiat: ptr={:#x} len={}", req_ptr, req_len);
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+
+    // crate::serial_println!("graph_fiat: skipping postcard");
+
     let Ok(request) = postcard::from_bytes::<GraphFiatRequest>(buf) else {
+        crate::serial_println!("graph_fiat: postcard failed");
         return !0;
     };
+
+    // crate::serial_println!("graph_fiat: postcard success");
+    // return 0; // Fake success
+
     let bundle = current_bundle();
     let thing = graph::fiat_for_bundle(bundle, request);
     thing.revision
 }
 
 fn graph_link(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
-    let Ok(request) = postcard::from_bytes::<GraphThatRequest>(buf) else {
+    let Ok(request) = postcard::from_bytes::<GraphLinkRequest>(buf) else {
         return !0;
     };
     let bundle = current_bundle();
-    graph::that_for_bundle(bundle, request)
+    graph::link(bundle, request)
 }
 
 fn watch_register(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -148,7 +158,7 @@ fn watch_poll(watch_id: u64, out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn kbd_read(out_ptr: u64, out_len: u64) -> u64 {
-    if out_ptr == 0 || out_len == 0 {
+    if out_ptr == 0 || out_len == 0 || out_ptr >= 0x0000_8000_0000_0000 {
         return 0;
     }
     let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
@@ -156,7 +166,7 @@ fn kbd_read(out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn mouse_read(out_ptr: u64, out_len: u64) -> u64 {
-    if out_ptr == 0 || out_len == 0 {
+    if out_ptr == 0 || out_len == 0 || out_ptr >= 0x0000_8000_0000_0000 {
         return 0;
     }
     let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
@@ -164,7 +174,7 @@ fn mouse_read(out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn graph_get(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -202,7 +212,7 @@ fn graph_get(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
 
 fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
     let required = buf.len() as u64;
-    if out_len == 0 || out_ptr == 0 {
+    if out_len == 0 || out_ptr == 0 || out_ptr >= 0x0000_8000_0000_0000 {
         return required;
     }
 
@@ -218,7 +228,7 @@ fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn fb_info(out_ptr: u64, out_len: u64) -> u64 {
-    if out_ptr == 0 || out_len == 0 {
+    if out_ptr == 0 || out_len == 0 || out_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let info = match crate::drivers::framebuffer::get_framebuffer_info() {
@@ -244,7 +254,12 @@ fn fb_map() -> u64 {
 }
 
 fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if req_ptr == 0 || out_ptr == 0 || out_len == 0 {
+    if req_ptr == 0
+        || out_ptr == 0
+        || out_len == 0
+        || req_ptr >= 0x0000_8000_0000_0000
+        || out_ptr >= 0x0000_8000_0000_0000
+    {
         return !0;
     }
 
@@ -274,7 +289,7 @@ fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn graph_get_props(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if req_ptr == 0 {
+    if req_ptr == 0 || req_ptr >= 0x0000_8000_0000_0000 || out_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -292,7 +307,7 @@ fn graph_get_props(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u6
 }
 
 fn graph_set_props(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 {
+    if req_ptr == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -307,7 +322,7 @@ fn graph_set_props(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn grant_capability(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -322,7 +337,7 @@ fn grant_capability(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn irq_bind(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -341,7 +356,7 @@ fn irq_ack(handle: u64) -> u64 {
 }
 
 fn dma_map(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -352,7 +367,7 @@ fn dma_map(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn dma_submit(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -369,7 +384,7 @@ fn dma_submit(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn dma_wait(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 {
+    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
         return !0;
     }
     let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
@@ -384,14 +399,23 @@ fn dma_wait(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn sys_log(ptr: u64, len: u64) -> u64 {
-    if ptr == 0 || len == 0 {
+    if ptr == 0 || len == 0 || len > 4096 {
         return !0;
     }
+    // Check user range
+    if ptr >= 0x0000_8000_0000_0000 {
+        return !0;
+    }
+    if ptr + len >= 0x0000_8000_0000_0000 {
+        return !0;
+    }
+
     let buf = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
     if let Ok(s) = core::str::from_utf8(buf) {
         crate::serial_print!("{}", s);
+        return 0;
     }
-    0
+    !0
 }
 
 fn dev_open(kind: u64, index: u64) -> u64 {
@@ -399,7 +423,7 @@ fn dev_open(kind: u64, index: u64) -> u64 {
 }
 
 fn dev_read(handle: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if out_ptr == 0 || out_len == 0 {
+    if out_ptr == 0 || out_len == 0 || out_ptr >= 0x0000_8000_0000_0000 {
         return 0;
     }
     let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
@@ -407,7 +431,7 @@ fn dev_read(handle: u64, out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn dev_write(handle: u64, in_ptr: u64, in_len: u64) -> u64 {
-    if in_ptr == 0 || in_len == 0 {
+    if in_ptr == 0 || in_len == 0 || in_ptr >= 0x0000_8000_0000_0000 {
         return 0;
     }
     let buf = unsafe { core::slice::from_raw_parts(in_ptr as *const u8, in_len as usize) };
