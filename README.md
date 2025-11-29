@@ -38,20 +38,22 @@ gdb-multiarch kernel/target/x86_64-unknown-none/debug/kernel -ex "target remote 
   - enables the syscall mechanism and interrupt handling
   - initializes the framebuffer and PS/2 devices
   - creates an HPET/RTC based `Clock`
-  - loads the `compositor` ELF binary as a user task
+  - loads userland ELF modules (drivers, compositor, and a demo app)
 
   After these steps the kernel enables interrupts and starts a small
-  cooperative scheduler. At boot the scheduler jumps into the userland
-  compositor (`compositor`), which hosts the compositor library and demo apps. Press `Scroll Lock` or rely on timer ticks
-  to yield execution. Function keys `F1`–`F12` select which task runs next.
+  cooperative scheduler. Modules listed in `limine.conf` are pulled in
+  as separate tasks (drivers first, then compositor, then an app).
+  Press `Scroll Lock` or rely on timer ticks to yield execution.
+  Function keys `F1`–`F12` select which task runs next.
 
-- **compositor/** – userland compositor library. It ingests app
-  `window_buffer_updated` events and produces composed frames.
-- **apps/** – small demo apps (clouds, hello, clock) that publish window
-  buffers/events to be composed.
+- **compositor/** – userland compositor binary/library. It ingests app
+  `window_buffer_updated` events and produces composed frames. Shipped
+  as its own ELF module instead of a combined `userland.bin`.
+- **drivers/** – user-space device drivers (keyboard, mouse, framebuffer),
+  each built as its own ELF module that the kernel loads directly.
+- **apps/** – small demo apps (clouds, hello, clock). Each builds as a
+  standalone ELF module that the kernel loads directly.
 - **userland/** – shared userland support library (syscalls/graph helpers).
-- **runner/** – userland binary that wires the compositor and demo apps
-  together for now (until multiple user tasks are supported).
 
 ## Syscall surface (early)
 
@@ -65,7 +67,7 @@ graph operations and watches instead of snapshots.
 ## Current status
 
 - kernel boots, sets up devices, and exposes graph/device syscalls
-- compositor launches four sample apps
+- compositor plus demo drivers/apps are launched as independent modules
 - "Everything is a Thing" graph is wired via live graph operations and watches
 - userland `WatchManager` drives app events
 

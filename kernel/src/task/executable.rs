@@ -100,7 +100,7 @@ pub fn create_user_page_table(
     );
 
     // Verify kernel mapping
-    let kernel_func_addr = VirtAddr::new(create_user_page_table as usize as u64);
+    let kernel_func_addr = VirtAddr::new(jump_to_user as usize as u64);
     if offset_page_table.translate_addr(kernel_func_addr).is_none() {
         panic!("Kernel code not mapped in user page table!");
     }

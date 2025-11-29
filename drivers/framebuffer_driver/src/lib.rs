@@ -36,7 +36,7 @@ impl App for FramebufferDriver {
             id: None,
         };
         let frame_watch = Some(ctx.watch_graph(filter));
-        
+
         FramebufferDriver {
             fb_id,
             fb_ptr,
@@ -52,7 +52,7 @@ impl App for FramebufferDriver {
     fn on_event(&mut self, _ctx: &mut AppContext<'_>, ev: AppEvent) {
         if let AppEvent::Thing { watch, thing: _ } = ev {
             if Some(watch) == self.frame_watch {
-                 // Blitting is now handled by the compositor directly
+                // Blitting is now handled by the compositor directly
             }
         }
     }

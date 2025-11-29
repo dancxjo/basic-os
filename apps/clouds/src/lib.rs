@@ -15,7 +15,7 @@ pub struct CloudsApp {
 impl App for CloudsApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
         let window = ctx.create_window("Clouds");
-        
+
         // Watch for key presses
         ctx.watch_graph(ThingFilter {
             kind: Some(canon::KEY_PRESSED),
@@ -24,8 +24,8 @@ impl App for CloudsApp {
 
         let bmp_data = include_bytes!("../../../clouds.bmp");
 
-        CloudsApp { 
-            window, 
+        CloudsApp {
+            window,
             bmp_data,
             key_count: 0,
             sent_bitmap: false,
@@ -42,13 +42,16 @@ impl App for CloudsApp {
 
     fn tick(&mut self, ctx: &mut AppContext<'_>, _tick: u64) {
         ctx.clear_window(&self.window);
-        
+
         if !self.sent_bitmap {
             ctx.draw_bitmap(&self.window, self.bmp_data);
             self.sent_bitmap = true;
         }
-        
-        ctx.draw_text(&self.window, format_args!("Keys pressed: {}", self.key_count));
+
+        ctx.draw_text(
+            &self.window,
+            format_args!("Keys pressed: {}", self.key_count),
+        );
     }
 }
 
