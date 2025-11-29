@@ -277,7 +277,10 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
 
             info!(
                 "Saved context for task {:?}: rip={:#x} cs={:#x} rsp={:#x}",
-                task.mode, (*saved).frame.rip, (*saved).frame.cs, (*saved).frame.rsp
+                task.mode,
+                (*saved).frame.rip,
+                (*saved).frame.cs,
+                (*saved).frame.rsp
             );
         }
 
@@ -311,7 +314,11 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 let new_cr3 = PhysFrame::containing_address(PhysAddr::new((*task_ptr).cr3));
                 let current_cr3 = Cr3::read().0;
                 if new_cr3 != current_cr3 {
-                    info!("Switching CR3: {:#x} -> {:#x}", current_cr3.start_address().as_u64(), new_cr3.start_address().as_u64());
+                    info!(
+                        "Switching CR3: {:#x} -> {:#x}",
+                        current_cr3.start_address().as_u64(),
+                        new_cr3.start_address().as_u64()
+                    );
                     Cr3::write(new_cr3, Cr3::read().1);
                 }
 
