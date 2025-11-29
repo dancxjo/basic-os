@@ -15,8 +15,6 @@ static mut USER_RSP: u64 = 0;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
-    crate::trace::trace_event(crate::trace::TraceKind::SyscallEnter, 0, rax);
-    // serial_println!("SYSCALL: {:#x} arg0={:#x} arg1={:#x} arg2={:#x}", rax, rdi, rsi, rdx);
     let ret = match rax {
         SYSCALL_GRAPH_FIAT => graph_fiat(rdi, rsi),
         SYSCALL_GRAPH_LINK => graph_link(rdi, rsi),
@@ -37,6 +35,10 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64
         SYSCALL_DMA_MAP => dma_map(rdi, rsi),
         SYSCALL_DMA_SUBMIT => dma_submit(rdi, rsi),
         SYSCALL_DMA_WAIT => dma_wait(rdi, rsi),
+        SYSCALL_DEV_OPEN => dev_open(rdi, rsi),
+        SYSCALL_DEV_READ => dev_read(rdi, rsi, rdx),
+        SYSCALL_DEV_WRITE => dev_write(rdi, rsi, rdx),
+        SYSCALL_DEV_MAP => dev_map(rdi),
         SYSCALL_LOG => sys_log(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
@@ -66,6 +68,10 @@ const SYSCALL_IRQ_ACK: u64 = 0x12;
 const SYSCALL_DMA_MAP: u64 = 0x13;
 const SYSCALL_DMA_SUBMIT: u64 = 0x14;
 const SYSCALL_DMA_WAIT: u64 = 0x15;
+const SYSCALL_DEV_OPEN: u64 = 0x20;
+const SYSCALL_DEV_READ: u64 = 0x21;
+const SYSCALL_DEV_WRITE: u64 = 0x22;
+const SYSCALL_DEV_MAP: u64 = 0x23;
 const SYSCALL_LOG: u64 = 0x99;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -386,6 +392,33 @@ fn sys_log(ptr: u64, len: u64) -> u64 {
         crate::serial_print!("{}", s);
     }
     0
+}
+
+fn dev_open(kind: u64, index: u64) -> u64 {
+    crate::drivers::device::dev_open(kind as u32, index as usize).unwrap_or(!0)
+}
+
+fn dev_read(handle: u64, out_ptr: u64, out_len: u64) -> u64 {
+    if out_ptr == 0 || out_len == 0 {
+        return 0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
+    crate::drivers::device::dev_read(handle, buf) as u64
+}
+
+fn dev_write(handle: u64, in_ptr: u64, in_len: u64) -> u64 {
+    if in_ptr == 0 || in_len == 0 {
+        return 0;
+    }
+    let buf = unsafe { core::slice::from_raw_parts(in_ptr as *const u8, in_len as usize) };
+    crate::drivers::device::dev_write(handle, buf) as u64
+}
+
+fn dev_map(handle: u64) -> u64 {
+    match crate::drivers::device::dev_map(handle) {
+        Some((addr, _len)) => addr,
+        None => 0,
+    }
 }
 
 unsafe extern "C" {

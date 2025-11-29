@@ -60,6 +60,10 @@ pub const SYSCALL_IRQ_ACK: u64 = 0x12;
 pub const SYSCALL_DMA_MAP: u64 = 0x13;
 pub const SYSCALL_DMA_SUBMIT: u64 = 0x14;
 pub const SYSCALL_DMA_WAIT: u64 = 0x15;
+pub const SYSCALL_DEV_OPEN: u64 = 0x20;
+pub const SYSCALL_DEV_READ: u64 = 0x21;
+pub const SYSCALL_DEV_WRITE: u64 = 0x22;
+pub const SYSCALL_DEV_MAP: u64 = 0x23;
 pub const SYSCALL_LOG: u64 = 0x99;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -328,4 +332,51 @@ pub fn dma_wait(request: DmaWaitRequest) -> bool {
 
 pub fn print_fmt(args: fmt::Arguments) {
     crate::graph::log_args(args);
+}
+
+pub const DEVICE_KIND_KEYBOARD: u32 = 1;
+pub const DEVICE_KIND_MOUSE: u32 = 2;
+pub const DEVICE_KIND_FRAMEBUFFER: u32 = 3;
+pub const DEVICE_KIND_SERIAL: u32 = 4;
+
+pub fn dev_open(kind: u32, index: usize) -> Option<u64> {
+    let ret = unsafe { syscall(SYSCALL_DEV_OPEN, kind as u64, index as u64, 0, 0) };
+    if ret == !0 {
+        None
+    } else {
+        Some(ret)
+    }
+}
+
+pub fn dev_read(handle: u64, buf: &mut [u8]) -> usize {
+    unsafe {
+        syscall(
+            SYSCALL_DEV_READ,
+            handle,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+            0,
+        ) as usize
+    }
+}
+
+pub fn dev_write(handle: u64, buf: &[u8]) -> usize {
+    unsafe {
+        syscall(
+            SYSCALL_DEV_WRITE,
+            handle,
+            buf.as_ptr() as u64,
+            buf.len() as u64,
+            0,
+        ) as usize
+    }
+}
+
+pub fn dev_map(handle: u64) -> Option<u64> {
+    let ret = unsafe { syscall(SYSCALL_DEV_MAP, handle, 0, 0, 0) };
+    if ret == 0 {
+        None
+    } else {
+        Some(ret)
+    }
 }
