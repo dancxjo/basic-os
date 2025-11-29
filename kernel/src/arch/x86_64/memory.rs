@@ -16,3 +16,17 @@ pub fn kernel_base() -> VirtAddr {
 pub fn kernel_end() -> VirtAddr {
     unsafe { VirtAddr::from_ptr(&KERNEL_END) }
 }
+
+/// Check if a kernel address is mapped in the given CR3.
+pub fn check_kernel_mapping(cr3: x86_64::PhysAddr, addr: VirtAddr) -> bool {
+    use crate::bootloader::get_hhdm_offset;
+    use x86_64::structures::paging::{OffsetPageTable, Translate};
+
+    let hhdm = get_hhdm_offset();
+    let l4_table = unsafe {
+        let virt = hhdm + cr3.as_u64();
+        &mut *virt.as_mut_ptr::<x86_64::structures::paging::PageTable>()
+    };
+    let mapper = unsafe { OffsetPageTable::new(l4_table, hhdm) };
+    mapper.translate_addr(addr).is_some()
+}

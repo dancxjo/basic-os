@@ -48,6 +48,14 @@ pub fn create_user_page_table(
     let active_l4_virt = hhdm_offset + active_cr3.as_u64();
     let active_l4: &PageTable = unsafe { &*active_l4_virt.as_ptr() };
     l4_table[hhdm_index] = active_l4[hhdm_index].clone();
+
+    if !l4_table[hhdm_index]
+        .flags()
+        .contains(PageTableFlags::PRESENT)
+    {
+        panic!("HHDM PML4 entry not present in active page table!");
+    }
+
     let l4_table_ptr: *mut PageTable = l4_table;
     let mut offset_page_table = unsafe {
         x86_64::structures::paging::OffsetPageTable::new(&mut *l4_table_ptr, hhdm_offset)
@@ -103,6 +111,11 @@ pub fn create_user_page_table(
     let kernel_func_addr = VirtAddr::new(jump_to_user as usize as u64);
     if offset_page_table.translate_addr(kernel_func_addr).is_none() {
         panic!("Kernel code not mapped in user page table!");
+    }
+
+    // Verify HHDM mapping (check a known HHDM address, e.g. active_l4_virt)
+    if offset_page_table.translate_addr(active_l4_virt).is_none() {
+        panic!("HHDM not mapped in user page table!");
     }
 
     (l4_table, offset_page_table)

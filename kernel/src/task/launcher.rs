@@ -120,6 +120,16 @@ pub extern "C" fn start_user_task() {
     let module_bytes = get_module(module.name).unwrap_or_else(|| {
         panic!("Module '{}' not found", module.name);
     });
+
+    // Verify module bytes are accessible
+    let module_ptr = module_bytes.as_ptr();
+    info!(
+        "Module {} data at {:p} (len={:#x})",
+        module.name,
+        module_ptr,
+        module_bytes.len()
+    );
+
     let frame_allocator = BootFrameAllocator::global();
     let (new_l4, mut new_mapper) = create_user_page_table(frame_allocator, get_hhdm_offset());
     let loaded = load_elf(module_bytes, new_l4, &mut new_mapper, frame_allocator)
