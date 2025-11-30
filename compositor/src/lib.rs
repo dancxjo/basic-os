@@ -12,9 +12,10 @@ use alloc::vec::Vec;
 use core::cmp::{max, min};
 use core::convert::TryInto;
 
+use userland::graph::GraphPropsRequest;
 use userland::{
-    canon, load_thing, println, AppEvent, FramebufferGeometry, NodePattern, Surface, Thingable,
-    Value, WatchId, WatchManager, Window,
+    canon, load_thing, println, AbiRequest, AppEvent, FramebufferGeometry, NodePattern, Surface,
+    Thingable, Value, WatchId, WatchManager, Window,
 };
 use uuid::Uuid;
 
@@ -55,6 +56,12 @@ const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
 const COLOR_CURSOR_SHADOW: Rgba = Rgba::new(0x40, 0x00, 0x00, 0x00);
 const _COLOR_SHADOW: Rgba = FRAME_SHADOW;
 const CLEAR_COLOR: Rgba = Rgba::new(0xff, 0x00, 0x00, 0x00);
+
+struct DragState {
+    window_id: Uuid,
+    offset_x: i32,
+    offset_y: i32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
@@ -279,6 +286,7 @@ pub struct Compositor<F, R> {
     fb_dirty: bool,
     cursor: CursorState,
     background: Arc<Bitmap>,
+    drag_state: Option<DragState>,
 }
 
 impl<F, R> Compositor<F, R>
@@ -306,6 +314,7 @@ where
             fb_dirty: false,
             cursor: CursorState::new(width, height),
             background,
+            drag_state: None,
         }
     }
 
@@ -461,6 +470,25 @@ where
         }
     }
 
+    fn find_window_at(&self, x: i32, y: i32) -> Option<(Uuid, i32, i32)> {
+        for win_id in self.window_order.iter().rev() {
+            if let Some(surface) = self.windows.get(win_id) {
+                if !surface.window.visible {
+                    continue;
+                }
+                let wx = surface.window.x as i32;
+                let wy = surface.window.y as i32;
+                let w = surface.window.width as i32;
+                let h = surface.window.height as i32;
+
+                if x >= wx && x < wx + w && y >= wy && y < wy + h {
+                    return Some((*win_id, wx, wy));
+                }
+            }
+        }
+        None
+    }
+
     fn ingest_surface(&mut self, thing: &userland::GraphThing) {
         if thing.kind != canon::SURFACE {
             return;
@@ -517,6 +545,72 @@ where
                 let geo = self.fb_device.geometry();
                 let (width, height) = (geo.width as usize, geo.height as usize);
                 self.cursor.update(dx, dy, buttons as u8, width, height);
+
+                // Focus follows mouse
+                if self.drag_state.is_none() {
+                    if let Some((win_id, _, _)) = self.find_window_at(self.cursor.x, self.cursor.y)
+                    {
+                        if self.window_order.last() != Some(&win_id) {
+                            self.bump_window(win_id);
+                        }
+                    }
+                }
+
+                let left_down = (buttons & 1) != 0;
+                if left_down {
+                    if let Some(drag) = &self.drag_state {
+                        let new_x = max(0, self.cursor.x - drag.offset_x);
+                        let new_y = max(0, self.cursor.y - drag.offset_y);
+
+                        let mut props = BTreeMap::new();
+                        props.insert(canon::X, Value::U64(new_x as u64));
+                        props.insert(canon::Y, Value::U64(new_y as u64));
+
+                        let req = AbiRequest::PropsSet {
+                            request: GraphPropsRequest {
+                                node: drag.window_id,
+                                props,
+                            },
+                        };
+                        let _ = userland::runtime().call(req);
+                    } else {
+                        if let Some((win_id, win_x, win_y)) =
+                            self.find_window_at(self.cursor.x, self.cursor.y)
+                        {
+                            let win_width = self.windows.get(&win_id).unwrap().window.width as i32;
+                            let btn_x = win_x + win_width - 18;
+                            let btn_y = win_y + 8;
+
+                            if self.cursor.x >= btn_x
+                                && self.cursor.x < btn_x + 10
+                                && self.cursor.y >= btn_y
+                                && self.cursor.y < btn_y + 10
+                            {
+                                println!("Close button clicked for window {}", win_id);
+                                let mut props = BTreeMap::new();
+                                props.insert(canon::VISIBLE, Value::Bool(false));
+                                let req = AbiRequest::PropsSet {
+                                    request: GraphPropsRequest {
+                                        node: win_id,
+                                        props,
+                                    },
+                                };
+                                let _ = userland::runtime().call(req);
+                            } else if self.cursor.y >= win_y
+                                && self.cursor.y < win_y + TITLE_BAR_HEIGHT as i32
+                            {
+                                self.drag_state = Some(DragState {
+                                    window_id: win_id,
+                                    offset_x: self.cursor.x - win_x,
+                                    offset_y: self.cursor.y - win_y,
+                                });
+                                self.bump_window(win_id);
+                            }
+                        }
+                    }
+                } else {
+                    self.drag_state = None;
+                }
             }
         }
     }
@@ -795,42 +889,37 @@ where
 
         // 6. Control Buttons
         let btn_y = title_y + (title_h - 10) / 2;
-        let mut btn_x = x + 8;
+        let btn_x = x + w - 18;
 
-        for i in 0..3 {
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(btn_x as i32, btn_y as i32, 10, 10),
-                color: BTN_SHADOW,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 8),
-                color: BTN_FACE,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 1),
-                color: BTN_HILIGHT,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 1, 8),
-                color: BTN_HILIGHT,
-            });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x as i32, btn_y as i32, 10, 10),
+            color: BTN_SHADOW,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 8),
+            color: BTN_FACE,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 1),
+            color: BTN_HILIGHT,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 1, 8),
+            color: BTN_HILIGHT,
+        });
 
-            if i == 0 {
-                // Close button
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(btn_x as i32 + 4, btn_y as i32 + 4, 2, 2),
-                    color: BTN_CLOSE_DOT,
-                });
-            }
-            btn_x += 14;
-        }
+        // Close button dot
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x as i32 + 4, btn_y as i32 + 4, 2, 2),
+            color: BTN_CLOSE_DOT,
+        });
 
         // 5. Title Text
         scene.push(SceneItem::DrawText {
-            origin: ((btn_x + 4) as i32, (title_y + 4) as i32),
+            origin: ((x + 8) as i32, (title_y + 4) as i32),
             text: surface.window.title.clone(),
             color: COLOR_TITLE,
-            max_width: Some((w - (btn_x - x) - 8) as u32),
+            max_width: Some((w - 30) as u32),
         });
 
         // 7. Client Area

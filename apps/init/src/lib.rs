@@ -22,6 +22,10 @@ pub fn app_main() -> ! {
     userland::println!("Spawning demo_app...");
     userland::sys::spawn("demo_app");
 
+    // Spawn task list
+    userland::println!("Spawning task_list...");
+    userland::sys::spawn("task_list");
+
     userland::println!("Init sequence complete. Entering idle loop.");
     loop {
         // TODO: Wait for children or handle signals
