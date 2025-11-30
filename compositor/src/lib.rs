@@ -1155,10 +1155,10 @@ where
             .ordered_window_ids()
             .into_iter()
             .filter(|id| {
-                self.windows
-                    .get(id)
-                    .map(|w| w.window.visible)
-                    .unwrap_or(false)
+                self.windows.get(id).map_or(false, |w| {
+                    // Ignore placeholder nodes without a surface to avoid tiling "fake" windows.
+                    w.window.visible && w.surface_id.is_some()
+                })
             })
             .collect();
 
