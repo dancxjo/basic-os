@@ -156,17 +156,69 @@ impl ThingRuntime for HostRuntime {
                 self.watchers.lock().remove(&watch_id);
                 AbiResponse::WatchUnregistered
             }
-            AbiRequest::WatchPoll { watch_id, .. } => {
-                let mut watchers = self.watchers.lock();
-                if let Some(watcher) = watchers.get_mut(&watch_id) {
-                    let changes = core::mem::take(&mut watcher.queue);
-                    let latest_revision = watcher.last_revision;
-                    AbiResponse::WatchEvents {
-                        events: GraphWatchBatch {
-                            from_revision: 0,
-                            latest_revision,
-                            changes,
-                        },
+            AbiRequest::WatchPoll {
+                watch_id,
+                max_events,
+            } => {
+                let snapshot = {
+                    let watchers = self.watchers.lock();
+                    watchers
+                        .get(&watch_id)
+                        .map(|w| (w.pattern.clone(), w.last_revision))
+                };
+
+                if let Some((pattern, last_revision)) = snapshot {
+                    let fetched = match self
+                        .rt
+                        .block_on(self.store.get(GraphGetRequest::Pattern(pattern)))
+                    {
+                        Ok(things) => things
+                            .into_iter()
+                            .filter(|thing| thing.revision > last_revision)
+                            .map(GraphChange::Thing)
+                            .collect::<Vec<_>>(),
+                        Err(e) => {
+                            eprintln!("watch poll failed to load graph state: {e}");
+                            Vec::new()
+                        }
+                    };
+
+                    let mut watchers = self.watchers.lock();
+                    if let Some(watcher) = watchers.get_mut(&watch_id) {
+                        watcher.queue.extend(fetched);
+                        watcher.queue.sort_by_key(|change| change.revision());
+
+                        let latest_seen = watcher
+                            .queue
+                            .iter()
+                            .map(GraphChange::revision)
+                            .chain(Some(watcher.last_revision))
+                            .max()
+                            .unwrap_or(watcher.last_revision);
+
+                        let drain_count = max_events
+                            .map(|count| count as usize)
+                            .unwrap_or_else(|| watcher.queue.len())
+                            .min(watcher.queue.len());
+                        let changes: Vec<_> = watcher.queue.drain(0..drain_count).collect();
+
+                        watcher.last_revision = latest_seen;
+
+                        AbiResponse::WatchEvents {
+                            events: GraphWatchBatch {
+                                from_revision: last_revision,
+                                latest_revision: latest_seen,
+                                changes,
+                            },
+                        }
+                    } else {
+                        AbiResponse::WatchEvents {
+                            events: GraphWatchBatch {
+                                from_revision: 0,
+                                latest_revision: 0,
+                                changes: Vec::new(),
+                            },
+                        }
                     }
                 } else {
                     AbiResponse::WatchEvents {

@@ -4,8 +4,10 @@ use compositor::{Compositor, HostFramebufferDevice, SvgRenderer};
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use thing_host::HostRuntime;
 use tiny_http::{Header, Method, Response, Server};
+use userland::watch::WatchManager;
 
 #[derive(Deserialize, Debug)]
 struct ResizeRequest {
@@ -42,20 +44,35 @@ fn main() {
     let runtime = Box::leak(Box::new(HostRuntime::new()));
     userland::set_runtime(runtime);
 
+    let mut watch_manager = WatchManager::new();
+    let compositor_app_id = watch_manager.register_app();
+
     let fb_device = HostFramebufferDevice::new(1024, 768);
     let renderer = SvgRenderer::new();
-    let compositor = Arc::new(Mutex::new(
-        Compositor::<HostFramebufferDevice, SvgRenderer>::new(fb_device, renderer),
-    ));
+    let compositor = Compositor::<HostFramebufferDevice, SvgRenderer>::init_with_watches(
+        &mut watch_manager,
+        compositor_app_id,
+        fb_device,
+        renderer,
+    );
+    let compositor = Arc::new(Mutex::new(compositor));
 
     {
         let compositor = compositor.clone();
-        thread::spawn(move || loop {
-            {
-                let mut comp = compositor.lock().expect("compositor mutex poisoned");
-                comp.tick();
+        thread::spawn(move || {
+            let mut watch_manager = watch_manager;
+            loop {
+                watch_manager.process_graph(&[compositor_app_id]);
+                let events = watch_manager.drain_inbox(compositor_app_id);
+                {
+                    let mut comp = compositor.lock().expect("compositor mutex poisoned");
+                    for ev in &events {
+                        comp.on_event(ev);
+                    }
+                    comp.tick();
+                }
+                thread::sleep(Duration::from_millis(33));
             }
-            thread::sleep(std::time::Duration::from_millis(33));
         });
     }
 
