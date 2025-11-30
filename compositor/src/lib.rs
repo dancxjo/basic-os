@@ -488,6 +488,10 @@ pub enum SceneItem {
         sprite: Arc<Bitmap>,
         hotspot: (i32, i32),
     },
+    ClipPush {
+        rect: Rect,
+    },
+    ClipPop,
 }
 
 #[derive(Clone, Debug)]
@@ -1403,6 +1407,25 @@ where
         self.windows.values().map(|w| w.window.z).max().unwrap_or(0)
     }
 
+    fn ensure_window_has_unique_z(&mut self, window_id: Uuid, prev_max_z: i64) {
+        let Some(entry) = self.windows.get_mut(&window_id) else {
+            return;
+        };
+        if entry.window.z > prev_max_z {
+            return;
+        }
+
+        let new_z = prev_max_z.saturating_add(1);
+        if entry.window.z == new_z {
+            return;
+        }
+
+        entry.window.z = new_z;
+        let mut props = BTreeMap::new();
+        props.insert(canon::Z, Value::I64(new_z));
+        self.update_window_props(window_id, props);
+    }
+
     fn update_window_props(&self, window_id: Uuid, props: BTreeMap<canon::Symbol, Value>) {
         if props.is_empty() {
             return;
@@ -1546,6 +1569,11 @@ where
     fn ingest_window(&mut self, window: Window) {
         let window_id = window.id;
         let is_new = !self.windows.contains_key(&window_id);
+        let prev_max_z = if is_new {
+            Some(self.max_window_z())
+        } else {
+            None
+        };
 
         if let Some(entry) = self.windows.get_mut(&window_id) {
             entry.window = window;
@@ -1560,6 +1588,10 @@ where
                     scroll_y: 0,
                 },
             );
+        }
+
+        if let Some(prev_max_z) = prev_max_z {
+            self.ensure_window_has_unique_z(window_id, prev_max_z);
         }
         if let Some(target) = self.windows.get(&window_id).and_then(|w| w.window.target) {
             if let Some(entry) = self.windows.get_mut(&window_id) {
@@ -1684,6 +1716,10 @@ where
         let content_y0 = inner_y0 + BORDER_3D_THICKNESS;
         let content_w = inner_w - BORDER_3D_THICKNESS * 2;
         let content_h = inner_h - BORDER_3D_THICKNESS * 2;
+
+        scene.push(SceneItem::ClipPush {
+            rect: Rect::new(x0, y0, w as u32, h as u32),
+        });
 
         // 1. Outer Border
         scene.push(SceneItem::FillRect {
@@ -1872,6 +1908,8 @@ where
                 });
             }
         }
+
+        scene.push(SceneItem::ClipPop);
     }
 
     fn draw_cursor(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {

@@ -161,6 +161,10 @@ fn main() {
         "graph_viewer",
         userland::app::run_app::<graph_viewer::GraphViewerApp>,
     );
+    userland::sys::register_host_app(
+        "text_editor",
+        userland::app::run_app::<text_editor::TextEditor>,
+    );
     userland::sys::register_host_app("compositor", || {
         println!("Compositor spawned (ignored)");
         loop {

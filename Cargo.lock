@@ -218,6 +218,7 @@ dependencies = [
  "serde",
  "serde_json",
  "task_list",
+ "text_editor",
  "tiny_http",
  "tungstenite",
  "unifont",

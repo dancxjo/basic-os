@@ -4,7 +4,7 @@ use crate::{
 };
 use alloc::vec;
 use alloc::vec::Vec;
-use core::cmp::min;
+use core::cmp::{max, min};
 use unifont::get_glyph;
 
 pub struct BitmapRenderer {
@@ -50,13 +50,17 @@ impl RendererBackend for BitmapRenderer {
         Self: 'b;
     fn render<'b>(&'b mut self, scene: &Scene) -> Self::Output<'b> {
         self.clear(CLEAR_COLOR);
+        let mut clip_stack: Vec<Option<Rect>> = Vec::new();
+        clip_stack.push(Some(Rect::new(0, 0, self.width as u32, self.height as u32)));
+
         for item in scene.items() {
             match item {
                 SceneItem::Clear { color } => {
                     self.clear(*color);
                 }
                 SceneItem::FillRect { rect, color } => {
-                    raster_fill_rect(self, rect, *color);
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_fill_rect(self, rect, *color, clip);
                 }
                 SceneItem::BlitImage {
                     rect,
@@ -64,7 +68,8 @@ impl RendererBackend for BitmapRenderer {
                     repeat,
                     offset,
                 } => {
-                    raster_blit_image(self, rect, image, *repeat, *offset);
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_blit_image(self, rect, image, *repeat, *offset, clip);
                 }
                 SceneItem::DrawText {
                     origin,
@@ -72,7 +77,8 @@ impl RendererBackend for BitmapRenderer {
                     color,
                     max_width,
                 } => {
-                    raster_draw_text(self, *origin, text, *color, *max_width);
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_text(self, *origin, text, *color, *max_width, clip);
                 }
                 SceneItem::DrawTextBlock {
                     rect,
@@ -80,7 +86,8 @@ impl RendererBackend for BitmapRenderer {
                     color,
                     scroll_offset,
                 } => {
-                    raster_draw_text_block(self, rect, text, *color, *scroll_offset);
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip);
                 }
                 SceneItem::DrawCursor {
                     origin,
@@ -88,6 +95,16 @@ impl RendererBackend for BitmapRenderer {
                     hotspot,
                 } => {
                     raster_draw_cursor(self, *origin, sprite, *hotspot);
+                }
+                SceneItem::ClipPush { rect } => {
+                    let parent_clip = clip_stack.last().copied().flatten();
+                    let new_clip = parent_clip.and_then(|base| intersect_rect(base, *rect));
+                    clip_stack.push(new_clip);
+                }
+                SceneItem::ClipPop => {
+                    if clip_stack.len() > 1 {
+                        clip_stack.pop();
+                    }
                 }
             }
         }
@@ -171,10 +188,14 @@ impl<'a> FramebufferDevice<&'a [u32]> for BitmapFramebufferDevice {
     }
 }
 
-fn raster_fill_rect(backend: &mut BitmapRenderer, rect: &Rect, color: Rgba) {
+fn raster_fill_rect(backend: &mut BitmapRenderer, rect: &Rect, color: Rgba, clip: Option<Rect>) {
     if rect.width == 0 || rect.height == 0 || backend.width == 0 {
         return;
     }
+    let clipped = apply_clip(*rect, clip);
+    let Some(rect) = clipped else {
+        return;
+    };
     let x0 = min(rect.x.max(0) as usize, backend.width);
     let y0 = min(rect.y.max(0) as usize, backend.height);
     let x1 = min(x0 + rect.width as usize, backend.width);
@@ -205,14 +226,19 @@ fn raster_blit_image(
     bmp: &Bitmap,
     repeat: bool,
     offset: (i32, i32),
+    clip: Option<Rect>,
 ) {
     if rect.width == 0 || rect.height == 0 || backend.width == 0 {
         return;
     }
-    let x0 = min(rect.x.max(0) as usize, backend.width);
-    let y0 = min(rect.y.max(0) as usize, backend.height);
-    let x1 = min(x0 + rect.width as usize, backend.width);
-    let y1 = min(y0 + rect.height as usize, backend.height);
+    let clipped = apply_clip(*rect, clip);
+    let Some(target_rect) = clipped else {
+        return;
+    };
+    let x0 = min(target_rect.x.max(0) as usize, backend.width);
+    let y0 = min(target_rect.y.max(0) as usize, backend.height);
+    let x1 = min(x0 + target_rect.width as usize, backend.width);
+    let y1 = min(y0 + target_rect.height as usize, backend.height);
     for yy in y0..y1 {
         let row = yy * backend.width;
         for xx in x0..x1 {
@@ -236,6 +262,7 @@ fn raster_draw_text(
     text: &str,
     color: Rgba,
     max_width: Option<u32>,
+    clip: Option<Rect>,
 ) {
     if backend.width == 0 {
         return;
@@ -256,7 +283,7 @@ fn raster_draw_text(
                 break;
             }
         }
-        raster_draw_glyph(backend, cursor_x, cursor_y, glyph, color.to_u32());
+        raster_draw_glyph(backend, cursor_x, cursor_y, glyph, color.to_u32(), clip);
         cursor_x += gw;
     }
 }
@@ -267,6 +294,7 @@ fn raster_draw_text_block(
     text: &str,
     color: Rgba,
     scroll_offset: i32,
+    clip: Option<Rect>,
 ) {
     if backend.width == 0 {
         return;
@@ -274,6 +302,14 @@ fn raster_draw_text_block(
     if rect.width == 0 || rect.height == 0 {
         return;
     }
+    let clip_bounds = match clip {
+        Some(active_clip) => intersect_rect(*rect, active_clip),
+        None => Some(*rect),
+    };
+    let clip_bounds = match clip_bounds {
+        Some(bounds) => bounds,
+        None => return,
+    };
     let content_width = rect.width as i32;
     let view_top = rect.y;
     let view_bottom = rect.y + rect.height as i32;
@@ -295,12 +331,19 @@ fn raster_draw_text_block(
             cursor_y = cursor_y.saturating_add(FONT_HEIGHT as i32);
         }
         let draw_y = rect.y + cursor_y - scroll_offset;
-        if draw_y >= view_bottom {
+        if draw_y >= view_bottom || draw_y >= clip_bounds.y + clip_bounds.height as i32 {
             break;
         }
-        if draw_y + FONT_HEIGHT as i32 > view_top {
+        if draw_y + FONT_HEIGHT as i32 > view_top && draw_y + FONT_HEIGHT as i32 > clip_bounds.y {
             let draw_x = rect.x + cursor_x;
-            raster_draw_glyph(backend, draw_x, draw_y, glyph, color.to_u32());
+            raster_draw_glyph(
+                backend,
+                draw_x,
+                draw_y,
+                glyph,
+                color.to_u32(),
+                Some(clip_bounds),
+            );
         }
         cursor_x += gw;
     }
@@ -312,6 +355,7 @@ fn raster_draw_glyph(
     y: i32,
     glyph: &unifont::Glyph,
     color: u32,
+    clip: Option<Rect>,
 ) {
     if backend.width == 0 || backend.height == 0 {
         return;
@@ -320,13 +364,29 @@ fn raster_draw_glyph(
     let glyph_width = glyph.get_width() as i32;
     for row in 0..FONT_HEIGHT as i32 {
         let dst_y = y + row;
-        if dst_y < 0 || dst_y >= backend.height as i32 {
+        if dst_y < 0 {
+            continue;
+        }
+        if dst_y >= backend.height as i32 {
             break;
+        }
+        if let Some(clip_rect) = clip {
+            if dst_y < clip_rect.y {
+                continue;
+            }
+            if dst_y >= clip_rect.y + clip_rect.height as i32 {
+                break;
+            }
         }
         for col in 0..glyph_width {
             let dst_x = x + col;
             if dst_x < 0 || dst_x >= backend.width as i32 {
                 continue;
+            }
+            if let Some(clip_rect) = clip {
+                if dst_x < clip_rect.x || dst_x >= clip_rect.x + clip_rect.width as i32 {
+                    continue;
+                }
             }
             if glyph.get_pixel(col as usize, row as usize) {
                 let idx = dst_y as usize * backend.width + dst_x as usize;
@@ -378,6 +438,22 @@ fn raster_draw_cursor(
     }
 }
 
+fn apply_clip(rect: Rect, clip: Option<Rect>) -> Option<Rect> {
+    clip.and_then(|clip_rect| intersect_rect(rect, clip_rect))
+}
+
+fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
+    let x0 = max(a.x, b.x);
+    let y0 = max(a.y, b.y);
+    let x1 = min(a.x + a.width as i32, b.x + b.width as i32);
+    let y1 = min(a.y + a.height as i32, b.y + b.height as i32);
+
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    Some(Rect::new(x0, y0, (x1 - x0) as u32, (y1 - y0) as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,7 +474,7 @@ mod tests {
         let mut backend = BitmapRenderer::new(3, 3);
         let bmp = Bitmap::new(2, 2, vec![1, 2, 3, 4]);
 
-        raster_blit_image(&mut backend, &Rect::new(0, 0, 3, 3), &bmp, false);
+        raster_blit_image(&mut backend, &Rect::new(0, 0, 3, 3), &bmp, false, None);
 
         assert_eq!(backend.storage, &[1, 2, 0, 3, 4, 0, 0, 0, 0]);
     }

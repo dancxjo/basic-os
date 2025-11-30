@@ -118,10 +118,12 @@ pub fn user_module_count() -> usize {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
+    info!("start_user_task reached, calling next_user_module...");
     let module = next_user_module().unwrap_or_else(|| {
         info!("No remaining user modules to start; halting task.");
         loop {}
     });
+    info!("next_user_module returned {:?}", module.name);
 
     runtime::assign_current_bundle(module.bundle);
     grant_initial_capabilities(&module);
