@@ -674,6 +674,7 @@ pub struct Compositor<F, R> {
     watch_keyboard: Option<WatchId>,
     watch_cursor: Option<WatchId>,
     watch_fb: Option<WatchId>,
+    watch_widgets: Option<WatchId>,
     fb_id: Option<Uuid>,
     fb_dirty: bool,
     cursor: CursorState,
@@ -684,6 +685,10 @@ pub struct Compositor<F, R> {
     drag_state: Option<DragState>,
     alt_down: bool,
     state_node: Uuid,
+    widgets: BTreeMap<Uuid, userland::semantic_ui::Widget>,
+    launcher_surface_id: Option<Uuid>,
+    launcher_entries: Vec<Uuid>,
+    launcher_launches: BTreeMap<Uuid, Uuid>,
 }
 
 impl<F, R> Compositor<F, R>
@@ -715,6 +720,7 @@ where
             watch_keyboard: None,
             watch_cursor: None,
             watch_fb: None,
+            watch_widgets: None,
             fb_id: None,
             fb_dirty: false,
             cursor: CursorState::new(width, height),
@@ -725,6 +731,10 @@ where
             drag_state: None,
             alt_down: false,
             state_node,
+            widgets: BTreeMap::new(),
+            launcher_surface_id: None,
+            launcher_entries: Vec::new(),
+            launcher_launches: BTreeMap::new(),
         }
     }
 
@@ -807,12 +817,16 @@ where
         let mut keyboard_pattern = NodePattern::default();
         keyboard_pattern.labels.push(canon::KEY_EVENT);
 
+        let mut widget_pattern = NodePattern::default();
+        widget_pattern.labels.push(canon::WIDGET);
+
         let surface_watch = watch_manager.register_pattern(app_id, surface_pattern.clone());
         let window_watch = watch_manager.register_pattern(app_id, window_pattern.clone());
         let cursor_watch = watch_manager.register_pattern(app_id, cursor_pattern.clone());
         let fb_watch = watch_manager.register_pattern(app_id, fb_pattern.clone());
         let mouse_watch = watch_manager.register_pattern(app_id, mouse_pattern);
         let keyboard_watch = watch_manager.register_pattern(app_id, keyboard_pattern);
+        let widget_watch = watch_manager.register_pattern(app_id, widget_pattern.clone());
 
         let mut comp = Self::new(fb_device, renderer);
         comp.watch_surfaces = Some(surface_watch);
@@ -821,6 +835,7 @@ where
         comp.watch_keyboard = Some(keyboard_watch);
         comp.watch_cursor = Some(cursor_watch);
         comp.watch_fb = Some(fb_watch);
+        comp.watch_widgets = Some(widget_watch);
 
         for thing in userland::graph::get_nodes(window_pattern) {
             if let Some(window) = Window::load(&thing) {
@@ -830,6 +845,10 @@ where
 
         for thing in userland::graph::get_nodes(surface_discovery) {
             comp.ingest_surface(&thing);
+        }
+
+        for thing in userland::graph::get_nodes(widget_pattern) {
+            comp.ingest_widget(&thing);
         }
 
         if let Some(cursor_node) = userland::graph::get_nodes(cursor_pattern)
@@ -866,9 +885,25 @@ where
                         self.fb_id = Some(thing.id);
                         self.fb_dirty = true;
                     }
+                } else if Some(*watch) == self.watch_widgets {
+                    self.ingest_widget(thing);
                 }
             }
-            AppEvent::Edge { .. } => {}
+            AppEvent::Edge { edge, .. } => {
+                if edge.pred == "HAS_ENTRY" {
+                    if let Some(id) = self.launcher_surface_id {
+                        if edge.src == id {
+                            if !self.launcher_entries.contains(&edge.dst) {
+                                self.launcher_entries.push(edge.dst);
+                            }
+                        }
+                    }
+                } else if edge.pred == "LAUNCHES" {
+                    if self.launcher_entries.contains(&edge.src) {
+                        self.launcher_launches.insert(edge.src, edge.dst);
+                    }
+                }
+            }
         }
     }
 
@@ -885,6 +920,7 @@ where
         let mut scene = Scene::new(width as u32, height as u32);
         scene.push(SceneItem::Clear { color: CLEAR_COLOR });
         self.draw_background(&mut scene, width, height);
+        self.draw_launcher(&mut scene, width, height);
         self.draw_windows(&mut scene, width, height);
         self.draw_cursor(&mut scene, width, height);
 
@@ -1286,7 +1322,69 @@ where
         }
     }
 
+    fn draw_launcher(&self, scene: &mut Scene, width: usize, _height: usize) {
+        if self.launcher_surface_id.is_none() {
+            return;
+        }
+
+        let mut y = 40;
+        let x = 10;
+
+        for entry_id in &self.launcher_entries {
+            if let Some(widget) = self.widgets.get(entry_id) {
+                if let Some(label) = &widget.label {
+                    scene.push(SceneItem::DrawText {
+                        origin: (x, y),
+                        text: label.clone(),
+                        color: THEME.title_text_active,
+                        max_width: Some((width as i32 - x - 10).max(0) as u32),
+                    });
+                    y += 20;
+                }
+            }
+        }
+    }
+
+    fn hit_test_launcher(&self, x: i32, y: i32) -> Option<Uuid> {
+        if self.launcher_surface_id.is_none() {
+            return None;
+        }
+        
+        let mut cur_y = 40;
+        let cur_x = 10;
+        let item_height = 20;
+        let item_width = 200;
+
+        for entry_id in &self.launcher_entries {
+            if let Some(widget) = self.widgets.get(entry_id) {
+                if widget.label.is_some() {
+                    if x >= cur_x && x < cur_x + item_width && y >= cur_y && y < cur_y + item_height {
+                        return Some(*entry_id);
+                    }
+                    cur_y += item_height;
+                }
+            }
+        }
+        None
+    }
+
+    fn activate_launcher_entry(&mut self, entry_id: Uuid) {
+        if let Some(fs_node_id) = self.launcher_launches.get(&entry_id) {
+             if let Ok(node) = userland::fs::get_node_by_id(*fs_node_id) {
+                 if let Some(bin_name) = node.bin_name {
+                     println!("Launching {}", bin_name);
+                     userland::sys::spawn(&bin_name);
+                 }
+             }
+        }
+    }
+
     fn on_pointer_down(&mut self) {
+        if let Some(entry_id) = self.hit_test_launcher(self.cursor.x, self.cursor.y) {
+             self.activate_launcher_entry(entry_id);
+             return;
+        }
+
         if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
             self.set_active_window(Some(win_id));
 
@@ -1649,6 +1747,15 @@ where
         let geo = self.fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
         self.cursor.set_from_graph(x, y, visible, width, height);
+    }
+
+    fn ingest_widget(&mut self, thing: &userland::GraphThing) {
+        if let Some(widget) = userland::semantic_ui::Widget::load(thing) {
+            if widget.role == "launcher_surface" {
+                self.launcher_surface_id = Some(widget.id);
+            }
+            self.widgets.insert(widget.id, widget);
+        }
     }
 
     fn ingest_window(&mut self, window: Window) {

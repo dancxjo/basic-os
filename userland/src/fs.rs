@@ -112,7 +112,7 @@ pub fn read_dir(path: &str) -> Result<Vec<FsNode>, FsError> {
     Ok(nodes)
 }
 
-fn get_node_by_id(id: Uuid) -> Result<FsNode, FsError> {
+pub fn get_node_by_id(id: Uuid) -> Result<FsNode, FsError> {
     let req = AbiRequest::Get { id };
     match crate::runtime().call(req) {
         crate::AbiResponse::Get { thing } => {

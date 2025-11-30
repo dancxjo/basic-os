@@ -10,6 +10,7 @@ pub mod fs;
 pub mod graph;
 pub mod graphics;
 pub mod heap;
+pub mod launcher;
 pub mod runtime;
 pub mod semantic_ui;
 pub mod sys;

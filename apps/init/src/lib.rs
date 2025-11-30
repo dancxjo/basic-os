@@ -57,6 +57,18 @@ pub fn app_main() -> ! {
         }
     }
 
+    // Sync launcher widgets from /bin
+    userland::println!("Syncing launcher widgets...");
+    
+    // Give compositor time to start watching
+    for _ in 0..5000000 {
+        core::hint::spin_loop();
+    }
+
+    if let Err(e) = userland::launcher::sync_launcher_from_bin() {
+        userland::println!("Failed to sync launcher: {:?}", e);
+    }
+
     // Create LaunchRequest for text_editor
     userland::println!("Creating LaunchRequest for text_editor...");
     let req_id = userland::simple_uuid(b"LaunchTextEditor");
