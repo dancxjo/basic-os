@@ -4,8 +4,10 @@
 extern crate alloc;
 use alloc::vec;
 
-use compositor::{Compositor, FramebufferBackend, FramebufferInfo, FramebufferTarget};
-use userland::{println, WatchManager};
+use compositor::{
+    BitmapFramebufferDevice, BitmapRenderer, Compositor, FramebufferTarget,
+};
+use userland::{println, FramebufferGeometry, WatchManager};
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
 static mut BACKBUFFER_STORAGE: [u32; 8_388_608] = [0; 8_388_608];
@@ -27,17 +29,28 @@ pub extern "C" fn _start() -> ! {
         fb_target.info.width, fb_target.info.height, fb_target.info.pitch, fb_target.info.bpp
     );
 
-    let backend = unsafe {
-        FramebufferBackend::new(
-            fb_target.info.width,
-            fb_target.info.height,
-            fb_target.info.pitch,
-            fb_target.addr,
-            &mut BACKBUFFER_STORAGE,
-        )
-    };
-    let mut compositor =
-        Compositor::init_with_watches(&mut watch_manager, compositor_app_id, backend);
+        let fb_device = unsafe {
+            BitmapFramebufferDevice::new(
+                fb_target.info.width as usize,
+                fb_target.info.height as usize,
+                fb_target.info.pitch as usize,
+                fb_target.addr,
+            )
+        };
+
+        let renderer = unsafe {
+            BitmapRenderer::new(
+                fb_target.info.width as usize,
+                fb_target.info.height as usize,
+                &mut BACKBUFFER_STORAGE,
+            )
+        };
+    let mut compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
+        &mut watch_manager,
+        compositor_app_id,
+        fb_device,
+        renderer,
+    );
     let mut tick: u64 = 0;
     loop {
         let all_ids = vec![compositor_app_id];
@@ -59,10 +72,10 @@ fn discover_framebuffer() -> Option<FramebufferTarget> {
     let info = userland::sys::fb_info()?;
     let addr = userland::sys::fb_map() as *mut u32;
     Some(FramebufferTarget {
-        info: FramebufferInfo {
-            width: info.width as usize,
-            height: info.height as usize,
-            pitch: info.pitch as usize,
+        info: FramebufferGeometry {
+            width: info.width as u32,
+            height: info.height as u32,
+            pitch: info.pitch as u32,
             bpp: info.bpp as u16,
         },
         addr,
@@ -72,14 +85,14 @@ fn discover_framebuffer() -> Option<FramebufferTarget> {
 
 fn fallback_framebuffer() -> FramebufferTarget {
     FramebufferTarget {
-        info: FramebufferInfo {
+        info: FramebufferGeometry {
             width: 1024,
             height: 768,
             pitch: 1024 * 4,
             bpp: 32,
         },
-        addr: core::ptr::null_mut(),
-        len_bytes: 0,
+        addr: unsafe { BACKBUFFER_STORAGE.as_mut_ptr() },
+        len_bytes: 1024 * 768 * 4,
     }
 }
 
@@ -89,6 +102,7 @@ fn busy_wait() {
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 pub fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("\nPanic inside userland compositor: {info}");

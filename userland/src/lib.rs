@@ -13,7 +13,7 @@ pub mod watch;
 
 pub use heap::init_heap;
 pub use runtime::{ensure_kernel_runtime, runtime, set_runtime};
-pub use thing_abi::{GrantCapabilityRequest, Map, Symbol, Value};
+pub use thing_abi::{FramebufferGeometry, GrantCapabilityRequest, Map, Symbol, Value};
 pub use uuid;
 
 #[macro_export]

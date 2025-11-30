@@ -58,6 +58,15 @@ pub enum Value {
     Text(String),
     Map(Map),
     List(Vec<Value>),
+    Blob(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FramebufferGeometry {
+    pub width: u32,
+    pub height: u32,
+    pub pitch: u32,
+    pub bpp: u16,
 }
 
 impl Value {
@@ -135,6 +144,7 @@ impl fmt::Display for Value {
             Value::U64(v) => write!(f, "{}", v),
             Value::I64(v) => write!(f, "{}", v),
             Value::Bytes(b) => write!(f, "bytes({})", b.len()),
+            Value::Blob(b) => write!(f, "blob({})", b.len()),
             Value::Symbol(sym) => write!(f, "{}", sym.raw()),
             Value::Uuid(id) => write!(f, "{}", id),
             Value::Text(s) => write!(f, "\"{}\"", s),
@@ -469,7 +479,10 @@ const STATE_INITED: u8 = 2;
 
 impl RuntimeCell {
     const fn new() -> Self {
-        Self { state: AtomicU8::new(STATE_UNINIT), value: UnsafeCell::new(None) }
+        Self {
+            state: AtomicU8::new(STATE_UNINIT),
+            value: UnsafeCell::new(None),
+        }
     }
 
     fn set(&self, runtime: &'static dyn ThingRuntime) -> Result<(), &'static dyn ThingRuntime> {

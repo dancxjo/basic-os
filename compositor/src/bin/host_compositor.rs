@@ -1,11 +1,17 @@
 #![cfg(feature = "host")]
 
-use compositor::{Compositor, CompositorBackend, CompositorExport, SvgBackend};
+use compositor::{Compositor, HostFramebufferDevice, SvgRenderer};
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use thing_host::HostRuntime;
 use tiny_http::{Header, Method, Response, Server};
+
+#[derive(Deserialize, Debug)]
+struct ResizeRequest {
+    width: u32,
+    height: u32,
+}
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "kind")]
@@ -36,8 +42,11 @@ fn main() {
     let runtime = Box::leak(Box::new(HostRuntime::new()));
     userland::set_runtime(runtime);
 
-    let backend = SvgBackend::new(1024, 768);
-    let compositor = Arc::new(Mutex::new(Compositor::new(backend)));
+    let fb_device = HostFramebufferDevice::new(1024, 768);
+    let renderer = SvgRenderer::new();
+    let compositor = Arc::new(Mutex::new(Compositor::<HostFramebufferDevice, SvgRenderer>::new(
+        fb_device, renderer,
+    )));
 
     {
         let compositor = compositor.clone();
@@ -59,10 +68,7 @@ fn main() {
             "/" | "/frame.svg" => {
                 let xml = {
                     let comp = compositor.lock().expect("compositor mutex poisoned");
-                    match comp.backend().export() {
-                        Some(CompositorExport::Svg { xml, .. }) => xml.to_string(),
-                        _ => "<svg/>".to_string(),
-                    }
+                    comp.fb_device().artifact().to_string()
                 };
                 let response = Response::from_string(xml).with_header(
                     "Content-Type: image/svg+xml; charset=utf-8"
@@ -74,10 +80,7 @@ fn main() {
             path if path.starts_with("/frame.svg") => {
                 let xml = {
                     let comp = compositor.lock().expect("compositor mutex poisoned");
-                    match comp.backend().export() {
-                        Some(CompositorExport::Svg { xml, .. }) => xml.to_string(),
-                        _ => "<svg/>".to_string(),
-                    }
+                    comp.fb_device().artifact().to_string()
                 };
                 let response = Response::from_string(xml).with_header(
                     "Content-Type: image/svg+xml; charset=utf-8"
@@ -85,6 +88,17 @@ fn main() {
                         .unwrap(),
                 );
                 let _ = request.respond(response);
+            }
+            "/framebuffer/resize" if request.method() == &Method::Post => {
+                let mut content = String::new();
+                request.as_reader().read_to_string(&mut content).unwrap();
+                if let Ok(req) = serde_json::from_str::<ResizeRequest>(&content) {
+                    let mut comp = compositor.lock().expect("compositor mutex poisoned");
+                    comp.fb_device_mut().resize(req.width, req.height);
+                    let _ = request.respond(Response::empty(200));
+                } else {
+                    let _ = request.respond(Response::empty(400));
+                }
             }
             "/input" if request.method() == &Method::Post => {
                 let mut content = String::new();

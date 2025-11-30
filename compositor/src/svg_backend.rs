@@ -1,34 +1,46 @@
 #![cfg(feature = "host")]
 
-use crate::{CompositorBackend, CompositorExport, DrawCommand, Rgba, Scene};
+use crate::{FramebufferDevice, FramebufferGeometry, RendererBackend, Rgba, Scene, SceneItem};
 use std::fmt::Write;
 
-pub struct SvgBackend {
-    width: u32,
-    height: u32,
+pub struct SvgRenderer {
     xml: String,
 }
 
-impl SvgBackend {
+pub struct HostFramebufferDevice {
+    width: u32,
+    height: u32,
+    artifact: String,
+}
+
+impl SvgRenderer {
+    pub fn new() -> Self {
+        Self { xml: String::new() }
+    }
+}
+
+impl HostFramebufferDevice {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
             width,
             height,
-            xml: String::new(),
+            artifact: String::new(),
         }
     }
 
-    pub fn xml(&self) -> &str {
-        &self.xml
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.width = width;
+        self.height = height;
+    }
+
+    pub fn artifact(&self) -> &str {
+        &self.artifact
     }
 }
 
-impl CompositorBackend for SvgBackend {
-    fn size(&self) -> (usize, usize) {
-        (self.width as usize, self.height as usize)
-    }
-
-    fn render(&mut self, scene: &Scene) {
+impl RendererBackend for SvgRenderer {
+    type Output<'a> = String;
+    fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a> {
         self.xml.clear();
         writeln!(
             &mut self.xml,
@@ -44,9 +56,23 @@ impl CompositorBackend for SvgBackend {
     function init(evt) {{
       const svg = evt.target;
       const doc = svg.ownerDocument;
+      const win = doc.defaultView || doc.parentWindow;
 
       svg.focus();
       setInterval(refresh, 250);
+
+      function sendResize() {{
+        const w = win.innerWidth;
+        const h = win.innerHeight;
+        fetch('/framebuffer/resize', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ width: w, height: h }})
+        }});
+      }}
+
+      win.addEventListener('resize', sendResize);
+      sendResize();
 
       function toSvgCoords(e) {{
         const pt = svg.createSVGPoint();
@@ -135,9 +161,9 @@ impl CompositorBackend for SvgBackend {
 
         writeln!(&mut self.xml, r#"<g id="scene">"#).unwrap();
 
-        for cmd in scene.commands() {
-            match cmd {
-                DrawCommand::Clear { color } => {
+        for item in scene.items() {
+            match item {
+                SceneItem::Clear { color } => {
                     writeln!(
                         &mut self.xml,
                         r#"<rect x="0" y="0" width="{w}" height="{h}" fill="{fill}"/>"#,
@@ -147,7 +173,7 @@ impl CompositorBackend for SvgBackend {
                     )
                     .unwrap();
                 }
-                DrawCommand::FillRect { rect, color } => {
+                SceneItem::FillRect { rect, color } => {
                     writeln!(
                         &mut self.xml,
                         r#"<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="2" ry="2" fill="{fill}"/>"#,
@@ -159,7 +185,7 @@ impl CompositorBackend for SvgBackend {
                     )
                     .unwrap();
                 }
-                DrawCommand::BlitImage {
+                SceneItem::BlitImage {
                     rect,
                     image,
                     repeat,
@@ -176,7 +202,7 @@ impl CompositorBackend for SvgBackend {
                     )
                     .unwrap();
                 }
-                DrawCommand::DrawText {
+                SceneItem::DrawText {
                     origin,
                     text,
                     color,
@@ -193,7 +219,7 @@ impl CompositorBackend for SvgBackend {
                     )
                     .unwrap();
                 }
-                DrawCommand::DrawTextBlock { rect, text, color } => {
+                SceneItem::DrawTextBlock { rect, text, color } => {
                     writeln!(
                         &mut self.xml,
                         r#"<text x="{x}" y="{y}" font-family="monospace" font-size="10" fill="{fill}">{text}</text>"#,
@@ -204,7 +230,7 @@ impl CompositorBackend for SvgBackend {
                     )
                     .unwrap();
                 }
-                DrawCommand::DrawCursor {
+                SceneItem::DrawCursor {
                     origin,
                     primary,
                     shadow: _,
@@ -233,14 +259,22 @@ impl CompositorBackend for SvgBackend {
 
         writeln!(&mut self.xml, r#"</g>"#).unwrap();
         writeln!(&mut self.xml, "</svg>").unwrap();
+        self.xml.clone()
     }
+}
 
-    fn export(&self) -> Option<CompositorExport<'_>> {
-        Some(CompositorExport::Svg {
-            xml: &self.xml,
+impl FramebufferDevice<String> for HostFramebufferDevice {
+    fn geometry(&self) -> FramebufferGeometry {
+        FramebufferGeometry {
             width: self.width,
             height: self.height,
-        })
+            pitch: self.width * 4,
+            bpp: 32,
+        }
+    }
+
+    fn present(&mut self, frame: String) {
+        self.artifact = frame;
     }
 }
 

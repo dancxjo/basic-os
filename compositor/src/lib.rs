@@ -13,8 +13,8 @@ use core::cmp::{max, min};
 use core::convert::TryInto;
 
 use userland::{
-    canon, load_thing, println, AppEvent, NodePattern, Surface, Thingable, Value, WatchId,
-    WatchManager, Window,
+    canon, load_thing, println, AppEvent, FramebufferGeometry, NodePattern, Surface, Thingable,
+    Value, WatchId, WatchManager, Window,
 };
 use uuid::Uuid;
 
@@ -22,9 +22,9 @@ mod framebuffer_backend;
 #[cfg(feature = "host")]
 mod svg_backend;
 
-pub use framebuffer_backend::FramebufferBackend;
+pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
 #[cfg(feature = "host")]
-pub use svg_backend::SvgBackend;
+pub use svg_backend::{HostFramebufferDevice, SvgRenderer};
 
 const FONT_HEIGHT: usize = 16;
 const TITLE_BAR_HEIGHT: usize = FONT_HEIGHT + 4;
@@ -106,7 +106,7 @@ impl Rgba {
 }
 
 #[derive(Clone, Debug)]
-pub enum DrawCommand {
+pub enum SceneItem {
     Clear {
         color: Rgba,
     },
@@ -142,7 +142,7 @@ pub enum DrawCommand {
 pub struct Scene {
     pub width: u32,
     pub height: u32,
-    commands: Vec<DrawCommand>,
+    pub items: Vec<SceneItem>,
 }
 
 impl Scene {
@@ -150,39 +150,38 @@ impl Scene {
         Self {
             width,
             height,
-            commands: Vec::new(),
+            items: Vec::new(),
         }
     }
 
-    pub fn push(&mut self, cmd: DrawCommand) {
-        self.commands.push(cmd);
+    pub fn push(&mut self, item: SceneItem) {
+        self.items.push(item);
     }
 
-    pub fn commands(&self) -> &[DrawCommand] {
-        &self.commands
+    pub fn items(&self) -> &[SceneItem] {
+        &self.items
     }
 }
 
-pub enum CompositorExport<'a> {
-    Framebuffer {
-        addr: *const u32,
-        width: usize,
-        height: usize,
-        stride_bytes: usize,
-    },
-    Svg {
-        xml: &'a str,
-        width: u32,
-        height: u32,
-    },
+pub struct FrameInfo {
+    pub addr: u64,
+    pub width: u64,
+    pub height: u64,
+    pub pitch: u64,
+    pub bpp: u64,
 }
 
-pub trait CompositorBackend {
-    fn size(&self) -> (usize, usize);
-    fn render(&mut self, scene: &Scene);
-    fn export(&self) -> Option<CompositorExport<'_>> {
+pub trait FramebufferDevice<T> {
+    fn geometry(&self) -> FramebufferGeometry;
+    fn present(&mut self, frame: T);
+    fn frame_info(&self) -> Option<FrameInfo> {
         None
     }
+}
+
+pub trait RendererBackend {
+    type Output<'a> where Self: 'a;
+    fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a>;
 }
 
 #[derive(Clone, Debug)]
@@ -270,9 +269,10 @@ impl CursorState {
     }
 }
 
-pub struct Compositor<B: CompositorBackend> {
+pub struct Compositor<F, R> {
     frame_no: u64,
-    backend: B,
+    fb_device: F,
+    renderer: R,
     windows: BTreeMap<Uuid, WindowSurface>,
     window_order: Vec<Uuid>,
     watch_surfaces: Option<WatchId>,
@@ -285,14 +285,20 @@ pub struct Compositor<B: CompositorBackend> {
     background: Arc<Bitmap>,
 }
 
-impl<B: CompositorBackend> Compositor<B> {
-    pub fn new(backend: B) -> Self {
-        let (width, height) = backend.size();
+impl<F, R> Compositor<F, R>
+where
+    R: RendererBackend,
+    F: for<'a> FramebufferDevice<R::Output<'a>>,
+{
+    pub fn new(fb_device: F, renderer: R) -> Self {
+        let geo = fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
         let background = load_background();
 
         Self {
             frame_no: 0,
-            backend,
+            fb_device,
+            renderer,
             windows: BTreeMap::new(),
             window_order: Vec::new(),
             watch_surfaces: None,
@@ -306,11 +312,28 @@ impl<B: CompositorBackend> Compositor<B> {
         }
     }
 
-    pub fn backend(&self) -> &B {
-        &self.backend
+    pub fn fb_device(&self) -> &F {
+        &self.fb_device
     }
 
-    pub fn init_with_watches(watch_manager: &mut WatchManager, app_id: usize, backend: B) -> Self {
+    pub fn fb_device_mut(&mut self) -> &mut F {
+        &mut self.fb_device
+    }
+
+    pub fn renderer(&self) -> &R {
+        &self.renderer
+    }
+
+    pub fn renderer_mut(&mut self) -> &mut R {
+        &mut self.renderer
+    }
+
+    pub fn init_with_watches(
+        watch_manager: &mut WatchManager,
+        app_id: usize,
+        fb_device: F,
+        renderer: R,
+    ) -> Self {
         let mut surface_pattern = NodePattern::default();
         surface_pattern.labels.push(canon::SURFACE);
         surface_pattern
@@ -338,7 +361,7 @@ impl<B: CompositorBackend> Compositor<B> {
         let fb_watch = watch_manager.register_pattern(app_id, fb_pattern.clone());
         let mouse_watch = watch_manager.register_pattern(app_id, mouse_pattern);
 
-        let mut comp = Self::new(backend);
+        let mut comp = Self::new(fb_device, renderer);
         comp.watch_surfaces = Some(surface_watch);
         comp.watch_windows = Some(window_watch);
         comp.watch_mouse = Some(mouse_watch);
@@ -391,39 +414,35 @@ impl<B: CompositorBackend> Compositor<B> {
     }
 
     pub fn tick(&mut self) {
-        let (width, height) = self.backend.size();
+        let geo = self.fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
         if width == 0 || height == 0 {
             return;
         }
 
         let mut scene = Scene::new(width as u32, height as u32);
-        scene.push(DrawCommand::Clear { color: CLEAR_COLOR });
+        scene.push(SceneItem::Clear { color: CLEAR_COLOR });
         self.draw_background(&mut scene, width, height);
         self.draw_windows(&mut scene, width, height);
         self.draw_cursor(&mut scene, width, height);
 
-        self.backend.render(&scene);
+        let frame = self.renderer.render(&scene);
+        self.fb_device.present(frame);
         self.publish_frame_info();
         self.frame_no = self.frame_no.wrapping_add(1);
     }
 
     fn publish_frame_info(&mut self) {
         if let Some(fb_id) = self.fb_id {
-            if let Some(CompositorExport::Framebuffer {
-                addr,
-                width,
-                height,
-                stride_bytes,
-            }) = self.backend.export()
-            {
+            if let Some(info) = self.fb_device.frame_info() {
                 let mut fields = BTreeMap::new();
                 fields.insert(canon::KIND, Value::Symbol(canon::DISPLAY_FRAME));
                 fields.insert(canon::SEQ, Value::U64(self.frame_no));
-                fields.insert(canon::ADDR, Value::U64(addr as u64));
-                fields.insert(canon::WIDTH, Value::U64(width as u64));
-                fields.insert(canon::HEIGHT, Value::U64(height as u64));
-                fields.insert(canon::PITCH, Value::U64(stride_bytes as u64));
-                fields.insert(canon::BPP, Value::U64(32));
+                fields.insert(canon::ADDR, Value::U64(info.addr));
+                fields.insert(canon::WIDTH, Value::U64(info.width));
+                fields.insert(canon::HEIGHT, Value::U64(info.height));
+                fields.insert(canon::PITCH, Value::U64(info.pitch));
+                fields.insert(canon::BPP, Value::U64(info.bpp));
 
                 let frame_id = userland::fiat(None, canon::DISPLAY_FRAME, fields);
                 userland::that(fb_id, canon::CURRENT_FRAME, frame_id, 0);
@@ -484,7 +503,8 @@ impl<B: CompositorBackend> Compositor<B> {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
 
-                let (width, height) = self.backend.size();
+                let geo = self.fb_device.geometry();
+                let (width, height) = (geo.width as usize, geo.height as usize);
                 self.cursor.update(dx, dy, buttons as u8, width, height);
             }
         }
@@ -497,7 +517,8 @@ impl<B: CompositorBackend> Compositor<B> {
         let x = thing.fields.get(&canon::X).and_then(|v| v.as_i64());
         let y = thing.fields.get(&canon::Y).and_then(|v| v.as_i64());
         let visible = thing.fields.get(&canon::VISIBLE).and_then(|v| v.as_bool());
-        let (width, height) = self.backend.size();
+        let geo = self.fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
         self.cursor.set_from_graph(x, y, visible, width, height);
     }
 
@@ -532,7 +553,7 @@ impl<B: CompositorBackend> Compositor<B> {
     }
 
     fn draw_background(&self, scene: &mut Scene, width: usize, height: usize) {
-        scene.push(DrawCommand::BlitImage {
+        scene.push(SceneItem::BlitImage {
             rect: Rect::new(0, 0, width as u32, height as u32),
             image: self.background.clone(),
             repeat: true,
@@ -595,7 +616,7 @@ impl<B: CompositorBackend> Compositor<B> {
         let y = min(surface.window.y as usize, fb_height);
 
         let shadow_offset = 3;
-        scene.push(DrawCommand::FillRect {
+        scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 (x + shadow_offset) as i32,
                 (y + shadow_offset) as i32,
@@ -605,11 +626,11 @@ impl<B: CompositorBackend> Compositor<B> {
             color: COLOR_SHADOW,
         });
 
-        scene.push(DrawCommand::FillRect {
+        scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
             color: COLOR_BORDER,
         });
-        scene.push(DrawCommand::FillRect {
+        scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 (x + BORDER_THICKNESS) as i32,
                 (y + BORDER_THICKNESS) as i32,
@@ -619,7 +640,7 @@ impl<B: CompositorBackend> Compositor<B> {
             color: COLOR_WINDOW_BG,
         });
 
-        scene.push(DrawCommand::FillRect {
+        scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 (x + BORDER_THICKNESS) as i32,
                 (y + BORDER_THICKNESS) as i32,
@@ -628,7 +649,7 @@ impl<B: CompositorBackend> Compositor<B> {
             ),
             color: COLOR_TITLE_BAR,
         });
-        scene.push(DrawCommand::DrawText {
+        scene.push(SceneItem::DrawText {
             origin: (
                 (x + BORDER_THICKNESS + WINDOW_PADDING) as i32,
                 (y + BORDER_THICKNESS + 2) as i32,
@@ -645,7 +666,7 @@ impl<B: CompositorBackend> Compositor<B> {
             h.saturating_sub(TITLE_BAR_HEIGHT + BORDER_THICKNESS * 2 + WINDOW_PADDING * 2);
 
         if let Some(bmp) = &surface.bitmap {
-            scene.push(DrawCommand::BlitImage {
+            scene.push(SceneItem::BlitImage {
                 rect: Rect::new(
                     client_x as i32,
                     client_y as i32,
@@ -657,7 +678,7 @@ impl<B: CompositorBackend> Compositor<B> {
             });
         }
 
-        scene.push(DrawCommand::DrawTextBlock {
+        scene.push(SceneItem::DrawTextBlock {
             rect: Rect::new(
                 client_x as i32,
                 client_y as i32,
@@ -676,7 +697,7 @@ impl<B: CompositorBackend> Compositor<B> {
         let base_x = clamp_i32(self.cursor.x, 0, fb_width.saturating_sub(1) as i32) as i32;
         let base_y = clamp_i32(self.cursor.y, 0, fb_height.saturating_sub(1) as i32) as i32;
 
-        scene.push(DrawCommand::DrawCursor {
+        scene.push(SceneItem::DrawCursor {
             origin: (base_x, base_y),
             primary: if self.cursor.buttons & 0x1 != 0 {
                 COLOR_TITLE_BAR
@@ -713,8 +734,8 @@ fn clamp_i32(v: i32, min_v: i32, max_v: i32) -> i32 {
     max(min_v, min(v, max_v))
 }
 
-fn sanitize_fb_info(info: FramebufferInfo) -> FramebufferInfo {
-    const MAX_DIM: usize = 4096;
+fn sanitize_fb_info(info: FramebufferGeometry) -> FramebufferGeometry {
+    const MAX_DIM: u32 = 4096;
     let width = info.width.clamp(1, MAX_DIM);
     let height = info.height.clamp(1, MAX_DIM);
     let mut pitch = if info.pitch >= width * 4 && info.pitch <= width * 8 {
@@ -730,7 +751,7 @@ fn sanitize_fb_info(info: FramebufferInfo) -> FramebufferInfo {
     } else {
         32
     };
-    FramebufferInfo {
+    FramebufferGeometry {
         width,
         height,
         pitch,
@@ -806,16 +827,8 @@ fn decode_bmp(data: &[u8]) -> Option<Bitmap> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct FramebufferInfo {
-    pub width: usize,
-    pub height: usize,
-    pub pitch: usize,
-    pub bpp: u16,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub struct FramebufferTarget {
-    pub info: FramebufferInfo,
+    pub info: FramebufferGeometry,
     pub addr: *mut u32,
     pub len_bytes: usize,
 }
@@ -831,13 +844,13 @@ mod tests {
     fn collects_scene_commands() {
         let bitmap = Arc::new(Bitmap::new(1, 1, vec![0xff00ff00]));
         let mut scene = Scene::new(10, 10);
-        scene.push(DrawCommand::Clear { color: CLEAR_COLOR });
-        scene.push(DrawCommand::BlitImage {
+        scene.push(SceneItem::Clear { color: CLEAR_COLOR });
+        scene.push(SceneItem::BlitImage {
             rect: Rect::new(0, 0, 10, 10),
             image: bitmap,
             repeat: true,
         });
-        assert_eq!(scene.commands().len(), 2);
+        assert_eq!(scene.items().len(), 2);
     }
 
     #[test]
@@ -857,16 +870,12 @@ mod tests {
     #[cfg(feature = "host")]
     #[test]
     fn svg_backend_renders() {
-        let mut backend = SvgBackend::new(10, 10);
+        let mut renderer = SvgRenderer::new();
         let mut scene = Scene::new(10, 10);
-        scene.push(DrawCommand::Clear {
+        scene.push(SceneItem::Clear {
             color: Rgba::opaque(0, 0, 0),
         });
-        backend.render(&scene);
-        let xml = match backend.export() {
-            Some(CompositorExport::Svg { xml, .. }) => xml.to_string(),
-            _ => String::new(),
-        };
+        let xml = renderer.render(&scene);
         assert!(xml.contains("<svg"));
     }
 
