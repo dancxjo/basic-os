@@ -357,12 +357,18 @@ pub fn symbol_to_string(sym: Symbol) -> String {
     let c2 = ((val >> 8) & 0xFF) as u8;
     let c3 = (val & 0xFF) as u8;
     let mut bytes = Vec::new();
-    if c1 != 0 { bytes.push(c1); }
-    if c2 != 0 { bytes.push(c2); }
-    if c3 != 0 { bytes.push(c3); }
+    if c1 != 0 {
+        bytes.push(c1);
+    }
+    if c2 != 0 {
+        bytes.push(c2);
+    }
+    if c3 != 0 {
+        bytes.push(c3);
+    }
     if let Ok(s) = String::from_utf8(bytes) {
         if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-             return s.to_ascii_uppercase();
+            return s.to_ascii_uppercase();
         }
     }
     alloc::format!("SYM_{}", val)

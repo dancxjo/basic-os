@@ -1,15 +1,20 @@
+use alloc::collections::VecDeque;
+use alloc::format;
 use alloc::string::String;
+use alloc::string::ToString;
 use userland::prelude::*;
 use userland::{canon, graph, AppEvent, Symbol, ThingFilter};
 use uuid::Uuid;
 
 const SMOKE_KIND: Symbol = canon::canon(b'G', b'S', b'M');
 const NODE_NAME: &str = "graph-smoke-node";
+const MAX_KEY_LOG: usize = 24;
 
 pub struct DemoApp {
     window: WindowHandle,
     bmp_data: &'static [u8],
     key_count: usize,
+    key_log: VecDeque<String>,
     sent_bitmap: bool,
     // Smoke state
     smoke_node: Uuid,
@@ -23,6 +28,10 @@ impl App for DemoApp {
 
         ctx.watch_graph(ThingFilter {
             kind: Some(canon::KEY_PRESSED),
+            id: None,
+        });
+        ctx.watch_graph(ThingFilter {
+            kind: Some(canon::KEY_EVENT),
             id: None,
         });
 
@@ -61,6 +70,7 @@ impl App for DemoApp {
             window,
             bmp_data,
             key_count: 0,
+            key_log: VecDeque::new(),
             sent_bitmap: false,
             smoke_node,
             smoke_watch,
@@ -78,6 +88,9 @@ impl App for DemoApp {
         if let AppEvent::Thing { thing, .. } = ev {
             if thing.kind == canon::KEY_PRESSED {
                 self.key_count += 1;
+            }
+            if thing.kind == canon::KEY_EVENT {
+                self.record_key_event(&thing);
             }
         }
     }
@@ -102,7 +115,58 @@ impl App for DemoApp {
 
         ctx.draw_text(
             &self.window,
-            format_args!("Keys pressed: {}", self.key_count),
+            format_args!("Keys pressed: {}\n", self.key_count),
         );
+        ctx.draw_text(
+            &self.window,
+            format_args!("Recent key events (most recent last):\n"),
+        );
+        for entry in self.key_log.iter() {
+            ctx.draw_text(&self.window, format_args!("{}\n", entry));
+        }
+    }
+}
+
+impl DemoApp {
+    fn record_key_event(&mut self, thing: &graph::GraphThing) {
+        let scancode = thing
+            .fields
+            .get(&canon::SCANCODE)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u8;
+        let down = thing
+            .fields
+            .get(&canon::DOWN)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let key_text = thing
+            .fields
+            .get(&canon::TEXT)
+            .and_then(|v| v.as_text())
+            .map(|s| s.to_string());
+        let key_symbol = thing
+            .fields
+            .get(&canon::KEY)
+            .and_then(|v| v.as_symbol())
+            .map(|s| s.raw());
+
+        let mut line = format!(
+            "0x{:02X} {}",
+            scancode,
+            if down { "down " } else { "up   " }
+        );
+
+        if let Some(text) = key_text {
+            line.push_str(&format!(" {}", text));
+        } else if let Some(sym) = key_symbol {
+            line.push_str(&format!(" sym 0x{:04X}", sym));
+        } else {
+            line.push_str(" (unlabeled)");
+        }
+
+        self.key_log.push_back(line);
+        while self.key_log.len() > MAX_KEY_LOG {
+            self.key_log.pop_front();
+        }
     }
 }
