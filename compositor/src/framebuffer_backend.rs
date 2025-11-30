@@ -183,10 +183,21 @@ fn raster_fill_rect(backend: &mut BitmapRenderer, rect: &Rect, color: Rgba) {
     let x1 = min(x0 + rect.width as usize, backend.width);
     let y1 = min(y0 + rect.height as usize, backend.height);
     let color_u32 = color.to_u32();
-    for yy in y0..y1 {
-        let row = yy * backend.width;
-        for xx in x0..x1 {
-            backend.storage[row + xx] = color_u32;
+
+    if color.a == 0xFF {
+        for yy in y0..y1 {
+            let row = yy * backend.width;
+            for xx in x0..x1 {
+                backend.storage[row + xx] = color_u32;
+            }
+        }
+    } else {
+        for yy in y0..y1 {
+            let row = yy * backend.width;
+            for xx in x0..x1 {
+                let bg = backend.storage[row + xx];
+                backend.storage[row + xx] = userland::graphics::blend(color_u32, bg);
+            }
         }
     }
 }
@@ -331,6 +342,32 @@ fn raster_draw_cursor(
     let shadow_color = shadow.to_u32();
     let draw_shadow = !pressed;
 
+    // Draw shadow first (pass 1)
+    if draw_shadow {
+        let offset_x = 2;
+        let offset_y = 2;
+        for (row, mask) in CURSOR_MASK.iter().enumerate() {
+            let y = base_y + row + offset_y;
+            if y >= backend.height {
+                break;
+            }
+            for col in 0..CURSOR_SIZE {
+                let bit = 15 - col;
+                if (mask & (1 << bit)) == 0 {
+                    continue;
+                }
+                let x = base_x + col + offset_x;
+                if x >= backend.width {
+                    break;
+                }
+                let idx = y * backend.width + x;
+                let bg = backend.storage[idx];
+                backend.storage[idx] = userland::graphics::blend(shadow_color, bg);
+            }
+        }
+    }
+
+    // Draw cursor (pass 2)
     for (row, mask) in CURSOR_MASK.iter().enumerate() {
         let y = base_y + row;
         if y >= backend.height {
@@ -347,13 +384,13 @@ fn raster_draw_cursor(
                 break;
             }
 
-            if draw_shadow && x + 1 < backend.width && y + 1 < backend.height {
-                let shadow_idx = (y + 1) * backend.width + (x + 1);
-                backend.storage[shadow_idx] = shadow_color;
-            }
-
             let idx = y * backend.width + x;
-            backend.storage[idx] = primary_color;
+            if primary.a == 0xFF {
+                backend.storage[idx] = primary_color;
+            } else {
+                let bg = backend.storage[idx];
+                backend.storage[idx] = userland::graphics::blend(primary_color, bg);
+            }
         }
     }
 }

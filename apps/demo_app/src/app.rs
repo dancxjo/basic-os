@@ -35,7 +35,7 @@ impl App for DemoApp {
             id: None,
         });
 
-        let bmp_data = generate_demo_bitmap();
+        let bmp_data = load_and_process_bitmap();
 
         // --- Graph Client Logic ---
         // Create "Hello" thing
@@ -171,80 +171,40 @@ impl DemoApp {
     }
 }
 
-fn generate_demo_bitmap() -> alloc::vec::Vec<u8> {
-    let width = 8;
-    let height = 8;
-    let row_stride = (width * 3 + 3) & !3; // Align to 4 bytes
-    let data_size = row_stride * height;
-    let file_size = 14 + 40 + data_size;
+fn load_and_process_bitmap() -> alloc::vec::Vec<u8> {
+    let mut bmp = include_bytes!("../../../background.bmp").to_vec();
 
-    let mut bmp = alloc::vec::Vec::with_capacity(file_size);
+    // Assume 24bpp, 54 byte header.
+    let data_offset = 54;
+    let width = 64;
+    let height = 64;
+    let row_stride = (width * 3 + 3) & !3;
 
-    // File Header
-    bmp.extend_from_slice(b"BM");
-    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
-    bmp.extend_from_slice(&[0, 0, 0, 0]); // Reserved
-    bmp.extend_from_slice(&(54u32).to_le_bytes()); // Offset to data
+    // Apply desaturating gradient (white overlay)
+    // BMP is stored bottom-up (y=0 is bottom).
+    // We want top to be desaturated.
+    for y in 0..height {
+        // y=0 (bottom) -> alpha 0. y=63 (top) -> alpha ~200.
+        let alpha = (y as u32 * 200 / height as u32) as u8;
 
-    // Info Header
-    bmp.extend_from_slice(&(40u32).to_le_bytes()); // Header size
-    bmp.extend_from_slice(&(width as i32).to_le_bytes());
-    bmp.extend_from_slice(&(height as i32).to_le_bytes());
-    bmp.extend_from_slice(&(1u16).to_le_bytes()); // Planes
-    bmp.extend_from_slice(&(24u16).to_le_bytes()); // BPP
-    bmp.extend_from_slice(&[0; 24]); // Compression, SizeImage, XPels, YPels, ClrUsed, ClrImportant
+        for x in 0..width {
+            let offset = data_offset + y * row_stride + x * 3;
+            if offset + 2 >= bmp.len() {
+                continue;
+            }
 
-    // Palette (BGR)
-    let peach = [0xC4, 0xE2, 0xFF];
-    let peach_dark = [0x9A, 0xB5, 0xE8];
-    let purple = [0xD8, 0x9A, 0xC7];
+            let b = bmp[offset];
+            let g = bmp[offset + 1];
+            let r = bmp[offset + 2];
 
-    // Pattern (Top-down spec, but BMP is bottom-up)
-    // Row 0 (Top): PEACH, PEACH, DARK, DARK...
-    // ...
-    // Row 7 (Bottom): DARK, DARK, PURPLE, PURPLE...
+            let bg_color = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+            let overlay_color = ((alpha as u32) << 24) | 0x00FFFFFF;
 
-    let rows = [
-        // Row 0 (Top)
-        [
-            peach, peach, peach_dark, peach_dark, peach, peach, peach_dark, peach_dark,
-        ],
-        // Row 1
-        [
-            peach, peach, peach_dark, peach_dark, peach, peach, peach_dark, peach_dark,
-        ],
-        // Row 2
-        [
-            peach_dark, peach_dark, peach, peach, peach_dark, peach_dark, peach, peach,
-        ],
-        // Row 3
-        [
-            peach_dark, peach_dark, peach, peach, peach_dark, peach_dark, peach, peach,
-        ],
-        // Row 4
-        [peach, peach, purple, purple, peach, peach, purple, purple],
-        // Row 5
-        [peach, peach, purple, purple, peach, peach, purple, purple],
-        // Row 6
-        [
-            peach_dark, peach_dark, purple, purple, peach_dark, peach_dark, purple, purple,
-        ],
-        // Row 7 (Bottom)
-        [
-            peach_dark, peach_dark, purple, purple, peach_dark, peach_dark, purple, purple,
-        ],
-    ];
+            let blended = userland::graphics::blend(overlay_color, bg_color);
 
-    // Write rows from bottom (7) to top (0)
-    for y in (0..8).rev() {
-        let row_data = rows[y];
-        for color in row_data.iter() {
-            bmp.extend_from_slice(color);
-        }
-        // Padding
-        let padding = row_stride - width * 3;
-        for _ in 0..padding {
-            bmp.push(0);
+            bmp[offset] = (blended & 0xFF) as u8;
+            bmp[offset + 1] = ((blended >> 8) & 0xFF) as u8;
+            bmp[offset + 2] = ((blended >> 16) & 0xFF) as u8;
         }
     }
 

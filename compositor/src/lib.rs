@@ -71,7 +71,7 @@ const COLOR_WINDOW_BG: Rgba = FRAME_LIGHT;
 const COLOR_BORDER: Rgba = NAVY_LINE;
 const COLOR_TEXT: Rgba = NAVY_LINE;
 const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
-const COLOR_CURSOR_SHADOW: Rgba = Rgba::new(0x00, 0x00, 0x00, 0x00);
+const COLOR_CURSOR_SHADOW: Rgba = Rgba::new(0x40, 0x00, 0x00, 0x00);
 const COLOR_SHADOW: Rgba = FRAME_SHADOW;
 const CLEAR_COLOR: Rgba = Rgba::new(0xff, 0x00, 0x00, 0x00);
 
@@ -634,6 +634,28 @@ where
 
         let x = min(surface.window.x as usize, fb_width);
         let y = min(surface.window.y as usize, fb_height);
+
+        // --- Shadow ---
+        // Windows 2000-style offset with soft feather
+        let shadow_color_1 = Rgba::new(0x10, 0, 0, 0);
+        let shadow_color_2 = Rgba::new(0x10, 0, 0, 0);
+        let shadow_color_3 = Rgba::new(0x20, 0, 0, 0);
+
+        // Layer 1 (Outermost)
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32 + 4, y as i32 + 4, w as u32, h as u32),
+            color: shadow_color_1,
+        });
+        // Layer 2
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32 + 5, y as i32 + 5, (w as u32).saturating_sub(2), (h as u32).saturating_sub(2)),
+            color: shadow_color_2,
+        });
+        // Layer 3 (Core)
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32 + 6, y as i32 + 6, (w as u32).saturating_sub(4), (h as u32).saturating_sub(4)),
+            color: shadow_color_3,
+        });
 
         // Helper to draw rounded rect
         let mut push_rounded_rect = |scene: &mut Scene, r: Rect, c: Rgba| {
