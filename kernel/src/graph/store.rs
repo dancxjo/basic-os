@@ -187,6 +187,9 @@ impl Store {
         if !self.can_link(owner, request.from, request.to, request.kind) {
             return 0;
         }
+        if let Some(existing) = self.edge_between(request.from, request.kind, request.to) {
+            return existing.revision;
+        }
         let revision = self.next_revision();
         let edge = GraphEdge {
             id: request
@@ -328,6 +331,13 @@ impl Store {
             .get(&(src, pred))
             .cloned()
             .unwrap_or_else(Vec::new)
+    }
+
+    fn edge_between(&self, src: Uuid, pred: Symbol, dst: Uuid) -> Option<GraphEdge> {
+        self.edges_by_src_pred
+            .get(&(src, pred))
+            .and_then(|edges| edges.iter().rev().find(|edge| edge.dst == dst))
+            .cloned()
     }
 
     /// Stub implementation returning an empty change batch with the latest revision.
