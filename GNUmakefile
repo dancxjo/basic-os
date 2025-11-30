@@ -26,7 +26,8 @@ override IMAGE_NAME := template-$(KARCH)
 
 $(call USER_VARIABLE,HOST_NEO4J_URI,bolt://127.0.0.1:7687)
 $(call USER_VARIABLE,HOST_NEO4J_USER,neo4j)
-$(call USER_VARIABLE,HOST_NEO4J_PASSWORD,secret)
+# Default password must meet Neo4j minimum length (>=8). Can be overridden on the command line.
+$(call USER_VARIABLE,HOST_NEO4J_PASSWORD,neo4jpass)
 
 .PHONY: all
 all: $(IMAGE_NAME).iso
