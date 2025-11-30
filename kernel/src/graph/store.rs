@@ -554,6 +554,18 @@ impl Store {
     }
 
     fn change_visible_to(&self, bundle: BundleId, change: &GraphChange) -> bool {
+        // Input events should be visible to all bundles so apps can react to user input
+        if let GraphChange::Thing(t) = change {
+            if t.kind == canon::KEY_EVENT
+                || t.kind == canon::KEY_PRESSED
+                || t.kind == canon::MOUSE_MOVE
+                || t.kind == canon::MOUSE_BUTTON
+                || t.kind == canon::INPUT_EVENT
+            {
+                return true;
+            }
+        }
+
         match change {
             GraphChange::Thing(t) => self.can_read(bundle, t.id),
             GraphChange::Edge(e) => {
