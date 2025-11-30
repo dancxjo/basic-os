@@ -1,21 +1,30 @@
-use anyhow::Result;
+use crate::symbols;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use thing_abi::{
-    GraphEdge, GraphFiatRequest, GraphLinkRequest, GraphPropsGetRequest, GraphPropsRequest,
-    GraphThing, Map, NodePattern, Symbol,
+    GraphEdge, GraphFiatRequest, GraphGetRequest, GraphLinkRequest, GraphPropsGetRequest,
+    GraphPropsRequest, GraphThing, Map, NodePattern, Symbol,
 };
 use uuid::Uuid;
+
+#[cfg(feature = "neo4j")]
+use neo4rs::query;
+
+const FIND_PAGE_SIZE: usize = 64;
 
 #[async_trait]
 pub trait GraphStore: Send + Sync {
     async fn fiat(&self, req: GraphFiatRequest) -> Result<GraphThing>;
     async fn link(&self, req: GraphLinkRequest) -> Result<GraphEdge>;
-    async fn get(&self, id: Uuid) -> Result<Option<GraphThing>>;
-    async fn query(&self, pattern: NodePattern) -> Result<Vec<GraphThing>>;
-    async fn find_by_kind(&self, kind: String, cursor: Option<u64>) -> Result<Vec<GraphThing>>;
+    async fn get(&self, req: GraphGetRequest) -> Result<Vec<GraphThing>>;
+    async fn find_by_kind(
+        &self,
+        kind: String,
+        cursor: Option<u64>,
+    ) -> Result<(Vec<GraphThing>, Option<u64>)>;
     async fn props_get(&self, req: GraphPropsGetRequest) -> Result<Map>;
     async fn props_set(&self, req: GraphPropsRequest) -> Result<GraphThing>;
 }
@@ -36,7 +45,7 @@ impl InMemoryGraphStore {
     }
 
     fn next_revision(&self) -> u64 {
-        self.revision.fetch_add(1, Ordering::SeqCst)
+        self.revision.fetch_add(1, AtomicOrdering::SeqCst)
     }
 }
 
@@ -49,10 +58,11 @@ impl GraphStore for InMemoryGraphStore {
         if labels.is_empty() {
             labels.push(req.kind);
         }
+        let labels_set = labels.into_iter().collect();
         let thing = GraphThing {
             id,
             kind: req.kind,
-            labels: labels.into_iter().collect(),
+            labels: labels_set,
             fields: req.fields,
             owner: Uuid::nil(),
             revision,
@@ -77,24 +87,61 @@ impl GraphStore for InMemoryGraphStore {
         Ok(edge)
     }
 
-    async fn get(&self, id: Uuid) -> Result<Option<GraphThing>> {
-        Ok(self.things.lock().unwrap().get(&id).cloned())
+    async fn get(&self, req: GraphGetRequest) -> Result<Vec<GraphThing>> {
+        match req {
+            GraphGetRequest::Thing(id) => Ok(self
+                .things
+                .lock()
+                .unwrap()
+                .get(&id)
+                .cloned()
+                .into_iter()
+                .collect()),
+            GraphGetRequest::Pattern(pattern) => {
+                let things = self.things.lock().unwrap();
+                let result = things
+                    .values()
+                    .filter(|thing| pattern_matches(thing, &pattern))
+                    .cloned()
+                    .collect();
+                Ok(result)
+            }
+        }
     }
 
-    async fn query(&self, pattern: NodePattern) -> Result<Vec<GraphThing>> {
+    async fn find_by_kind(
+        &self,
+        kind: String,
+        cursor: Option<u64>,
+    ) -> Result<(Vec<GraphThing>, Option<u64>)> {
+        let Some(symbol) = symbols::symbol_from_str(&kind) else {
+            return Ok((Vec::new(), None));
+        };
         let things = self.things.lock().unwrap();
-        let result = things
+        let mut matches: Vec<_> = things
             .values()
-            .filter(|thing| pattern_matches(thing, &pattern))
+            .filter(|thing| thing.kind == symbol)
             .cloned()
             .collect();
-        Ok(result)
-    }
+        matches.sort_by_key(|thing| thing.id);
 
-    async fn find_by_kind(&self, _kind: String, _cursor: Option<u64>) -> Result<Vec<GraphThing>> {
-        // Simple implementation returning all things for now as per original HostRuntime
-        let things = self.things.lock().unwrap();
-        Ok(things.values().cloned().collect())
+        let skip = cursor.unwrap_or(0) as usize;
+        if skip >= matches.len() {
+            return Ok((Vec::new(), None));
+        }
+
+        let mut slice: Vec<_> = matches
+            .into_iter()
+            .skip(skip)
+            .take(FIND_PAGE_SIZE + 1)
+            .collect();
+        let next_cursor = if slice.len() > FIND_PAGE_SIZE {
+            slice.pop();
+            Some((skip + FIND_PAGE_SIZE) as u64)
+        } else {
+            None
+        };
+        Ok((slice, next_cursor))
     }
 
     async fn props_get(&self, req: GraphPropsGetRequest) -> Result<Map> {
@@ -110,18 +157,18 @@ impl GraphStore for InMemoryGraphStore {
                     .collect())
             }
         } else {
-            Err(anyhow::anyhow!("thing not found"))
+            Err(anyhow!("thing not found"))
         }
     }
 
     async fn props_set(&self, req: GraphPropsRequest) -> Result<GraphThing> {
         let mut things = self.things.lock().unwrap();
         if let Some(thing) = things.get_mut(&req.node) {
-            thing.fields.extend(req.props.clone());
+            thing.fields.extend(req.props);
             thing.revision = self.next_revision();
             Ok(thing.clone())
         } else {
-            Err(anyhow::anyhow!("thing not found"))
+            Err(anyhow!("thing not found"))
         }
     }
 }
@@ -148,28 +195,78 @@ pub struct Neo4jGraphStore {
 
 #[cfg(feature = "neo4j")]
 impl Neo4jGraphStore {
-    pub async fn connect(uri: &str, user: &str, pass: &str) -> Result<Self> {
-        let config = neo4rs::ConfigBuilder::new()
-            .uri(uri)
-            .user(user)
-            .password(pass)
+    pub async fn connect(config: &Neo4jConfig) -> Result<Self> {
+        let neo_config = neo4rs::ConfigBuilder::new()
+            .uri(&config.uri)
+            .user(&config.user)
+            .password(&config.password)
             .build()?;
-        let graph = Arc::new(neo4rs::Graph::connect(config).await?);
+        let graph = Arc::new(neo4rs::Graph::connect(neo_config).await?);
         Ok(Self { graph })
     }
 
     async fn next_revision(&self) -> Result<u64> {
-        // Simple revision counter in Neo4j
-        let query = "MERGE (c:Counter {name: 'revision'}) 
-                     ON CREATE SET c.value = 1 
-                     ON MATCH SET c.value = c.value + 1 
-                     RETURN c.value as value";
-        let mut result = self.graph.execute(neo4rs::query(query)).await?;
+        let mut result = self
+            .graph
+            .execute(query(
+                "MERGE (c:Counter {name: 'revision'})
+                 ON CREATE SET c.value = 1
+                 ON MATCH SET c.value = c.value + 1
+                 RETURN c.value as value",
+            ))
+            .await?;
         if let Some(row) = result.next().await? {
-            Ok(row.get("value")?)
+            Ok(row.get::<i64>("value")? as u64)
         } else {
             Ok(1)
         }
+    }
+
+    fn encode_labels(labels: &BTreeSet<Symbol>) -> Vec<i64> {
+        labels.iter().map(|sym| sym.raw() as i64).collect()
+    }
+
+    fn decode_labels(raw: Vec<i64>) -> BTreeSet<Symbol> {
+        raw.into_iter().map(|value| Symbol(value as u32)).collect()
+    }
+
+    fn symbol_display(sym: Symbol) -> String {
+        symbols::symbol_name(sym)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("sym_{:06x}", sym.raw()))
+    }
+
+    async fn load_things(&self, cypher: neo4rs::Query) -> Result<Vec<GraphThing>> {
+        let mut result = self.graph.execute(cypher).await?;
+        let mut things = Vec::new();
+        while let Some(row) = result.next().await? {
+            things.push(Self::row_to_thing(&row)?);
+        }
+        Ok(things)
+    }
+
+    fn row_to_thing(row: &neo4rs::Row) -> Result<GraphThing> {
+        let uuid_str: String = row.get("uuid")?;
+        let kind_raw: i64 = row.get("kind")?;
+        let labels_raw: Vec<i64> = row.get("labels")?;
+        let props_json: String = row.get("props_json")?;
+        let revision: i64 = row.get("revision")?;
+        let owner_str: Option<String> = row.get("owner").ok();
+
+        let id = Uuid::parse_str(&uuid_str).map_err(|e| anyhow!(e.to_string()))?;
+        let fields: Map = serde_json::from_str(&props_json)?;
+        let owner = owner_str
+            .and_then(|s| Uuid::parse_str(&s).ok())
+            .unwrap_or_else(Uuid::nil);
+
+        Ok(GraphThing {
+            id,
+            kind: Symbol(kind_raw as u32),
+            labels: Self::decode_labels(labels_raw),
+            fields,
+            owner,
+            revision: revision as u64,
+        })
     }
 }
 
@@ -183,38 +280,38 @@ impl GraphStore for Neo4jGraphStore {
         if labels.is_empty() {
             labels.push(req.kind);
         }
-
+        let label_set: BTreeSet<_> = labels.iter().copied().collect();
+        let labels_vec = Self::encode_labels(&label_set);
         let props_json = serde_json::to_string(&req.fields)?;
-        let kind_str = req.kind.0.to_string(); // Symbol to string
 
-        // We store kind as a property and also use it as a label if possible,
-        // but Symbol is u32, so maybe just property.
-        // User said: "Label: Thing (plus optional additional labels based on kind/user labels)."
+        let kind_name = Self::symbol_display(req.kind);
+        let owner = Uuid::nil().to_string();
 
-        let q = "MERGE (t:Thing {uuid: $uuid}) 
-                 SET t.kind = $kind, t.props_json = $props_json, t.revision = $revision
-                 RETURN t";
-
-        let mut query = neo4rs::query(q)
-            .param("uuid", id.to_string())
-            .param("kind", kind_str)
-            .param("props_json", props_json)
-            .param("revision", revision as i64);
-
-        self.graph.run(query).await?;
-
-        // Add labels? Neo4j labels must be static strings in Cypher or we use APOC.
-        // Or we just stick to :Thing and use properties for filtering.
-        // User said: "Label: Thing (plus optional additional labels based on kind/user labels)."
-        // Since labels are dynamic Symbols (u32), mapping them to Neo4j labels (strings) is tricky without a map.
-        // I will just store them in properties for now or ignore extra labels in Neo4j structure
-        // unless I can map Symbol to string easily.
-        // Symbol is just u32.
+        self.graph
+            .run(
+                query(
+                    "MERGE (t:Thing {uuid: $uuid})
+                     SET t.kind = $kind,
+                         t.kind_name = $kind_name,
+                         t.labels = $labels,
+                         t.props_json = $props,
+                         t.owner = $owner,
+                         t.revision = $revision",
+                )
+                .param("uuid", id.to_string())
+                .param("kind", req.kind.raw() as i64)
+                .param("kind_name", kind_name)
+                .param("labels", labels_vec)
+                .param("props", props_json)
+                .param("owner", owner)
+                .param("revision", revision as i64),
+            )
+            .await?;
 
         Ok(GraphThing {
             id,
             kind: req.kind,
-            labels: labels.into_iter().collect(),
+            labels: label_set,
             fields: req.fields,
             owner: Uuid::nil(),
             revision,
@@ -225,25 +322,42 @@ impl GraphStore for Neo4jGraphStore {
         let id = req.id.unwrap_or_else(|| thing_abi::next_uuid());
         let revision = self.next_revision().await?;
         let props_json = serde_json::to_string(&req.props)?;
-        let pred_str = req.kind.0.to_string();
+        let owner = Uuid::nil().to_string();
+        let pred_name = Self::symbol_display(req.kind);
 
-        // User said: "Relationship type: PRED_<symbol> or a single LINK with pred as a property"
-        // I'll use LINK with pred property.
-
-        let q = "MATCH (a:Thing {uuid: $src}), (b:Thing {uuid: $dst})
-                 MERGE (a)-[r:LINK {pred: $pred}]->(b)
-                 SET r.uuid = $uuid, r.props_json = $props_json, r.revision = $revision
-                 RETURN r";
-
-        let query = neo4rs::query(q)
-            .param("src", req.from.to_string())
-            .param("dst", req.to.to_string())
-            .param("pred", pred_str)
-            .param("uuid", id.to_string())
-            .param("props_json", props_json)
-            .param("revision", revision as i64);
-
-        self.graph.run(query).await?;
+        self.graph
+            .run(
+                query(
+                    "MERGE (src:Thing {uuid: $src})
+                     ON CREATE SET src.kind = 0,
+                                   src.kind_name = 'unknown',
+                                   src.labels = [],
+                                   src.props_json = '{}',
+                                   src.owner = $owner,
+                                   src.revision = 0
+                     MERGE (dst:Thing {uuid: $dst})
+                     ON CREATE SET dst.kind = 0,
+                                   dst.kind_name = 'unknown',
+                                   dst.labels = [],
+                                   dst.props_json = '{}',
+                                   dst.owner = $owner,
+                                   dst.revision = 0
+                     MERGE (src)-[r:LINK {uuid: $uuid}]->(dst)
+                     SET r.pred = $pred,
+                         r.pred_name = $pred_name,
+                         r.props_json = $props,
+                         r.revision = $revision",
+                )
+                .param("src", req.from.to_string())
+                .param("dst", req.to.to_string())
+                .param("uuid", id.to_string())
+                .param("pred", req.kind.raw() as i64)
+                .param("pred_name", pred_name)
+                .param("props", props_json)
+                .param("revision", revision as i64)
+                .param("owner", owner),
+            )
+            .await?;
 
         Ok(GraphEdge {
             id,
@@ -256,179 +370,195 @@ impl GraphStore for Neo4jGraphStore {
         })
     }
 
-    async fn get(&self, id: Uuid) -> Result<Option<GraphThing>> {
-        let q = "MATCH (t:Thing {uuid: $uuid}) RETURN t.kind, t.props_json, t.revision";
-        let mut result = self
-            .graph
-            .execute(neo4rs::query(q).param("uuid", id.to_string()))
-            .await?;
-
-        if let Some(row) = result.next().await? {
-            let kind_str: String = row.get("t.kind")?;
-            let props_json: String = row.get("t.props_json")?;
-            let revision: i64 = row.get("t.revision")?;
-
-            let kind = Symbol(kind_str.parse().unwrap_or(0));
-            let fields: Map = serde_json::from_str(&props_json)?;
-
-            Ok(Some(GraphThing {
-                id,
-                kind,
-                labels: [kind].into_iter().collect(), // Simplified
-                fields,
-                owner: Uuid::nil(),
-                revision: revision as u64,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn query(&self, pattern: NodePattern) -> Result<Vec<GraphThing>> {
-        // Basic implementation: fetch all things and filter in memory (inefficient but safe)
-        // Or try to build Cypher.
-        // For now, let's fetch all Things.
-        let q = "MATCH (t:Thing) RETURN t.uuid, t.kind, t.props_json, t.revision";
-        let mut result = self.graph.execute(neo4rs::query(q)).await?;
-        let mut things = Vec::new();
-
-        while let Some(row) = result.next().await? {
-            let uuid_str: String = row.get("t.uuid")?;
-            let kind_str: String = row.get("t.kind")?;
-            let props_json: String = row.get("t.props_json")?;
-            let revision: i64 = row.get("t.revision")?;
-
-            let id = Uuid::parse_str(&uuid_str)?;
-            let kind = Symbol(kind_str.parse().unwrap_or(0));
-            let fields: Map = serde_json::from_str(&props_json)?;
-
-            let thing = GraphThing {
-                id,
-                kind,
-                labels: [kind].into_iter().collect(),
-                fields,
-                owner: Uuid::nil(),
-                revision: revision as u64,
-            };
-
-            if pattern_matches(&thing, &pattern) {
-                things.push(thing);
+    async fn get(&self, req: GraphGetRequest) -> Result<Vec<GraphThing>> {
+        match req {
+            GraphGetRequest::Thing(id) => {
+                let query = query(
+                    "MATCH (t:Thing {uuid: $uuid})
+                     RETURN t.uuid AS uuid,
+                            t.kind AS kind,
+                            t.labels AS labels,
+                            t.props_json AS props_json,
+                            t.owner AS owner,
+                            t.revision AS revision",
+                )
+                .param("uuid", id.to_string());
+                self.load_things(query).await
+            }
+            GraphGetRequest::Pattern(pattern) => {
+                let query = query(
+                    "MATCH (t:Thing)
+                     RETURN t.uuid AS uuid,
+                            t.kind AS kind,
+                            t.labels AS labels,
+                            t.props_json AS props_json,
+                            t.owner AS owner,
+                            t.revision AS revision",
+                );
+                let things = self.load_things(query).await?;
+                Ok(things
+                    .into_iter()
+                    .filter(|thing| pattern_matches(thing, &pattern))
+                    .collect())
             }
         }
-        Ok(things)
     }
 
-    async fn find_by_kind(&self, kind: String, _cursor: Option<u64>) -> Result<Vec<GraphThing>> {
-        // This is tricky because 'kind' in FindByKind is a String, but Symbol is u32.
-        // In thing_abi, FindByKind takes String.
-        // But GraphThing has Symbol kind.
-        // I'll assume the String is the string representation of the Symbol u32?
-        // Or maybe it's a label?
-        // In userland::find_by_kind, it passes kind: kind.to_string().
-        // If I look at InMemoryGraphStore, it returns all things.
-        // I'll do the same here: return all things.
-        self.query(NodePattern::default()).await
+    async fn find_by_kind(
+        &self,
+        kind: String,
+        cursor: Option<u64>,
+    ) -> Result<(Vec<GraphThing>, Option<u64>)> {
+        let Some(symbol) = symbols::symbol_from_str(&kind) else {
+            return Ok((Vec::new(), None));
+        };
+        let skip = cursor.unwrap_or(0);
+        let limit = (FIND_PAGE_SIZE + 1) as i64;
+        let query = query(
+            "MATCH (t:Thing)
+             WHERE t.kind = $kind
+             RETURN t.uuid AS uuid,
+                    t.kind AS kind,
+                    t.labels AS labels,
+                    t.props_json AS props_json,
+                    t.owner AS owner,
+                    t.revision AS revision
+             ORDER BY t.uuid
+             SKIP $skip
+             LIMIT $limit",
+        )
+        .param("kind", symbol.raw() as i64)
+        .param("skip", skip as i64)
+        .param("limit", limit);
+
+        let mut entries = self.load_things(query).await?;
+        let next_cursor = if entries.len() > FIND_PAGE_SIZE {
+            entries.truncate(FIND_PAGE_SIZE);
+            Some(skip + FIND_PAGE_SIZE as u64)
+        } else {
+            None
+        };
+        Ok((entries, next_cursor))
     }
 
     async fn props_get(&self, req: GraphPropsGetRequest) -> Result<Map> {
-        if let Some(thing) = self.get(req.node).await? {
-            if req.keys.is_empty() {
-                Ok(thing.fields)
-            } else {
-                Ok(req
-                    .keys
-                    .iter()
-                    .filter_map(|k| thing.fields.get(k).map(|v| (*k, v.clone())))
-                    .collect())
-            }
+        let mut things = self.get(GraphGetRequest::Thing(req.node)).await?;
+        let Some(thing) = things.pop() else {
+            return Err(anyhow!("thing not found"));
+        };
+        if req.keys.is_empty() {
+            Ok(thing.fields)
         } else {
-            Err(anyhow::anyhow!("thing not found"))
+            Ok(req
+                .keys
+                .iter()
+                .filter_map(|k| thing.fields.get(k).map(|v| (*k, v.clone())))
+                .collect())
         }
     }
 
     async fn props_set(&self, req: GraphPropsRequest) -> Result<GraphThing> {
-        let revision = self.next_revision().await?;
-        // First get existing props
-        if let Some(mut thing) = self.get(req.node).await? {
-            thing.fields.extend(req.props);
-            let props_json = serde_json::to_string(&thing.fields)?;
+        let mut things = self.get(GraphGetRequest::Thing(req.node)).await?;
+        let Some(mut thing) = things.pop() else {
+            return Err(anyhow!("thing not found"));
+        };
+        thing.fields.extend(req.props.clone());
+        thing.revision = self.next_revision().await?;
+        let props_json = serde_json::to_string(&thing.fields)?;
 
-            let q = "MATCH (t:Thing {uuid: $uuid}) 
-                     SET t.props_json = $props_json, t.revision = $revision
-                     RETURN t";
-            self.graph
-                .run(
-                    neo4rs::query(q)
-                        .param("uuid", req.node.to_string())
-                        .param("props_json", props_json)
-                        .param("revision", revision as i64),
+        self.graph
+            .run(
+                query(
+                    "MATCH (t:Thing {uuid: $uuid})
+                     SET t.props_json = $props,
+                         t.revision = $revision",
                 )
-                .await?;
+                .param("uuid", req.node.to_string())
+                .param("props", props_json)
+                .param("revision", thing.revision as i64),
+            )
+            .await?;
 
-            thing.revision = revision;
-            Ok(thing)
-        } else {
-            Err(anyhow::anyhow!("thing not found"))
-        }
+        Ok(thing)
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GraphBackend {
     InMemory,
     #[cfg(feature = "neo4j")]
     Neo4j,
 }
 
-pub struct GraphConfig {
-    pub backend: GraphBackend,
+pub struct Neo4jConfig {
     pub uri: String,
     pub user: String,
-    pub pass: String,
+    pub password: String,
+}
+
+pub struct GraphConfig {
+    pub backend: GraphBackend,
+    pub neo4j: Neo4jConfig,
 }
 
 impl GraphConfig {
     pub fn from_env() -> Self {
-        let uri = std::env::var("NEO4J_URI").unwrap_or_default();
-        let user = std::env::var("NEO4J_USER").unwrap_or_default();
-        let pass = std::env::var("NEO4J_PASSWORD").unwrap_or_default();
-
-        let backend = if !uri.is_empty() && cfg!(feature = "neo4j") {
-            #[cfg(feature = "neo4j")]
-            {
-                GraphBackend::Neo4j
+        let requested = std::env::var("GRAPH_BACKEND").unwrap_or_else(|_| "in-memory".into());
+        let backend = match requested.trim().to_ascii_lowercase().as_str() {
+            "neo4j" => {
+                #[cfg(feature = "neo4j")]
+                {
+                    GraphBackend::Neo4j
+                }
+                #[cfg(not(feature = "neo4j"))]
+                {
+                    eprintln!(
+                        "GRAPH_BACKEND=neo4j requested, but thing_host was built without the neo4j feature; defaulting to the in-memory backend."
+                    );
+                    GraphBackend::InMemory
+                }
             }
-            #[cfg(not(feature = "neo4j"))]
-            {
-                GraphBackend::InMemory
-            }
-        } else {
-            GraphBackend::InMemory
+            _ => GraphBackend::InMemory,
         };
+
+        let uri = std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://127.0.0.1:7687".into());
+        let user = std::env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".into());
+        let password = std::env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "secret".into());
 
         Self {
             backend,
-            uri,
-            user,
-            pass,
+            neo4j: Neo4jConfig {
+                uri,
+                user,
+                password,
+            },
         }
     }
 }
 
-pub async fn init_graph_store(config: GraphConfig) -> Arc<dyn GraphStore> {
+pub async fn init_graph_store(config: &GraphConfig) -> (Arc<dyn GraphStore>, GraphBackend) {
     match config.backend {
-        GraphBackend::InMemory => Arc::new(InMemoryGraphStore::new()),
+        GraphBackend::InMemory => (Arc::new(InMemoryGraphStore::new()), GraphBackend::InMemory),
         #[cfg(feature = "neo4j")]
-        GraphBackend::Neo4j => {
-            match Neo4jGraphStore::connect(&config.uri, &config.user, &config.pass).await {
-                Ok(store) => Arc::new(store),
-                Err(e) => {
-                    eprintln!(
-                        "Failed to connect to Neo4j: {}. Falling back to InMemory.",
-                        e
-                    );
-                    Arc::new(InMemoryGraphStore::new())
-                }
+        GraphBackend::Neo4j => match Neo4jGraphStore::connect(&config.neo4j).await {
+            Ok(store) => (Arc::new(store), GraphBackend::Neo4j),
+            Err(err) => {
+                eprintln!(
+                    "Failed to connect to Neo4j at {}: {}. Falling back to in-memory.",
+                    config.neo4j.uri, err
+                );
+                (Arc::new(InMemoryGraphStore::new()), GraphBackend::InMemory)
             }
+        },
+    }
+}
+
+impl std::fmt::Display for GraphBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphBackend::InMemory => f.write_str("InMemory"),
+            #[cfg(feature = "neo4j")]
+            GraphBackend::Neo4j => f.write_str("Neo4j"),
         }
     }
 }

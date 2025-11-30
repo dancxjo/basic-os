@@ -22,7 +22,11 @@ To use a real Neo4j database:
 
 2. Run the client with environment variables:
    ```bash
-   NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASS=password cargo run -p graph_client --target x86_64-unknown-linux-gnu
+   GRAPH_BACKEND=neo4j \
+   NEO4J_URI=bolt://localhost:7687 \
+   NEO4J_USER=neo4j \
+   NEO4J_PASSWORD=secret \
+   cargo run -p graph_client --features thing_host/neo4j --target x86_64-unknown-linux-gnu
    ```
 
-The `HostRuntime` will automatically connect to Neo4j if `NEO4J_URI` is set.
+The `HostRuntime` automatically connects to Neo4j when `GRAPH_BACKEND=neo4j` and the `thing_host/neo4j` feature is enabled.

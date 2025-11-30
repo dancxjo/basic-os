@@ -1,15 +1,15 @@
 use crate::graph::canon;
-use crate::graph::journal;
 use crate::graph::canon::Symbol;
+use crate::graph::journal;
 use crate::graph::store::Store;
 use crate::graph::types::*;
 use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 use spin::Mutex;
+use thing_abi::{Value, WatchQuery};
 use uuid::Uuid;
 use x86_64::instructions::interrupts;
-use thing_abi::{Value, WatchQuery};
 
 static STORE: Mutex<Option<Store>> = Mutex::new(None);
 

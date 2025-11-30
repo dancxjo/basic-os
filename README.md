@@ -29,7 +29,7 @@ ThingOS components only communicate through the ABI defined in `thing_abi/src/li
 | --- | --- | --- | --- | --- | --- |
 | Bare metal | `timeout 300 make run` | `BitmapRenderer` + Limine framebuffer (`compositor/src/main.rs`, `compositor/src/framebuffer_backend.rs`) | PS/2/HID bytes exposed as raw devices, decoded by userland drivers (`drivers/keyboard_driver`, `drivers/mouse_driver`) | Kernel `Store` + journal (`kernel/src/graph/store.rs`, `kernel/src/graph/journal.rs`) | ❌ Broken: compositor trips a page fault/double fault once it blits the mapped framebuffer. |
 | Host Linux | `cargo run -p compositor --bin host_compositor --features host` | `SvgRenderer` drawing into `HostFramebufferDevice` and served as `frame.svg` (`compositor/src/bin/host_compositor.rs`, `compositor/src/svg_backend.rs`) | Browser events posted back to `/input` (`host_compositor.rs`) | In-memory `GraphStore` inside `thing_host/src/store.rs` | ✅ Working development path. |
-| Host + Neo4j | `NEO4J_URI=... cargo run -p compositor --bin host_compositor --features "host thing_host/neo4j"` | Same SVG renderer/device | Browser events via `/input` | `Neo4jGraphStore` stub (`thing_host/src/store.rs`) | ⚠️ Compiles but not wired end-to-end (queries ignore kinds, no migrations). |
+| Host + Neo4j | `GRAPH_BACKEND=neo4j NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=secret cargo run -p compositor --bin host_compositor --features "host thing_host/neo4j"` | Same SVG renderer/device | Browser events via `/input` | `Neo4jGraphStore` (`thing_host/src/store.rs`) with `neo4rs` pool selected via env + `GRAPH_BACKEND`. | ✅ Graph ABI backed by Neo4j; host/runtime/apps can’t tell which store is active. |
 
 The browser never talks to the compositor directly; it is treated as a framebuffer device that fetches SVG snapshots and posts input events. The kernel has no awareness of HTTP, DOM events, or the fact that the framebuffer is virtual.
 
@@ -199,11 +199,36 @@ cargo run -p compositor --bin host_compositor --features host
 
 This leaks a `thing_host::HostRuntime` into `userland`, resizes the virtual framebuffer automatically when the browser window resizes, and serves the SVG at `http://127.0.0.1:8080/frame.svg`. The browser presses the `/input` endpoint with JSON mouse/key events; today those only update the compositor’s cursor state.
 
+### Neo4j-backed workflow
+
+The host runtime can swap its graph store for a Neo4j instance without changing the ABI that the compositor, apps, and drivers see. A typical setup:
+
+```bash
+# 1. Start Neo4j locally (default creds neo4j/secret)
+docker compose -f docker-compose.neo4j.yml up -d
+
+# 2. Launch the host compositor with the neo4j feature enabled
+GRAPH_BACKEND=neo4j \
+NEO4J_URI=bolt://127.0.0.1:7687 \
+NEO4J_USER=neo4j \
+NEO4J_PASSWORD=secret \
+cargo run -p compositor --bin host_compositor --features "host thing_host/neo4j"
+
+# 3. In another terminal, exercise the ABI like a host app would
+GRAPH_BACKEND=neo4j \
+NEO4J_URI=bolt://127.0.0.1:7687 \
+NEO4J_USER=neo4j \
+NEO4J_PASSWORD=secret \
+cargo run -p graph_client --features thing_host/neo4j --target x86_64-unknown-linux-gnu
+```
+
+`graph_client` uses the same userland graph helpers as real apps: it creates Things, links them, and performs both `find_by_kind` and pattern queries. You can confirm the nodes/edges via the Neo4j Browser (`http://127.0.0.1:7474`) while the host compositor keeps rendering through the host ABI.
+
 ## Current limitations
 
 - Bare-metal graphics still hit a page fault/double fault when the compositor blits into the Limine framebuffer; bring-up/debugging must happen in host mode for now.
 - The host path is the primary way to exercise the compositor, graph, and apps. Browser input does **not** flow back into the graph yet, so demo apps can observe windows but cannot receive host keystrokes/mouse clicks.
-- Neo4j support is gated behind the `thing_host/neo4j` feature but the implementation is a stub (no schema migration, kind-filtering, or capability enforcement), so it is considered “not yet implemented”.
+- Neo4j support requires the `thing_host/neo4j` feature plus `GRAPH_BACKEND=neo4j`; it persists Things/edges through Neo4j but still stores props as JSON blobs and does not enforce capabilities yet.
 - Host mode uses browser events as the sole input pipeline. Bare-metal input comes from PS/2/HID devices through userland drivers once the kernel stack bug is resolved.
 - Graph snapshots/journaling are kernel-only; the host runtime keeps everything in memory and loses state on exit.
 

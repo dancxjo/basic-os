@@ -4,9 +4,7 @@
 extern crate alloc;
 use alloc::vec;
 
-use compositor::{
-    BitmapFramebufferDevice, BitmapRenderer, Compositor, FramebufferTarget,
-};
+use compositor::{BitmapFramebufferDevice, BitmapRenderer, Compositor, FramebufferTarget};
 use userland::{println, FramebufferGeometry, WatchManager};
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
@@ -29,22 +27,22 @@ pub extern "C" fn _start() -> ! {
         fb_target.info.width, fb_target.info.height, fb_target.info.pitch, fb_target.info.bpp
     );
 
-        let fb_device = unsafe {
-            BitmapFramebufferDevice::new(
-                fb_target.info.width as usize,
-                fb_target.info.height as usize,
-                fb_target.info.pitch as usize,
-                fb_target.addr,
-            )
-        };
+    let fb_device = unsafe {
+        BitmapFramebufferDevice::new(
+            fb_target.info.width as usize,
+            fb_target.info.height as usize,
+            fb_target.info.pitch as usize,
+            fb_target.addr,
+        )
+    };
 
-        let renderer = unsafe {
-            BitmapRenderer::new(
-                fb_target.info.width as usize,
-                fb_target.info.height as usize,
-                &mut BACKBUFFER_STORAGE,
-            )
-        };
+    let renderer = unsafe {
+        BitmapRenderer::new(
+            fb_target.info.width as usize,
+            fb_target.info.height as usize,
+            &mut BACKBUFFER_STORAGE,
+        )
+    };
     let mut compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
         &mut watch_manager,
         compositor_app_id,

@@ -7,9 +7,9 @@ use crate::graph::{
     self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphGetRequest,
     GraphLinkRequest, GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, NodePattern,
 };
-use thing_abi::WatchQuery;
 use crate::serial_println;
 use crate::task::runtime::current_bundle;
+use thing_abi::WatchQuery;
 
 #[unsafe(no_mangle)]
 static mut USER_RSP: u64 = 0;

@@ -2,9 +2,9 @@ use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::device::{self, DeviceKind, KEYBOARD_DEVICE_NAME};
 use crate::drivers::input::InputBuffer;
 use crate::graph::{self, canon};
-use thing_abi::Value;
 use alloc::collections::BTreeMap;
 use log::warn;
+use thing_abi::Value;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::InterruptStackFrame;
 

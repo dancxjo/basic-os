@@ -1,5 +1,9 @@
 use thing_host::HostRuntime;
-use userland::{canon, fiat, find_by_kind, map, that, Value};
+use userland::{
+    canon, fiat, find_by_kind,
+    graph::{get_nodes, NodePattern},
+    map, that, Value,
+};
 use uuid::Uuid;
 
 fn main() {
@@ -27,11 +31,19 @@ fn main() {
     that(hello_id, canon::NEXT, world_id, 0);
     println!("Linked Hello -> World");
 
-    // Query
-    // Note: find_by_kind in Neo4jGraphStore currently returns all things
+    // Query by kind
     let things = find_by_kind("window");
     println!("Found {} things:", things.len());
     for thing in things {
         println!(" - {:?} {:?}", thing.id, thing.fields);
     }
+
+    // Query by pattern
+    let mut window_pattern = NodePattern::default();
+    window_pattern.labels.push(canon::WINDOW);
+    let pattern_matches = get_nodes(window_pattern);
+    println!(
+        "Pattern query returned {} window Things",
+        pattern_matches.len()
+    );
 }

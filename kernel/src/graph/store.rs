@@ -4,8 +4,8 @@ use crate::graph::events::{emit_edge_event, emit_thing_event, reflect_thing_side
 use crate::graph::types::*;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
-use uuid::Uuid;
 use thing_abi::{Value, WatchQuery};
+use uuid::Uuid;
 
 const MAX_WATCH_QUEUE: usize = 1024;
 

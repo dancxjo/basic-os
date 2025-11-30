@@ -4,14 +4,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use thing_abi::{
-    AbiRequest, AbiResponse, GraphChange, GraphEdge, GraphFiatRequest, GraphLinkRequest,
-    GraphPropsGetRequest, GraphPropsRequest, GraphThing, GraphWatchBatch, NodePattern,
-    ThingRuntime, WatchId,
+    AbiRequest, AbiResponse, GraphChange, GraphEdge, GraphFiatRequest, GraphGetRequest,
+    GraphLinkRequest, GraphThing, GraphWatchBatch, NodePattern, ThingRuntime, WatchId,
 };
-use uuid::Uuid;
-
 mod store;
-pub use store::{init_graph_store, GraphConfig, GraphStore};
+mod symbols;
+pub use store::{init_graph_store, GraphBackend, GraphConfig, GraphStore};
 
 pub struct HostRuntime {
     store: Arc<dyn GraphStore>,
@@ -30,7 +28,16 @@ impl HostRuntime {
     pub fn new() -> Self {
         let config = GraphConfig::from_env();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let store = rt.block_on(init_graph_store(config));
+        let (store, backend) = rt.block_on(init_graph_store(&config));
+        match backend {
+            GraphBackend::InMemory => {
+                println!("Graph backend: InMemory");
+            }
+            #[cfg(feature = "neo4j")]
+            GraphBackend::Neo4j => {
+                println!("Graph backend: Neo4j ({})", config.neo4j.uri);
+            }
+        }
 
         Self {
             store,
@@ -103,13 +110,20 @@ impl ThingRuntime for HostRuntime {
                     },
                 }
             }
-            AbiRequest::Get { id } => match self.rt.block_on(self.store.get(id)) {
-                Ok(thing) => AbiResponse::Get { thing },
-                Err(e) => AbiResponse::Error {
-                    message: e.to_string(),
-                },
-            },
-            AbiRequest::Query { pattern } => match self.rt.block_on(self.store.query(pattern)) {
+            AbiRequest::Get { id } => {
+                match self.rt.block_on(self.store.get(GraphGetRequest::Thing(id))) {
+                    Ok(things) => AbiResponse::Get {
+                        thing: things.into_iter().next(),
+                    },
+                    Err(e) => AbiResponse::Error {
+                        message: e.to_string(),
+                    },
+                }
+            }
+            AbiRequest::Query { pattern } => match self
+                .rt
+                .block_on(self.store.get(GraphGetRequest::Pattern(pattern)))
+            {
                 Ok(things) => AbiResponse::Query { things },
                 Err(e) => AbiResponse::Error {
                     message: e.to_string(),
@@ -117,9 +131,9 @@ impl ThingRuntime for HostRuntime {
             },
             AbiRequest::FindByKind { kind, cursor } => {
                 match self.rt.block_on(self.store.find_by_kind(kind, cursor)) {
-                    Ok(things) => AbiResponse::Find {
+                    Ok((things, next_cursor)) => AbiResponse::Find {
                         things,
-                        next_cursor: None,
+                        next_cursor,
                     },
                     Err(e) => AbiResponse::Error {
                         message: e.to_string(),

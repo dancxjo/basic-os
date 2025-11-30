@@ -44,9 +44,9 @@ fn main() {
 
     let fb_device = HostFramebufferDevice::new(1024, 768);
     let renderer = SvgRenderer::new();
-    let compositor = Arc::new(Mutex::new(Compositor::<HostFramebufferDevice, SvgRenderer>::new(
-        fb_device, renderer,
-    )));
+    let compositor = Arc::new(Mutex::new(
+        Compositor::<HostFramebufferDevice, SvgRenderer>::new(fb_device, renderer),
+    ));
 
     {
         let compositor = compositor.clone();

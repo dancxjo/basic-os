@@ -180,7 +180,9 @@ pub trait FramebufferDevice<T> {
 }
 
 pub trait RendererBackend {
-    type Output<'a> where Self: 'a;
+    type Output<'a>
+    where
+        Self: 'a;
     fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a>;
 }
 
