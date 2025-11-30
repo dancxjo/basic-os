@@ -689,6 +689,7 @@ pub struct Compositor<F, R> {
     launcher_surface_id: Option<Uuid>,
     launcher_entries: Vec<Uuid>,
     launcher_launches: BTreeMap<Uuid, Uuid>,
+    focused_launcher_index: Option<usize>,
 }
 
 impl<F, R> Compositor<F, R>
@@ -735,6 +736,7 @@ where
             launcher_surface_id: None,
             launcher_entries: Vec::new(),
             launcher_launches: BTreeMap::new(),
+            focused_launcher_index: None,
         }
     }
 
@@ -1239,6 +1241,58 @@ where
         }
     }
 
+    fn focus_first_launcher_entry(&mut self) {
+        if !self.launcher_entries.is_empty() {
+            self.focused_launcher_index = Some(0);
+            self.fb_dirty = true;
+        }
+    }
+
+    fn focus_next_launcher_entry(&mut self) {
+        if let Some(idx) = self.focused_launcher_index {
+            if idx + 1 < self.launcher_entries.len() {
+                self.focused_launcher_index = Some(idx + 1);
+                self.fb_dirty = true;
+            }
+        } else {
+            self.focus_first_launcher_entry();
+        }
+    }
+
+    fn focus_prev_launcher_entry(&mut self) {
+        if let Some(idx) = self.focused_launcher_index {
+            if idx > 0 {
+                self.focused_launcher_index = Some(idx - 1);
+                self.fb_dirty = true;
+            }
+        } else {
+            self.focus_first_launcher_entry();
+        }
+    }
+
+    fn activate_focused_launcher_entry(&mut self) {
+        if let Some(idx) = self.focused_launcher_index {
+            if let Some(entry_id) = self.launcher_entries.get(idx) {
+                self.activate_launcher_entry(*entry_id);
+            }
+        }
+    }
+
+    fn handle_launcher_key(&mut self, key: canon::Symbol) {
+        // Easiest for now: treat the launcher as focused when no window is active
+        if self.active_window.is_some() {
+            return;
+        }
+
+        if key == canon::DOWN {
+            self.focus_next_launcher_entry();
+        } else if key == canon::UP {
+            self.focus_prev_launcher_entry();
+        } else if key == canon::from_char('\n') || key == canon::from_char(' ') {
+            self.activate_focused_launcher_entry();
+        }
+    }
+
     fn ingest_key_event(&mut self, thing: &userland::GraphThing) {
         let key = thing.fields.get(&canon::KEY).and_then(|v| v.as_symbol());
         let down = thing
@@ -1264,6 +1318,7 @@ where
             }
             if down {
                 self.handle_scroll_key(key);
+                self.handle_launcher_key(key);
             }
         }
     }
@@ -1329,17 +1384,37 @@ where
 
         let mut y = 40;
         let x = 10;
+        let item_height = 24; // Increased for better touch/click target size
 
-        for entry_id in &self.launcher_entries {
+        for (i, entry_id) in self.launcher_entries.iter().enumerate() {
             if let Some(widget) = self.widgets.get(entry_id) {
                 if let Some(label) = &widget.label {
+                    let is_focused = self.focused_launcher_index == Some(i);
+
+                    if is_focused {
+                        // Draw highlight background
+                        scene.push(SceneItem::FillRect {
+                            rect: Rect {
+                                x: x - 4,
+                                y: y - 2,
+                                width: (width as i32 - x - 10).max(0).min(300) as u32,
+                                height: item_height as u32,
+                            },
+                            color: THEME.title_active,
+                        });
+                    }
+
                     scene.push(SceneItem::DrawText {
                         origin: (x, y),
                         text: label.clone(),
-                        color: THEME.title_text_active,
+                        color: if is_focused {
+                            THEME.title_text_active
+                        } else {
+                            THEME.title_text_inactive
+                        },
                         max_width: Some((width as i32 - x - 10).max(0) as u32),
                     });
-                    y += 20;
+                    y += item_height;
                 }
             }
         }
@@ -1349,7 +1424,7 @@ where
         if self.launcher_surface_id.is_none() {
             return None;
         }
-        
+
         let mut cur_y = 40;
         let cur_x = 10;
         let item_height = 20;
@@ -1358,7 +1433,8 @@ where
         for entry_id in &self.launcher_entries {
             if let Some(widget) = self.widgets.get(entry_id) {
                 if widget.label.is_some() {
-                    if x >= cur_x && x < cur_x + item_width && y >= cur_y && y < cur_y + item_height {
+                    if x >= cur_x && x < cur_x + item_width && y >= cur_y && y < cur_y + item_height
+                    {
                         return Some(*entry_id);
                     }
                     cur_y += item_height;
@@ -1370,19 +1446,19 @@ where
 
     fn activate_launcher_entry(&mut self, entry_id: Uuid) {
         if let Some(fs_node_id) = self.launcher_launches.get(&entry_id) {
-             if let Ok(node) = userland::fs::get_node_by_id(*fs_node_id) {
-                 if let Some(bin_name) = node.bin_name {
-                     println!("Launching {}", bin_name);
-                     userland::sys::spawn(&bin_name);
-                 }
-             }
+            if let Ok(node) = userland::fs::get_node_by_id(*fs_node_id) {
+                if let Some(bin_name) = node.bin_name {
+                    println!("Launching {}", bin_name);
+                    userland::sys::spawn(&bin_name);
+                }
+            }
         }
     }
 
     fn on_pointer_down(&mut self) {
         if let Some(entry_id) = self.hit_test_launcher(self.cursor.x, self.cursor.y) {
-             self.activate_launcher_entry(entry_id);
-             return;
+            self.activate_launcher_entry(entry_id);
+            return;
         }
 
         if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {

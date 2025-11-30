@@ -128,6 +128,7 @@ pub mod canon {
     pub const MOVE: Symbol = canon(b'M', b'O', b'V');
     pub const TS: Symbol = canon(b'T', b'S', b' ');
     pub const DOWN: Symbol = canon(b'D', b'W', b'N');
+    pub const UP: Symbol = canon(b'U', b'P', b' ');
     pub const BUTTON: Symbol = canon(b'B', b'T', b'#');
 
     pub const DISPLAY_FRAMEBUFFER: Symbol = canon(b'D', b'F', b'B');
@@ -194,6 +195,7 @@ pub mod canon {
     pub const LABEL: Symbol = canon(b'L', b'B', b'L');
     pub const DESCRIPTION: Symbol = canon(b'D', b'S', b'C');
     pub const FOCUSABLE: Symbol = canon(b'F', b'C', b'S');
+    pub const FOCUSED: Symbol = canon(b'F', b'C', b'D');
     pub const TAB_INDEX: Symbol = canon(b'T', b'B', b'I');
     pub const CHILD: Symbol = canon(b'C', b'H', b'D');
     pub const LABEL_FOR: Symbol = canon(b'L', b'B', b'F');
