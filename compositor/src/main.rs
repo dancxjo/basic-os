@@ -331,7 +331,6 @@ function sendMouse(dx, dy, buttons) {
     if (buttons & 4) flags |= 0x04; // Middle
     
     if (dx < 0) flags |= 0x10; // X sign
-    if (dy < 0) flags |= 0x20; // Y sign (Note: PS/2 Y is bottom-to-top, DOM is top-to-bottom)
     
     // Clamp movement to -127 to 127
     dx = Math.max(-127, Math.min(127, dx));
