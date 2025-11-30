@@ -112,10 +112,10 @@ pub fn panic(info: &core::panic::PanicInfo) -> ! {
 #[cfg(feature = "std")]
 fn main() {
     use compositor::{BitmapFramebufferDevice, BitmapRenderer, Compositor, FramebufferTarget};
+    use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use std::net::TcpListener;
     use userland::watch::WatchManager;
     use userland::FramebufferGeometry;
 
@@ -124,12 +124,23 @@ fn main() {
     // Register host apps
     userland::sys::register_host_app("init", init::app_main);
     userland::sys::register_host_app("demo_app", userland::app::run_app::<demo_app::DemoApp>);
-    userland::sys::register_host_app("mouse_driver", userland::app::run_app::<app_mouse_driver::MouseDriver>);
-    userland::sys::register_host_app("keyboard_driver", userland::app::run_app::<app_keyboard_driver::KeyboardDriver>);
-    userland::sys::register_host_app("framebuffer_driver", userland::app::run_app::<app_framebuffer_driver::FramebufferDriver>);
+    userland::sys::register_host_app(
+        "mouse_driver",
+        userland::app::run_app::<app_mouse_driver::MouseDriver>,
+    );
+    userland::sys::register_host_app(
+        "keyboard_driver",
+        userland::app::run_app::<app_keyboard_driver::KeyboardDriver>,
+    );
+    userland::sys::register_host_app(
+        "framebuffer_driver",
+        userland::app::run_app::<app_framebuffer_driver::FramebufferDriver>,
+    );
     userland::sys::register_host_app("compositor", || {
         println!("Compositor spawned (ignored)");
-        loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
     });
 
     // Spawn init process
@@ -141,7 +152,7 @@ fn main() {
     // On host, we use the virtual framebuffer from thing_host
     let info = userland::sys::fb_info().expect("failed to get fb info");
     let addr = userland::sys::fb_map() as *mut u32;
-    
+
     let fb_target = FramebufferTarget {
         info: FramebufferGeometry {
             width: info.width as u32,
@@ -154,21 +165,21 @@ fn main() {
     };
 
     let fb_device = BitmapFramebufferDevice::new(
-            fb_target.info.width as usize,
-            fb_target.info.height as usize,
-            fb_target.info.pitch as usize,
-            fb_target.addr,
-        );
+        fb_target.info.width as usize,
+        fb_target.info.height as usize,
+        fb_target.info.pitch as usize,
+        fb_target.addr,
+    );
 
     // Allocate backbuffer on heap and leak it to get 'static lifetime
     let backbuffer_vec = vec![0u32; (fb_target.info.width * fb_target.info.height) as usize];
     let backbuffer = Box::leak(backbuffer_vec.into_boxed_slice());
-    
+
     let renderer = BitmapRenderer::new(
-            fb_target.info.width as usize,
-            fb_target.info.height as usize,
-            backbuffer,
-        );
+        fb_target.info.width as usize,
+        fb_target.info.height as usize,
+        backbuffer,
+    );
 
     let compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
         &mut watch_manager,
@@ -176,7 +187,7 @@ fn main() {
         fb_device,
         renderer,
     );
-    
+
     let compositor = Arc::new(Mutex::new(compositor));
 
     {
@@ -214,17 +225,19 @@ fn main() {
 fn handle_connection(mut stream: std::net::TcpStream) {
     use std::io::{Read, Write};
     use tungstenite::{accept, Message};
-    
+
     let mut buf = [0u8; 1024];
     // Peek to see if it's a GET request
     let n = match stream.peek(&mut buf) {
         Ok(n) => n,
         Err(_) => return,
     };
-    if n == 0 { return; }
-    
+    if n == 0 {
+        return;
+    }
+
     let req_str = String::from_utf8_lossy(&buf[..n]);
-    
+
     if req_str.starts_with("GET / HTTP") {
         // Serve HTML
         let html = r#"
@@ -353,23 +366,23 @@ function sendMouse(dx, dy, buttons) {
             if let Err(e) = stream.set_read_timeout(Some(std::time::Duration::from_millis(1))) {
                 println!("Failed to set read timeout: {}", e);
             }
-            
+
             loop {
                 // Send framebuffer
                 let bytes = userland::host_runtime().get_framebuffer_bytes();
                 let width = 1024u32; // TODO: Get from runtime
                 let height = 768u32;
-                
+
                 let mut msg = Vec::with_capacity(8 + bytes.len());
                 msg.extend_from_slice(&width.to_le_bytes());
                 msg.extend_from_slice(&height.to_le_bytes());
                 msg.extend_from_slice(&bytes);
-                
+
                 if let Err(e) = websocket.write_message(Message::Binary(msg)) {
                     println!("Write failed: {}", e);
                     break;
                 }
-                
+
                 // Read input
                 loop {
                     match websocket.read_message() {
@@ -379,17 +392,20 @@ function sendMouse(dx, dy, buttons) {
                             } else if let Message::Binary(data) = msg {
                                 handle_binary_input(&data);
                             }
-                        },
-                        Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                        }
+                        Err(tungstenite::Error::Io(ref e))
+                            if e.kind() == std::io::ErrorKind::WouldBlock
+                                || e.kind() == std::io::ErrorKind::TimedOut =>
+                        {
                             break;
-                        },
+                        }
                         Err(e) => {
                             println!("Read error: {}", e);
                             return;
-                        }, // Connection closed or error
+                        } // Connection closed or error
                     }
                 }
-                
+
                 std::thread::sleep(std::time::Duration::from_millis(33)); // ~30 FPS
             }
         }

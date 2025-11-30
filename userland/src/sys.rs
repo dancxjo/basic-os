@@ -89,7 +89,9 @@ pub fn spawn(name: &str) -> u64 {
 }
 
 #[cfg(feature = "std")]
-static HOST_APPS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, fn() -> !>>> = std::sync::OnceLock::new();
+static HOST_APPS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, fn() -> !>>,
+> = std::sync::OnceLock::new();
 
 #[cfg(feature = "std")]
 pub fn register_host_app(name: &str, func: fn() -> !) {
@@ -218,7 +220,8 @@ pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
-        let req: thing_abi::GraphFiatRequest = postcard::from_bytes(payload).expect("deserialize fiat");
+        let req: thing_abi::GraphFiatRequest =
+            postcard::from_bytes(payload).expect("deserialize fiat");
         let abi_req = thing_abi::AbiRequest::Fiat {
             id: req.id,
             kind: req.kind,
@@ -248,7 +251,9 @@ pub fn graph_find_by_kind_raw(req: &GraphFindByKind, out: &mut [u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
-        let kind_slice = unsafe { core::slice::from_raw_parts(req.kind_ptr as *const u8, req.kind_len as usize) };
+        let kind_slice = unsafe {
+            core::slice::from_raw_parts(req.kind_ptr as *const u8, req.kind_len as usize)
+        };
         let kind_str = core::str::from_utf8(kind_slice).unwrap_or("");
         let abi_req = thing_abi::AbiRequest::FindByKind {
             kind: kind_str.to_string(),
@@ -279,7 +284,8 @@ pub fn graph_link_raw(payload: &[u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
-        let req: thing_abi::GraphLinkRequest = postcard::from_bytes(payload).expect("deserialize link");
+        let req: thing_abi::GraphLinkRequest =
+            postcard::from_bytes(payload).expect("deserialize link");
         let abi_req = thing_abi::AbiRequest::Link {
             id: req.id,
             from: req.from,
@@ -309,7 +315,8 @@ pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
-        let req: thing_abi::GraphPropsGetRequest = postcard::from_bytes(request).expect("deserialize props get");
+        let req: thing_abi::GraphPropsGetRequest =
+            postcard::from_bytes(request).expect("deserialize props get");
         let abi_req = thing_abi::AbiRequest::PropsGet { request: req };
         match crate::runtime().call(abi_req) {
             thing_abi::AbiResponse::Props { props } => {
@@ -336,7 +343,8 @@ pub fn graph_set_props_raw(request: &[u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
-        let req: thing_abi::GraphPropsRequest = postcard::from_bytes(request).expect("deserialize props set");
+        let req: thing_abi::GraphPropsRequest =
+            postcard::from_bytes(request).expect("deserialize props set");
         let abi_req = thing_abi::AbiRequest::PropsSet { request: req };
         match crate::runtime().call(abi_req) {
             thing_abi::AbiResponse::Props { .. } => 1, // Success
@@ -360,7 +368,8 @@ pub fn graph_watch_register_raw(payload: &[u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
-        let pattern: thing_abi::NodePattern = postcard::from_bytes(payload).expect("deserialize watch pattern");
+        let pattern: thing_abi::NodePattern =
+            postcard::from_bytes(payload).expect("deserialize watch pattern");
         let abi_req = thing_abi::AbiRequest::WatchRegister { pattern };
         match crate::runtime().call(abi_req) {
             thing_abi::AbiResponse::WatchRegistered { watch_id } => watch_id,
@@ -436,7 +445,9 @@ pub fn graph_get_raw(request: &[u8], out: &mut [u8]) -> u64 {
         let req: thing_abi::GraphGetRequest = postcard::from_bytes(request).unwrap();
         let abi_req = match req {
             thing_abi::GraphGetRequest::Thing(id) => thing_abi::AbiRequest::Get { id },
-            thing_abi::GraphGetRequest::Pattern(pattern) => thing_abi::AbiRequest::Query { pattern },
+            thing_abi::GraphGetRequest::Pattern(pattern) => {
+                thing_abi::AbiRequest::Query { pattern }
+            }
         };
 
         match crate::runtime().call(abi_req) {
@@ -468,10 +479,17 @@ pub fn grant_capability_raw(payload: &[u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
-        let req: thing_abi::GrantCapabilityRequest = postcard::from_bytes(payload).expect("deserialize grant cap");
+        let req: thing_abi::GrantCapabilityRequest =
+            postcard::from_bytes(payload).expect("deserialize grant cap");
         let abi_req = thing_abi::AbiRequest::GrantCapability { request: req };
         match crate::runtime().call(abi_req) {
-            thing_abi::AbiResponse::CapabilityGranted { granted } => if granted { 0 } else { 1 },
+            thing_abi::AbiResponse::CapabilityGranted { granted } => {
+                if granted {
+                    0
+                } else {
+                    1
+                }
+            }
             _ => 1,
         }
     }

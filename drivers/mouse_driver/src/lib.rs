@@ -106,18 +106,19 @@ impl MouseDriver {
 
     fn emit_mouse_event(&self, event: MouseEvent) {
         let mut move_fields = BTreeMap::new();
+        move_fields.insert(canon::KIND, Value::Symbol(canon::MOVE));
         move_fields.insert(canon::DEVICE_ID, Value::Uuid(self.device_id));
         move_fields.insert(canon::DX, Value::I64(event.dx as i64));
         move_fields.insert(canon::DY, Value::I64(event.dy as i64));
-        move_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
+        move_fields.insert(canon::BUTTON, Value::U64(event.buttons as u64));
         // move_fields.insert(canon::TS, Value::U64(0));
 
-        let _ = fiat(None, canon::MOUSE_MOVE, move_fields);
+        let _ = fiat(None, canon::INPUT_EVENT, move_fields);
 
         if event.buttons_changed {
             let mut button_fields = BTreeMap::new();
             button_fields.insert(canon::DEVICE_ID, Value::Uuid(self.device_id));
-            button_fields.insert(canon::BUTTONS, Value::U64(event.buttons as u64));
+            button_fields.insert(canon::BUTTON, Value::U64(event.buttons as u64));
             button_fields.insert(canon::DOWN, Value::Bool(event.buttons != 0));
             // button_fields.insert(canon::TS, Value::U64(0));
 

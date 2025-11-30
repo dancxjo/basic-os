@@ -39,7 +39,10 @@ impl<'a> BitmapRenderer<'a> {
 }
 
 impl<'a> RendererBackend for BitmapRenderer<'a> {
-    type Output<'b> = &'b [u32] where Self: 'b;
+    type Output<'b>
+        = &'b [u32]
+    where
+        Self: 'b;
     fn render<'b>(&'b mut self, scene: &Scene) -> Self::Output<'b> {
         self.clear(CLEAR_COLOR);
         for item in scene.items() {

@@ -323,7 +323,7 @@ pub fn run_app<A: App + 'static>() -> ! {
     crate::ensure_kernel_runtime();
     let mut watch_manager = WatchManager::new();
     let compositor_id = Uuid::nil();
-    
+
     let mut app_runner = create_app::<A>(compositor_id, &mut watch_manager);
     let mut tick = 0;
     loop {
