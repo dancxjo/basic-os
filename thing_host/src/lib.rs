@@ -22,6 +22,8 @@ pub struct HostRuntime {
     framebuffer: Mutex<Vec<u32>>,
     width: AtomicUsize,
     height: AtomicUsize,
+    req_width: AtomicUsize,
+    req_height: AtomicUsize,
     open_devices: Mutex<HashMap<u64, DeviceState>>,
     next_handle: AtomicU64,
 }
@@ -62,16 +64,38 @@ impl HostRuntime {
             framebuffer: Mutex::new(vec![0; 1024 * 768]),
             width: AtomicUsize::new(1024),
             height: AtomicUsize::new(768),
+            req_width: AtomicUsize::new(1024),
+            req_height: AtomicUsize::new(768),
             open_devices: Mutex::new(HashMap::new()),
             next_handle: AtomicU64::new(1),
         }
     }
 
-    pub fn resize_framebuffer(&self, width: usize, height: usize) {
-        self.width.store(width, Ordering::SeqCst);
-        self.height.store(height, Ordering::SeqCst);
-        let mut fb = self.framebuffer.lock();
-        fb.resize(width * height, 0);
+    pub fn request_resize(&self, width: usize, height: usize) {
+        self.req_width.store(width, Ordering::SeqCst);
+        self.req_height.store(height, Ordering::SeqCst);
+    }
+
+    pub fn check_and_apply_resize(&self) -> Option<(usize, usize, *mut u32)> {
+        let rw = self.req_width.load(Ordering::SeqCst);
+        let rh = self.req_height.load(Ordering::SeqCst);
+        let cw = self.width.load(Ordering::SeqCst);
+        let ch = self.height.load(Ordering::SeqCst);
+
+        if rw != cw || rh != ch {
+            let mut fb = self.framebuffer.lock();
+            // Double check under lock
+            let rw = self.req_width.load(Ordering::SeqCst);
+            let rh = self.req_height.load(Ordering::SeqCst);
+
+            fb.resize(rw * rh, 0);
+            self.width.store(rw, Ordering::SeqCst);
+            self.height.store(rh, Ordering::SeqCst);
+
+            Some((rw, rh, fb.as_mut_ptr()))
+        } else {
+            None
+        }
     }
 
     pub fn get_size(&self) -> (usize, usize) {

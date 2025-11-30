@@ -198,30 +198,20 @@ fn main() {
         let compositor = compositor.clone();
         thread::spawn(move || {
             let mut watch_manager = watch_manager;
-            let mut current_width = fb_target.info.width as usize;
-            let mut current_height = fb_target.info.height as usize;
 
             loop {
                 // Check for resize
-                let (w, h) = userland::host_runtime().get_size();
-                if w != current_width || h != current_height {
+                if let Some((w, h, addr)) = userland::host_runtime().check_and_apply_resize() {
                     let mut comp = compositor.lock().expect("compositor mutex poisoned");
 
                     // Update fb_device
-                    if let userland::AbiResponse::FbMapped { addr } =
-                        userland::host_runtime().call(userland::AbiRequest::FbMap)
-                    {
-                        comp.fb_device_mut().resize(w, h, w * 4, addr as *mut u32);
-                    }
+                    comp.fb_device_mut().resize(w, h, w * 4, addr);
 
                     // Update renderer
                     comp.renderer_mut().resize(w, h);
 
                     // Update compositor cursor limits
                     comp.resize(w, h);
-
-                    current_width = w;
-                    current_height = h;
                 }
 
                 watch_manager.process_graph(&[compositor_app_id]);
@@ -276,7 +266,7 @@ fn handle_connection(mut stream: std::net::TcpStream) {
     <title>ThingOS Host</title>
     <style>
         body { background: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
-        canvas { background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.5); width: 100%; height: 100%; object-fit: contain; }
+        canvas { background: #000; width: 100%; height: 100%; display: block; }
     </style>
 </head>
 <body>
@@ -471,6 +461,6 @@ fn handle_binary_input(data: &[u8]) {
     } else if data.len() == 9 && data[0] == b'R' {
         let width = u32::from_le_bytes(data[1..5].try_into().unwrap()) as usize;
         let height = u32::from_le_bytes(data[5..9].try_into().unwrap()) as usize;
-        userland::host_runtime().resize_framebuffer(width, height);
+        userland::host_runtime().request_resize(width, height);
     }
 }
