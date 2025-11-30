@@ -9,10 +9,21 @@ uuid = { version = "=1.10", default-features = false, features = [
     "v5",
     "serde",
 ] }
+thing_host = { path = "../../thing_host", optional = true }
+
+[features]
+default = []
+host = ["userland/std", "dep:thing_host"]
+host-neo4j = ["host", "thing_host/neo4j"]
 
 [[bin]]
 name = "clouds"
-path = "src/lib.rs"
+path = "src/bin/baremetal.rs"
+
+[[bin]]
+name = "clouds_host"
+path = "src/bin/host.rs"
+required-features = ["host"]
 
 [profile.release]
 panic = "abort"

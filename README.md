@@ -224,6 +224,8 @@ cargo run -p graph_client --features thing_host/neo4j --target x86_64-unknown-li
 
 `graph_client` uses the same userland graph helpers as real apps: it creates Things, links them, and performs both `find_by_kind` and pattern queries. You can confirm the nodes/edges via the Neo4j Browser (`http://127.0.0.1:7474`) while the host compositor keeps rendering through the host ABI.
 
+Prefer one command? `make host-clouds-neo4j` runs the same flow end-to-end (Docker Neo4j, host compositor, and the Clouds demo app) against the Linux host using the Neo4j backend.
+
 ## Current limitations
 
 - Bare-metal graphics still hit a page fault/double fault when the compositor blits into the Limine framebuffer; bring-up/debugging must happen in host mode for now.

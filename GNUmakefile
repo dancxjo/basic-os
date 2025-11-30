@@ -24,6 +24,10 @@ $(call USER_VARIABLE,QEMUFLAGS,-m 4G -serial mon\:stdio)
 
 override IMAGE_NAME := template-$(KARCH)
 
+$(call USER_VARIABLE,HOST_NEO4J_URI,bolt://127.0.0.1:7687)
+$(call USER_VARIABLE,HOST_NEO4J_USER,neo4j)
+$(call USER_VARIABLE,HOST_NEO4J_PASSWORD,secret)
+
 .PHONY: all
 all: $(IMAGE_NAME).iso
 
@@ -342,6 +346,29 @@ endif
 ifeq ($(KARCH),loongarch64)
 	mcopy -i $(IMAGE_NAME).hdd@@1M limine/BOOTLOONGARCH64.EFI ::/EFI/BOOT
 endif
+
+.PHONY: host-clouds-neo4j
+host-clouds-neo4j:
+	@set -e; \
+	docker compose -f docker-compose.neo4j.yml up -d; \
+	echo "Starting host compositor with Neo4j backend..."; \
+	GRAPH_BACKEND=neo4j \
+	NEO4J_URI=$(HOST_NEO4J_URI) \
+	NEO4J_USER=$(HOST_NEO4J_USER) \
+	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
+	cargo run -p compositor --bin host_compositor --features "host thing_host/neo4j" --target x86_64-unknown-linux-gnu & \
+	COMP_PID=$$!; \
+	trap "kill $$COMP_PID 2>/dev/null || true" INT TERM EXIT; \
+	sleep 3; \
+	echo "Launching Clouds app against Neo4j..."; \
+	GRAPH_BACKEND=neo4j \
+	NEO4J_URI=$(HOST_NEO4J_URI) \
+	NEO4J_USER=$(HOST_NEO4J_USER) \
+	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
+	cargo run -p app-clouds --bin clouds_host --features host-neo4j --target x86_64-unknown-linux-gnu; \
+	kill $$COMP_PID 2>/dev/null || true; \
+	wait $$COMP_PID 2>/dev/null || true; \
+	trap - INT TERM EXIT
 
 .PHONY: clean
 clean:
