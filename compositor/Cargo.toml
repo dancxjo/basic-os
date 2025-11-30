@@ -12,6 +12,8 @@ uuid = { version = "=1.10", default-features = false, features = [
   "serde",
 ] }
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
+
+[target.'cfg(not(target_os = "none"))'.dependencies]
 tiny_http = { version = "0.12", optional = true }
 
 [build-dependencies]
