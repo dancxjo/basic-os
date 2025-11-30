@@ -1946,6 +1946,7 @@ fn default_window(id: Uuid) -> Window {
         visible: true,
         target: None,
         active: false,
+        window_rect: None,
     }
 }
 

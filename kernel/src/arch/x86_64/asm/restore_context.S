@@ -65,6 +65,15 @@ restore_context:
     
     # Load Target RSP from Context (offset 144)
     movq 144(%rsp), %rax
+
+    # DEBUG: Print RSP
+    pushq %rax
+    pushq %rsi
+    movq %rax, %rsi
+    call print_qword
+    popq %rsi
+    popq %rax
+
     
     # We need to construct [RIP, CS, RFLAGS] on the Target Stack.
     # We also push RAX temporarily so we can restore it after stack switch.

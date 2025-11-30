@@ -1,6 +1,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+use core::convert::TryFrom;
 use core::fmt;
 
 use crate::runtime;
@@ -322,6 +323,54 @@ pub fn update_thing<T: Thingable>(_id: Uuid, _thing: T) {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WindowRect {
+    pub x: i64,
+    pub y: i64,
+    pub width: i64,
+    pub height: i64,
+}
+
+impl WindowRect {
+    fn from_value(value: &Value) -> Option<Self> {
+        let map = value.as_map()?;
+        Some(WindowRect {
+            x: map_i64(map, canon::X),
+            y: map_i64(map, canon::Y),
+            width: map_i64(map, canon::WIDTH),
+            height: map_i64(map, canon::HEIGHT),
+        })
+    }
+
+    pub fn from_optional_value(value: Option<&Value>) -> Option<Self> {
+        value.and_then(|v| match v {
+            Value::Map(_) => WindowRect::from_value(v),
+            _ => None,
+        })
+    }
+
+    pub fn to_value(&self) -> Value {
+        let mut map = Map::new();
+        map.insert(canon::X, Value::I64(self.x));
+        map.insert(canon::Y, Value::I64(self.y));
+        map.insert(canon::WIDTH, Value::I64(self.width));
+        map.insert(canon::HEIGHT, Value::I64(self.height));
+        Value::Map(map)
+    }
+}
+
+fn get_i64(value: &Value) -> Option<i64> {
+    match value {
+        Value::I64(v) => Some(*v),
+        Value::U64(v) => i64::try_from(*v).ok(),
+        _ => None,
+    }
+}
+
+fn map_i64(map: &Map, key: canon::Symbol) -> i64 {
+    map.get(&key).and_then(get_i64).unwrap_or(0)
+}
+
 pub struct Window {
     pub id: Uuid,
     pub width: u64,
@@ -333,6 +382,7 @@ pub struct Window {
     pub visible: bool,
     pub target: Option<Uuid>,
     pub active: bool,
+    pub window_rect: Option<WindowRect>,
 }
 
 impl Thingable for Window {
@@ -385,6 +435,7 @@ impl Thingable for Window {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let target = thing.fields.get(&canon::TARGET).and_then(|v| v.as_uuid());
+        let window_rect = WindowRect::from_optional_value(thing.fields.get(&canon::WINDOW_RECT));
         Some(Window {
             id: thing.id,
             width,
@@ -396,6 +447,7 @@ impl Thingable for Window {
             visible,
             target,
             active,
+            window_rect,
         })
     }
 }
@@ -413,6 +465,9 @@ impl Window {
         map.insert(canon::ACTIVE, Value::Bool(self.active));
         if let Some(target) = self.target {
             map.insert(canon::TARGET, Value::Uuid(target));
+        }
+        if let Some(rect) = &self.window_rect {
+            map.insert(canon::WINDOW_RECT, rect.to_value());
         }
         map
     }

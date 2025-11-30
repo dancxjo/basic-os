@@ -221,6 +221,7 @@ impl Scheduler {
                 task.context.frame.ss,
                 task.mode
             );
+            info!("Task addr: {:p}, Context addr: {:p}", task, &task.context);
             serial_print!("]");
             task.context_ptr()
         } else {
