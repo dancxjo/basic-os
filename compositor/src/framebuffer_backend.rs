@@ -306,3 +306,37 @@ fn raster_draw_cursor(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::{boxed::Box, vec};
+
+    #[test]
+    fn bitmap_pixel_respects_bounds() {
+        let bmp = Bitmap::new(2, 2, vec![1, 2, 3, 4]);
+
+        assert_eq!(bmp.pixel(0, 0), Some(1));
+        assert_eq!(bmp.pixel(1, 1), Some(4));
+        assert_eq!(bmp.pixel(2, 0), None);
+        assert_eq!(bmp.pixel(0, 2), None);
+    }
+
+    #[test]
+    fn raster_blit_image_skips_out_of_bounds_when_not_repeating() {
+        let storage = vec![0u32; 9];
+        let backbuffer: &'static mut [u32] = Box::leak(storage.into_boxed_slice());
+        let mut backend = FramebufferBackend::new(
+            3,
+            3,
+            3 * core::mem::size_of::<u32>(),
+            core::ptr::null_mut(),
+            backbuffer,
+        );
+        let bmp = Bitmap::new(2, 2, vec![1, 2, 3, 4]);
+
+        raster_blit_image(&mut backend, &Rect::new(0, 0, 3, 3), &bmp, false);
+
+        assert_eq!(backend.backbuffer, &[1, 2, 0, 3, 4, 0, 0, 0, 0]);
+    }
+}
