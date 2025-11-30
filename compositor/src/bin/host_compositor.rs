@@ -33,10 +33,10 @@ fn main() {
             "/" => {
                 let html = r#"<!doctype html>
 <html>
-  <head><meta charset=\"utf-8\"><title>ThingOS Host Compositor</title></head>
-  <body style=\"margin:0; background:#111; color:#eee; font-family:sans-serif;\">
-    <h1 style=\"font-size:14px; margin:4px;\">ThingOS Host Compositor</h1>
-    <object id=\"view\" type=\"image/svg+xml\" data=\"/frame.svg\" style=\"width:100%; height:90vh; border:1px solid #444;\"></object>
+  <head><meta charset="utf-8"><title>ThingOS Host Compositor</title></head>
+  <body style="margin:0; background:#111; color:#eee; font-family:sans-serif;">
+    <h1 style="font-size:14px; margin:4px;">ThingOS Host Compositor</h1>
+    <object id="view" type="image/svg+xml" data="/frame.svg" style="width:100%; height:90vh; border:1px solid #444;"></object>
     <script>
       setInterval(function() {
         var obj = document.getElementById('view');
