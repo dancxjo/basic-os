@@ -84,7 +84,11 @@ impl KeyboardDriver {
         fields.insert(canon::DOWN, Value::Bool(down));
         // fields.insert(canon::TS, Value::U64(0)); // TODO: timestamp
 
-        let _ = fiat(None, canon::KEY_EVENT, fields);
+        let _ = fiat(None, canon::KEY_EVENT, fields.clone());
+
+        if down {
+            let _ = fiat(None, canon::KEY_PRESSED, fields);
+        }
     }
 }
 
