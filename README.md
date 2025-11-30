@@ -244,3 +244,17 @@ Prefer one command? `make host-clouds-neo4j` runs the same flow end-to-end (Dock
 ## License
 
 MIT
+
+## Kernel Development
+
+### thingos_kernel_std
+
+The `thingos_kernel_std` crate provides a standard library for kernel-space code. It centralizes core types (like `ThingId`, `BundleId`, `TaskId`) and provides a kernel prelude.
+
+All new kernel modules should import shared types from this crate instead of defining them locally or importing them ad-hoc.
+
+```rust
+use thingos_kernel_std::prelude::*;
+```
+
+This ensures consistency across the kernel and simplifies future refactoring.

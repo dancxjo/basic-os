@@ -160,6 +160,19 @@ pub mod canon {
     pub const CAN_MMIO: Symbol = canon(b'C', b'M', b'M');
     pub const CLOUD: Symbol = canon(b'C', b'L', b'D');
     pub const NEXT: Symbol = cc('N', 'X');
+
+    // Document & Editor symbols
+    pub const DOCUMENT: Symbol = canon(b'D', b'O', b'C');
+    pub const VIEW: Symbol = canon(b'V', b'I', b'W');
+    pub const MIME: Symbol = canon(b'M', b'I', b'M');
+    pub const ENCODING: Symbol = canon(b'E', b'N', b'C');
+    pub const LENGTH: Symbol = canon(b'L', b'E', b'N');
+    pub const MODE: Symbol = canon(b'M', b'O', b'D');
+    pub const OF: Symbol = cc('O', 'F');
+    pub const SHOWS: Symbol = canon(b'S', b'H', b'W');
+    pub const EDITED_BY: Symbol = canon(b'E', b'D', b'B');
+    pub const EDIT: Symbol = canon(b'E', b'D', b'T');
+    pub const READ_ONLY: Symbol = canon(b'R', b'D', b'O');
 }
 
 pub mod prelude {

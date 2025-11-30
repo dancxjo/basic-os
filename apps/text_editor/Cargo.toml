@@ -1,0 +1,9 @@
+[package]
+name = "text_editor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland", features = ["std"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+uuid = { version = "1.0", default-features = false, features = ["v4", "serde"] }

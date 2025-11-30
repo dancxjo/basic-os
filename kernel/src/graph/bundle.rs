@@ -115,7 +115,7 @@ pub fn get_or_create_bundle(name: &str) -> BundleId {
 /// This is used when launching a bundle to give it access to its initial resources.
 pub fn grant_initial_capability(bundle: BundleId, target: Uuid, capability: Symbol) -> bool {
     let req = crate::graph::GrantCapabilityRequest {
-        grantee: bundle,
+        grantee: bundle.0,
         target,
         capability: crate::graph::canon::symbol_to_string(capability),
     };

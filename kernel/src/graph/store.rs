@@ -153,7 +153,7 @@ impl Store {
         }
         let kind = *labels.iter().next().unwrap_or(&canon::THING_CREATED);
         let mut props = request.props;
-        props.entry(canon::OWNER).or_insert(Value::Uuid(owner));
+        props.entry(canon::OWNER).or_insert(Value::Uuid(owner.0));
         let id = request
             .id
             .unwrap_or_else(|| derive_uuid(&kind.0.to_be_bytes(), &props));
@@ -163,7 +163,7 @@ impl Store {
             kind,
             labels,
             fields: props,
-            owner,
+            owner: owner.0,
             revision,
         };
 
@@ -202,7 +202,7 @@ impl Store {
             pred: request.pred,
             dst: request.to,
             props: request.props,
-            owner,
+            owner: owner.0,
             revision,
         };
         self.insert_edge(edge.clone());
@@ -288,13 +288,13 @@ impl Store {
         }
 
         // Ensure the grantee bundle exists as a node
-        self.ensure_bundle_node(request.grantee);
+        self.ensure_bundle_node(BundleId(request.grantee));
 
         // Create the capability edge from grantee bundle to target
-        let grantee_node = Self::bundle_node_id(request.grantee);
+        let grantee_node = Self::bundle_node_id(BundleId(request.grantee));
         let revision = self.next_revision();
         let mut props = BTreeMap::new();
-        props.insert(canon::OWNER, Value::Uuid(grantor));
+        props.insert(canon::OWNER, Value::Uuid(grantor.0));
         props.insert(canon::DST, Value::Uuid(request.target));
 
         let pred = request.capability.clone();
@@ -304,7 +304,7 @@ impl Store {
             pred,
             dst: request.target,
             props,
-            owner: grantor,
+            owner: grantor.0,
             revision,
         };
 
@@ -456,7 +456,7 @@ impl Store {
     }
 
     fn bundle_node_id(bundle: BundleId) -> Uuid {
-        bundle
+        bundle.0
     }
 
     fn ensure_bundle_node(&mut self, bundle: BundleId) {
@@ -467,13 +467,13 @@ impl Store {
         let mut labels = BTreeSet::new();
         labels.insert(canon::BUNDLE);
         let mut fields = BTreeMap::new();
-        fields.insert(canon::ID, Value::Uuid(bundle));
+        fields.insert(canon::ID, Value::Uuid(bundle.0));
         let thing = GraphThing {
             id,
             kind: canon::BUNDLE,
             labels,
             fields,
-            owner: bundle,
+            owner: bundle.0,
             revision: self.next_revision(),
         };
         self.insert_thing(thing);
@@ -481,7 +481,7 @@ impl Store {
 
     fn add_ownership_edge(&mut self, owner: BundleId, node: Uuid, revision: u64) {
         let mut props = BTreeMap::new();
-        props.insert(canon::OWNER, Value::Uuid(owner));
+        props.insert(canon::OWNER, Value::Uuid(owner.0));
         props.insert(canon::DST, Value::Uuid(node));
         let pred = canon::symbol_to_string(canon::OWNS);
         let edge = GraphEdge {
@@ -490,7 +490,7 @@ impl Store {
             pred,
             dst: node,
             props,
-            owner,
+            owner: owner.0,
             revision,
         };
         self.insert_edge(edge);
@@ -585,7 +585,7 @@ impl Store {
         match change {
             GraphChange::Thing(t) => self.can_read(bundle, t.id),
             GraphChange::Edge(e) => {
-                self.can_read(bundle, e.src) || self.can_read(bundle, e.dst) || e.owner == bundle
+                self.can_read(bundle, e.src) || self.can_read(bundle, e.dst) || e.owner == bundle.0
             }
         }
     }

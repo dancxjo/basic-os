@@ -1,7 +1,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use userland::prelude::*;
-use userland::{canon, AppEvent};
+use userland::{canon, AppEvent, NodePattern};
 
 pub struct GraphViewerApp {
     window: WindowHandle,
@@ -54,7 +54,9 @@ impl App for GraphViewerApp {
 
 impl GraphViewerApp {
     fn list_tasks_from_graph(&self) -> Vec<TaskInfo> {
-        let things = userland::graph::find_by_kind(&String::from(canon::BUNDLE));
+        let mut pattern = NodePattern::default();
+        pattern.labels.push(canon::BUNDLE);
+        let things = userland::graph::get_nodes(pattern);
         things
             .into_iter()
             .map(|t| {

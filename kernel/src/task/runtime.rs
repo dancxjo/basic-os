@@ -3,7 +3,7 @@ use crate::mm::allocator::{BootFrameAllocator, global_mapper};
 use crate::task::context::TaskMode;
 use crate::task::scheduler::{SCHEDULER, Scheduler};
 
-pub use thingos_kernel_std::id::TaskId;
+use thingos_kernel_std::prelude::*;
 
 /// Handle to a spawned task. Currently just wraps an index in the scheduler.
 #[derive(Clone, Copy, Debug)]

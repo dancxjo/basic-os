@@ -324,6 +324,7 @@ $(IMAGE_NAME).iso: limine/limine kernel userland
 	cp -v target/$(RUST_TARGET)/release/demo_app iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/task_list iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/graph_viewer iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/text_editor iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/keyboard_driver iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/mouse_driver iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/framebuffer_driver iso_root/boot/
