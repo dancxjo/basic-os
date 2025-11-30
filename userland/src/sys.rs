@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt;
 use serde::{Deserialize, Serialize};
+use thing_abi::GraphFindByKind;
 use uuid::Uuid;
 
 /// Raw syscall entry point (rax, rdi, rsi, rdx, r10).
@@ -65,21 +66,6 @@ pub const SYSCALL_DEV_READ: u64 = 0x21;
 pub const SYSCALL_DEV_WRITE: u64 = 0x22;
 pub const SYSCALL_DEV_MAP: u64 = 0x23;
 pub const SYSCALL_LOG: u64 = 0x99;
-
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[repr(C)]
-pub struct GraphFindByKind {
-    pub kind_ptr: u64,
-    pub kind_len: u64,
-    pub cursor: u64,
-}
-
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[repr(C)]
-pub struct GraphFindResultHeader {
-    pub next_cursor: u64,
-    pub count: u32,
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct IrqBindRequest {

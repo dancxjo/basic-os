@@ -4,9 +4,8 @@
 extern crate alloc;
 use alloc::vec;
 
-use compositor::{Compositor, FramebufferInfo, FramebufferTarget};
-use userland::{canon, drivers, fiat, map, println, that, Value, WatchManager};
-use uuid::Uuid;
+use compositor::{Compositor, FramebufferBackend, FramebufferInfo, FramebufferTarget};
+use userland::{println, WatchManager};
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
 
@@ -27,11 +26,12 @@ pub extern "C" fn _start() -> ! {
         fb_target.info.width, fb_target.info.height, fb_target.info.pitch, fb_target.info.bpp
     );
 
+    let backend = FramebufferBackend::new(fb_target);
     let mut compositor =
-        Compositor::init_with_watches(&mut watch_manager, compositor_app_id, fb_target);
+        Compositor::init_with_watches(&mut watch_manager, compositor_app_id, backend);
     let mut tick: u64 = 0;
     loop {
-        let mut all_ids = vec![compositor_app_id];
+        let all_ids = vec![compositor_app_id];
 
         watch_manager.process_graph(&all_ids);
 
@@ -44,21 +44,6 @@ pub extern "C" fn _start() -> ! {
         tick = tick.wrapping_add(1);
         busy_wait();
     }
-}
-
-fn register_compositor_things() {
-    let compositor_id = compositor_id();
-    let surface_id = compositor_surface_id();
-
-    let mut compositor_fields = map();
-    compositor_fields.insert(canon::NAME, Value::text("compositor0"));
-    compositor_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    fiat(Some(compositor_id), canon::COMPOSITOR, compositor_fields);
-
-    let mut surface_fields = map();
-    surface_fields.insert(canon::NAME, Value::text("compositor-surface"));
-    surface_fields.insert(canon::STATUS, Value::symbol(canon::INIT));
-    fiat(Some(surface_id), canon::PIXMAP, surface_fields);
 }
 
 fn discover_framebuffer() -> Option<FramebufferTarget> {
@@ -87,14 +72,6 @@ fn fallback_framebuffer() -> FramebufferTarget {
         addr: core::ptr::null_mut(),
         len_bytes: 0,
     }
-}
-
-fn compositor_id() -> Uuid {
-    userland::simple_uuid(b"compositor0")
-}
-
-fn compositor_surface_id() -> Uuid {
-    userland::simple_uuid(b"compositor-surface0")
 }
 
 fn busy_wait() {

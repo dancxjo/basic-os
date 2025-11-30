@@ -308,6 +308,7 @@ dependencies = [
  "sha2",
  "spin 0.10.0",
  "spinning_top 0.3.0",
+ "thing_abi",
  "uuid",
  "x86_64 0.14.13",
 ]
@@ -588,6 +589,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "thing_abi"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+ "uuid",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -632,6 +642,7 @@ dependencies = [
  "linked_list_allocator",
  "postcard",
  "serde",
+ "thing_abi",
  "uuid",
 ]
 

@@ -74,7 +74,7 @@ impl WatchManager {
         if let Some(id) = filter.id {
             pattern
                 .props
-                .insert(crate::canon::SRC, graph::Value::Uuid(id));
+                .insert(crate::canon::SRC, crate::Value::Uuid(id));
         }
         self.register_pattern(app_id, pattern)
     }

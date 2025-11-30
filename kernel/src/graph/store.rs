@@ -109,8 +109,8 @@ impl Store {
     pub fn poll_watch(&mut self, id: WatchId) -> Option<GraphWatchBatch> {
         crate::serial_println!("Store::poll_watch: id={}", id);
         if !self.watches.contains_key(&id) {
-             crate::serial_println!("Store::poll_watch: id={} NOT FOUND", id);
-             return None;
+            crate::serial_println!("Store::poll_watch: id={} NOT FOUND", id);
+            return None;
         }
         let watch = self.watches.get_mut(&id)?;
         if watch.queue.is_empty() {

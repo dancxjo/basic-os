@@ -1,39 +1,6 @@
 //! Symbol table helpers. Keep codes short and human-readable for dumps.
 
-use core::fmt;
-use serde::{Deserialize, Serialize};
-
-/// Compact human-readable symbol (2–3 bytes packed into a `u32`).
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug)]
-pub struct Symbol(pub u32);
-
-impl Symbol {
-    pub const fn new(raw: u32) -> Self {
-        Symbol(raw)
-    }
-
-    pub const fn raw(self) -> u32 {
-        self.0
-    }
-}
-
-/// Combine two ASCII chars into a human-readable code.
-pub const fn cc(a: char, b: char) -> Symbol {
-    Symbol(((a as u32) << 16) | ((b as u32) << 8))
-}
-
-/// Combine three ASCII bytes into a human-readable code.
-pub const fn canon(a: u8, b: u8, c: u8) -> Symbol {
-    Symbol(((a as u32) << 16) | ((b as u32) << 8) | (c as u32))
-}
-
-pub const fn from_char(c: char) -> Symbol {
-    Symbol(c as u32)
-}
-
-pub const fn from_u16(raw: u16) -> Symbol {
-    Symbol(raw as u32)
-}
+pub use thing_abi::{Symbol, canon, cc, from_char, from_u16};
 
 // Common symbols used by early drivers and journal dumps.
 pub const JOURNAL: Symbol = cc('J', 'N');

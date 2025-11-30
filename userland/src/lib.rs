@@ -11,6 +11,7 @@ pub mod sys;
 pub mod watch;
 
 pub use heap::init_heap;
+pub use thing_abi::{GrantCapabilityRequest, Map, Symbol, Value};
 pub use uuid;
 
 #[macro_export]
@@ -30,32 +31,8 @@ macro_rules! println {
     };
 }
 
-#[derive(
-    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize, Debug,
-)]
-pub struct Symbol(pub u32);
-
-impl Symbol {
-    pub const fn new(raw: u32) -> Self {
-        Symbol(raw)
-    }
-}
-
 pub mod canon {
-    use super::Symbol;
-
-    pub const fn cc(a: char, b: char) -> Symbol {
-        Symbol(((a as u32) << 16) | ((b as u32) << 8))
-    }
-
-    pub const fn canon(a: u8, b: u8, c: u8) -> Symbol {
-        Symbol(((a as u32) << 16) | ((b as u32) << 8) | (c as u32))
-    }
-
-    pub const fn from_char(c: char) -> Symbol {
-        Symbol(c as u32)
-    }
-
+    pub use thing_abi::{canon, cc, from_char, from_u16, Symbol};
     pub const JOURNAL: Symbol = cc('J', 'N');
     pub const KEYBOARD: Symbol = cc('K', 'B');
     pub const KEY_PRESSED: Symbol = cc('K', 'P');
@@ -178,18 +155,17 @@ pub mod prelude {
     pub use crate::graph::{
         declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing,
         grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state,
-        update_thing, QueueState, SharedBuffer, Surface, Thingable, Value, Window,
+        update_thing, QueueState, SharedBuffer, Surface, Thingable, Window,
     };
     pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
-    pub use crate::{print, println};
+    pub use crate::{print, println, Value};
 }
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
     declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, grant_capability,
-    load_thing, load_things_of_kind, map, that, update_queue_state, update_thing, Event,
-    GrantCapabilityRequest, GraphEdge, GraphThing, NodePattern, QueueState, SharedBuffer, Surface,
-    Thingable, Value, Window,
+    load_thing, load_things_of_kind, map, that, update_queue_state, update_thing, GraphEdge,
+    GraphThing, NodePattern, QueueState, SharedBuffer, Surface, Thingable, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 

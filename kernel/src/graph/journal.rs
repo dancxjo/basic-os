@@ -1,139 +1,8 @@
 use crate::graph::canon::Symbol;
 use crate::serial_println;
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use core::fmt;
-use serde::{Deserialize, Serialize};
+use alloc::vec::Vec;
 use spin::Mutex;
-use uuid::Uuid;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum Value {
-    Null,
-    Bool(bool),
-    U64(u64),
-    I64(i64),
-    Bytes(Vec<u8>),
-    Symbol(Symbol),
-    Uuid(Uuid),
-    Text(String),
-    Map(BTreeMap<Symbol, Value>),
-    List(Vec<Value>),
-}
-
-impl Value {
-    pub fn as_map(&self) -> Option<&BTreeMap<Symbol, Value>> {
-        match self {
-            Value::Map(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    pub fn as_uuid(&self) -> Option<Uuid> {
-        match self {
-            Value::Uuid(id) => Some(*id),
-            _ => None,
-        }
-    }
-
-    pub fn as_symbol(&self) -> Option<Symbol> {
-        match self {
-            Value::Symbol(sym) => Some(*sym),
-            _ => None,
-        }
-    }
-
-    pub fn as_u64(&self) -> Option<u64> {
-        match self {
-            Value::U64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_i64(&self) -> Option<i64> {
-        match self {
-            Value::I64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_bool(&self) -> Option<bool> {
-        match self {
-            Value::Bool(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            Value::Text(s) => Some(s),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Null => f.write_str("null"),
-            Value::Bool(v) => write!(f, "{}", v),
-            Value::U64(v) => write!(f, "{}", v),
-            Value::I64(v) => write!(f, "{}", v),
-            Value::Bytes(b) => write!(f, "bytes({})", b.len()),
-            Value::Symbol(sym) => write!(f, "{}", sym),
-            Value::Uuid(id) => write!(f, "{}", id),
-            Value::Text(s) => write!(f, "\"{}\"", s),
-            Value::Map(m) => {
-                f.write_str("{")?;
-                let mut first = true;
-                for (k, v) in m.iter() {
-                    if !first {
-                        f.write_str(", ")?;
-                    }
-                    first = false;
-                    write!(f, "{}: {}", k, v)?;
-                }
-                f.write_str("}")
-            }
-            Value::List(items) => {
-                f.write_str("[")?;
-                let mut first = true;
-                for v in items {
-                    if !first {
-                        f.write_str(", ")?;
-                    }
-                    first = false;
-                    write!(f, "{}", v)?;
-                }
-                f.write_str("]")
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    pub timestamp: u64,
-    pub kind: Symbol,
-    pub data: Value,
-}
-
-impl Event {
-    pub fn new(kind: Symbol, data: Value) -> Self {
-        Self {
-            timestamp: timestamp_now(),
-            kind,
-            data,
-        }
-    }
-
-    pub fn with_timestamp(timestamp: u64, kind: Symbol, data: Value) -> Self {
-        Self {
-            timestamp,
-            kind,
-            data,
-        }
-    }
-}
+use thing_abi::{Event, Value};
 
 const JOURNAL_CAPACITY: usize = 1024;
 
@@ -173,7 +42,11 @@ pub fn emit(event: Event) -> bool {
 
 /// Convenience helper to wrap data and fill in the timestamp automatically.
 pub fn emit_data(kind: Symbol, data: Value) -> bool {
-    emit(Event::new(kind, data))
+    emit(Event {
+        timestamp: timestamp_now(),
+        kind,
+        data,
+    })
 }
 
 /// Replay journal entries through a visitor.
