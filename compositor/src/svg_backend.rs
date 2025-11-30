@@ -32,7 +32,7 @@ impl CompositorBackend for SvgBackend {
         self.xml.clear();
         writeln!(
             &mut self.xml,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" onload="init(evt)">"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" onload="init(evt)" tabindex="0" style="outline: none">"#,
             w = scene.width,
             h = scene.height,
         )
@@ -45,32 +45,44 @@ impl CompositorBackend for SvgBackend {
       const svg = evt.target;
       const doc = svg.ownerDocument;
 
+      svg.focus();
       setInterval(refresh, 250);
 
+      function toSvgCoords(e) {{
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+        return {{ x: svgPt.x, y: svgPt.y }};
+      }}
+
       doc.addEventListener('mousemove', function(e) {{
+        const coords = toSvgCoords(e);
         sendInput({{
           kind: 'mouse_move',
-          x: e.clientX,
-          y: e.clientY,
+          x: coords.x,
+          y: coords.y,
           buttons: e.buttons
         }});
       }});
 
       doc.addEventListener('mousedown', function(e) {{
+        const coords = toSvgCoords(e);
         sendInput({{
           kind: 'mouse_down',
-          x: e.clientX,
-          y: e.clientY,
+          x: coords.x,
+          y: coords.y,
           buttons: e.buttons,
           button: e.button
         }});
       }});
 
       doc.addEventListener('mouseup', function(e) {{
+        const coords = toSvgCoords(e);
         sendInput({{
           kind: 'mouse_up',
-          x: e.clientX,
-          y: e.clientY,
+          x: coords.x,
+          y: coords.y,
           buttons: e.buttons,
           button: e.button
         }});
