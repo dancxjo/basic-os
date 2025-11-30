@@ -3,14 +3,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::runtime::{self, AbiRequest, AbiResponse};
 use crate::{canon, sys, Symbol, Value};
-use thing_abi::{
-    GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphGetRequest,
-    GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, Map, WatchQuery,
-};
+use thing_abi::{GrantCapabilityRequest, GraphPropsGetRequest, GraphPropsRequest, Map, WatchQuery};
 use uuid::Uuid;
 
-pub use thing_abi::{GraphChange, GraphEdge, GraphFindResultHeader, GraphThing, NodePattern};
+pub use thing_abi::{GraphChange, GraphEdge, GraphThing, NodePattern};
 
 // Snapshot buffers are small; guard against bogus sizes coming from the kernel.
 // const MAX_SNAPSHOT_BYTES: usize = 1 << 20; // 1 MiB upper bound
@@ -34,8 +32,8 @@ pub fn extract_text(value: &Value) -> Option<String> {
 
 /// Bring a Thing into existence in the graph. Returns the Thing ID that was declared.
 pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: Map) -> Uuid {
+    runtime::ensure_kernel_runtime();
     let id = id.unwrap_or_else(|| {
-        // Derive a stable UUID from the Thing kind and fields so callers do not need randomness.
         let mut name: Vec<u8> = Vec::new();
         name.extend_from_slice(&kind.0.to_be_bytes());
         if let Ok(buf) = postcard::to_allocvec(&fields) {
@@ -43,29 +41,28 @@ pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: Map) -> Uuid {
         }
         crate::simple_uuid(&name)
     });
-    let req = GraphFiatRequest {
+    match runtime::runtime().call(AbiRequest::Fiat {
         id: Some(id),
         kind,
+        labels: vec![kind],
         fields,
-    };
-    if let Ok(buf) = postcard::to_allocvec(&req) {
-        let _ = sys::graph_fiat_raw(&buf);
+    }) {
+        AbiResponse::Fiat { thing } => thing.id,
+        AbiResponse::Error { .. } => id,
+        _ => id,
     }
-    id
 }
 
 /// Add an edge between two Things in the graph.
 pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
-    let req = GraphThatRequest {
-        src,
-        pred,
-        dst,
-        revision_hint: revision,
+    runtime::ensure_kernel_runtime();
+    let _ = runtime::runtime().call(AbiRequest::Link {
+        id: None,
+        from: src,
+        rel: pred,
+        to: dst,
         props: map(),
-    };
-    if let Ok(buf) = postcard::to_allocvec(&req) {
-        let _ = sys::graph_link_raw(&buf);
-    }
+    });
 }
 
 /// Grant a capability to another bundle.
@@ -73,87 +70,72 @@ pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
 /// the target Thing. Hardware capabilities (IRQ/DMA/MMIO/PORT IO) are
 /// kernel-only. Returns true if the capability was successfully granted.
 pub fn grant_capability(grantee: Uuid, target: Uuid, capability: Symbol) -> bool {
-    let req = GrantCapabilityRequest {
-        grantee,
-        target,
-        capability,
-    };
-    if let Ok(buf) = postcard::to_allocvec(&req) {
-        sys::grant_capability_raw(&buf) == 0
-    } else {
-        false
-    }
+    runtime::ensure_kernel_runtime();
+    matches!(
+        runtime::runtime().call(AbiRequest::GrantCapability {
+            request: GrantCapabilityRequest {
+                grantee,
+                target,
+                capability,
+            },
+        }),
+        AbiResponse::CapabilityGranted { granted: true }
+    )
 }
 
 pub fn find_by_kind(kind: &str) -> Vec<GraphThing> {
+    runtime::ensure_kernel_runtime();
     let mut results = Vec::new();
-    let mut cursor = 0;
-    let mut buf = vec![0u8; 64 * 1024]; // 64KB buffer
-
+    let mut cursor = None;
     loop {
-        let req = GraphFindByKind {
-            kind_ptr: kind.as_ptr() as u64,
-            kind_len: kind.len() as u64,
+        let response = runtime::runtime().call(AbiRequest::FindByKind {
+            kind: kind.to_string(),
             cursor,
-        };
-
-        let bytes_written = sys::graph_find_by_kind_raw(&req, &mut buf);
-        if bytes_written == !0 {
-            break;
-        }
-
-        let slice = &buf[..bytes_written as usize];
-        if let Ok((header, rest)) = postcard::take_from_bytes::<GraphFindResultHeader>(slice) {
-            let mut remaining = rest;
-            for _ in 0..header.count {
-                if let Ok((thing, next)) = postcard::take_from_bytes::<GraphThing>(remaining) {
-                    results.push(thing);
-                    remaining = next;
-                } else {
+        });
+        match response {
+            AbiResponse::Find {
+                mut things,
+                next_cursor,
+            } => {
+                results.append(&mut things);
+                cursor = next_cursor;
+                if cursor.is_none() {
                     break;
                 }
             }
-
-            if header.next_cursor == 0 {
+            AbiResponse::Query { mut things } => {
+                results.append(&mut things);
                 break;
             }
-            cursor = header.next_cursor;
-        } else {
-            break;
+            _ => break,
         }
     }
     results
 }
 
 pub fn get_nodes(pattern: NodePattern) -> Vec<GraphThing> {
-    let mut buf = vec![0u8; 64 * 1024];
-    let Ok(encoded) = postcard::to_allocvec(&GraphGetRequest::Pattern(pattern)) else {
-        return Vec::new();
-    };
-    let len = sys::graph_get_raw(&encoded, &mut buf);
-    if len == !0 {
-        return Vec::new();
+    runtime::ensure_kernel_runtime();
+    match runtime::runtime().call(AbiRequest::Query { pattern }) {
+        AbiResponse::Query { things } => things,
+        AbiResponse::Find { things, .. } => things,
+        _ => Vec::new(),
     }
-    postcard::from_bytes::<Vec<GraphThing>>(&buf[..len as usize]).unwrap_or_default()
 }
 
 pub fn get_props(request: GraphPropsGetRequest) -> Option<Map> {
-    let Ok(encoded) = postcard::to_allocvec(&request) else {
-        return None;
-    };
-    let mut buf = vec![0u8; 4096];
-    let len = sys::graph_get_props_raw(&encoded, &mut buf);
-    if len == !0 {
-        return None;
+    runtime::ensure_kernel_runtime();
+    match runtime::runtime().call(AbiRequest::PropsGet { request }) {
+        AbiResponse::Props { props } => Some(props),
+        _ => None,
     }
-    postcard::from_bytes::<Map>(&buf[..len as usize]).ok()
 }
 
 pub fn set_props(request: GraphPropsRequest) -> bool {
-    if let Ok(encoded) = postcard::to_allocvec(&request) {
-        return sys::graph_set_props_raw(&encoded) == 0;
-    }
-    false
+    runtime::ensure_kernel_runtime();
+    matches!(
+        runtime::runtime().call(AbiRequest::PropsSet { request }),
+        AbiResponse::Props { .. }
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -323,15 +305,13 @@ pub trait Thingable: Sized {
 }
 
 pub fn load_thing<T: Thingable>(id: Uuid) -> Option<T> {
-    let mut buf = vec![0u8; 4096];
-    let Ok(encoded) = postcard::to_allocvec(&GraphGetRequest::Thing(id)) else {
-        return None;
+    runtime::ensure_kernel_runtime();
+    let response = runtime::runtime().call(AbiRequest::Get { id });
+    let thing = match response {
+        AbiResponse::Get { thing } => thing?,
+        AbiResponse::Fiat { thing } => thing,
+        _ => return None,
     };
-    let len = sys::graph_get_raw(&encoded, &mut buf);
-    if len == !0 {
-        return None;
-    }
-    let thing: GraphThing = postcard::from_bytes(&buf[..len as usize]).ok()?;
     T::load(&thing)
 }
 
@@ -487,22 +467,22 @@ pub fn watch(query: WatchQuery) -> Option<WatchHandle> {
 }
 
 pub fn watch_pattern(pattern: NodePattern) -> Option<WatchHandle> {
-    if let Ok(buf) = postcard::to_allocvec(&pattern) {
-        let id = sys::graph_watch_register_raw(&buf);
-        if id != !0 {
-            return Some(WatchHandle { id });
-        }
+    runtime::ensure_kernel_runtime();
+    match runtime::runtime().call(AbiRequest::WatchRegister { pattern }) {
+        AbiResponse::WatchRegistered { watch_id } => Some(WatchHandle { id: watch_id }),
+        _ => None,
     }
-    None
 }
 
 pub fn poll_watch(handle: &WatchHandle) -> Vec<GraphChange> {
-    let mut buf = vec![0u8; 64 * 1024];
-    let len = sys::graph_watch_poll_raw(handle.id, &mut buf);
-    if len == !0 {
-        return Vec::new();
+    runtime::ensure_kernel_runtime();
+    match runtime::runtime().call(AbiRequest::WatchPoll {
+        watch_id: handle.id,
+        max_events: None,
+    }) {
+        AbiResponse::WatchEvents { events } => events.changes,
+        _ => Vec::new(),
     }
-    postcard::from_bytes(&buf[..len as usize]).unwrap_or_default()
 }
 
 pub fn fiat_thing<T>(_thing: &T) -> Uuid {

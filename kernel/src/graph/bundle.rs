@@ -73,6 +73,7 @@ pub fn create_bundle_with_id(
     let req = GraphFiatRequest {
         id: Some(bundle_id),
         kind: canon::BUNDLE,
+        labels: vec![canon::BUNDLE],
         fields,
     };
 

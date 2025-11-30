@@ -7,6 +7,7 @@ description = "Shared ThingOS ABI definitions for kernel and userland"
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+once_cell = { version = "1.19", default-features = false, features = ["alloc"] }
 uuid = { version = "1.6", default-features = false, features = ["serde", "v5"] }
 
 [dev-dependencies]

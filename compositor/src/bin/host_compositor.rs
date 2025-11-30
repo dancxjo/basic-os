@@ -3,9 +3,13 @@
 use compositor::{Compositor, CompositorExport, SvgBackend};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use thing_host::HostRuntime;
 use tiny_http::{Response, Server};
 
 fn main() {
+    let runtime = Box::leak(Box::new(HostRuntime::new()));
+    userland::set_runtime(runtime);
+
     let backend = SvgBackend::new(1024, 768);
     let compositor = Arc::new(Mutex::new(Compositor::new(backend)));
 

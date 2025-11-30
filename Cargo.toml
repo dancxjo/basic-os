@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "thing_abi",
+    "thing_host",
     "kernel",
     "userland",
     "compositor",
