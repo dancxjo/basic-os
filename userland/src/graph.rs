@@ -6,12 +6,11 @@ use core::fmt;
 use crate::runtime;
 use crate::{canon, sys, Symbol, Value};
 use thing_abi::{
-    AbiRequest, AbiResponse, GrantCapabilityRequest, GraphPropsGetRequest, GraphPropsRequest, Map,
-    WatchQuery,
+    AbiRequest, AbiResponse, GrantCapabilityRequest, GraphPropsGetRequest, Map, WatchQuery,
 };
 use uuid::Uuid;
 
-pub use thing_abi::{GraphChange, GraphEdge, GraphThing, NodePattern};
+pub use thing_abi::{GraphChange, GraphEdge, GraphPropsRequest, GraphThing, NodePattern};
 
 // Snapshot buffers are small; guard against bogus sizes coming from the kernel.
 // const MAX_SNAPSHOT_BYTES: usize = 1 << 20; // 1 MiB upper bound
