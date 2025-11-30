@@ -1,9 +1,12 @@
 use alloc::string::{String, ToString};
+use core::convert::TryFrom;
 use userland::prelude::*;
 use userland::{canon, graph, simple_uuid, AppEvent, ThingFilter};
 use uuid::Uuid;
 
 const DOCUMENT_NAME: &str = "Advent_Notes";
+const LINE_HEIGHT: i32 = 16;
+const HEADER_LINES: i32 = 2;
 
 pub struct TextEditor {
     window: WindowHandle,
@@ -11,10 +14,12 @@ pub struct TextEditor {
     #[allow(dead_code)]
     view_id: Uuid,
     content: String,
+    cursor_index: usize,
     dirty: bool,
     #[allow(dead_code)]
     watch_id: WatchId,
     ctrl_down: bool,
+    cursor_hint_dirty: bool,
 }
 
 struct Document {
@@ -69,15 +74,20 @@ impl App for TextEditor {
             id: None,
         });
 
-        TextEditor {
+        let mut editor = TextEditor {
             window,
             document_id: doc_uuid,
             view_id: view_uuid,
             content: "Hello, ThingOS!\n".to_string(),
+            cursor_index: "Hello, ThingOS!\n".len(),
             dirty: false,
             watch_id,
             ctrl_down: false,
-        }
+            cursor_hint_dirty: true,
+        };
+
+        editor.flush_cursor_hint();
+        editor
     }
 
     fn on_event(&mut self, _ctx: &mut AppContext<'_>, ev: AppEvent) {
@@ -128,8 +138,15 @@ impl App for TextEditor {
         );
         ctx.draw_text(&self.window, format_args!("------------------------\n"));
 
-        // Content
-        ctx.draw_text(&self.window, format_args!("{}", self.content));
+        // Content with cursor indicator
+        let (head, tail) = self.content.split_at(self.cursor_index);
+        let mut display = String::with_capacity(self.content.len() + 1);
+        display.push_str(head);
+        display.push('|');
+        display.push_str(tail);
+        ctx.draw_text(&self.window, format_args!("{}", display));
+
+        self.flush_cursor_hint();
     }
 }
 
@@ -137,19 +154,13 @@ impl TextEditor {
     fn handle_input(&mut self, key: &str) {
         match key {
             "\n" | "\r" => {
-                self.content.push('\n');
-                self.mark_dirty(true);
+                self.insert_text("\n");
             }
             "\x08" => {
-                // Backspace
-                if self.content.pop().is_some() {
-                    self.mark_dirty(true);
-                }
+                self.delete_prev_char();
             }
             k if k.len() == 1 => {
-                // Basic printable characters
-                self.content.push_str(k);
-                self.mark_dirty(true);
+                self.insert_text(k);
             }
             _ => {}
         }
@@ -169,5 +180,75 @@ impl TextEditor {
                 props: fields,
             });
         }
+    }
+
+    fn insert_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.content.insert_str(self.cursor_index, text);
+        self.cursor_index += text.len();
+        self.on_content_changed();
+    }
+
+    fn delete_prev_char(&mut self) {
+        if self.cursor_index == 0 {
+            return;
+        }
+        let prev_idx = self
+            .content
+            .get(..self.cursor_index)
+            .and_then(|prefix| prefix.char_indices().next_back().map(|(idx, _)| idx))
+            .unwrap_or(0);
+        self.content.drain(prev_idx..self.cursor_index);
+        self.cursor_index = prev_idx;
+        self.on_content_changed();
+    }
+
+    fn on_content_changed(&mut self) {
+        self.cursor_hint_dirty = true;
+        self.mark_dirty(true);
+    }
+
+    fn cursor_line_col(&self) -> (usize, usize) {
+        let mut line = 0_usize;
+        let mut column = 0_usize;
+        if let Some(prefix) = self.content.get(..self.cursor_index) {
+            for ch in prefix.chars() {
+                if ch == '\n' {
+                    line += 1;
+                    column = 0;
+                } else {
+                    column += 1;
+                }
+            }
+        }
+        (line, column)
+    }
+
+    fn cursor_rect(&self) -> (i32, i32) {
+        let (line, _) = self.cursor_line_col();
+        let line_offset = i32::try_from(line).unwrap_or(i32::MAX);
+        let y = HEADER_LINES
+            .saturating_add(line_offset)
+            .saturating_mul(LINE_HEIGHT);
+        (y, LINE_HEIGHT)
+    }
+
+    fn flush_cursor_hint(&mut self) {
+        if !self.cursor_hint_dirty {
+            return;
+        }
+        let (y, height) = self.cursor_rect();
+        let mut rect = graph::map();
+        rect.insert(canon::Y, Value::I64(y as i64));
+        rect.insert(canon::HEIGHT, Value::I64(height as i64));
+        let mut props = graph::map();
+        props.insert(canon::WINDOW_RECT, Value::Map(rect));
+        graph::set_props(graph::GraphPropsRequest {
+            node: self.window.window_id(),
+            props,
+        });
+        self.cursor_hint_dirty = false;
     }
 }

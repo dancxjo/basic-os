@@ -4,8 +4,8 @@ use core::cmp::min;
 
 use thing_abi::{
     runtime as abi_runtime, set_runtime as abi_set_runtime, AbiRequest, AbiResponse, GraphEdge,
-    GraphFiatRequest, GraphGetRequest, GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest,
-    GraphThing, GraphWatchBatch, Map, NodePattern, ThingRuntime,
+    GraphFiatRequest, GraphGetRequest, GraphThatRequest, GraphThing, GraphWatchBatch, Map,
+    NodePattern, ThingRuntime,
 };
 use uuid::Uuid;
 

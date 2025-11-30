@@ -451,6 +451,7 @@ pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
     }
     #[cfg(not(target_os = "none"))]
     {
+        let _ = out;
         // Not implemented on host via this syscall, use DevRead or similar if needed
         0
     }
@@ -588,6 +589,7 @@ pub fn dma_map(request: DmaMapRequest) -> Option<u64> {
     }
     #[cfg(not(target_os = "none"))]
     {
+        let _ = request;
         None
     }
 }
@@ -609,6 +611,7 @@ pub fn dma_submit(request: DmaSubmitRequest) -> Option<u64> {
     }
     #[cfg(not(target_os = "none"))]
     {
+        let _ = request;
         None
     }
 }
@@ -631,6 +634,7 @@ pub fn dma_wait(request: DmaWaitRequest) -> bool {
     }
     #[cfg(not(target_os = "none"))]
     {
+        let _ = request;
         false
     }
 }
@@ -744,6 +748,7 @@ pub fn dev_map(handle: u64) -> Option<u64> {
     }
     #[cfg(not(target_os = "none"))]
     {
+        let _ = handle;
         None
     }
 }

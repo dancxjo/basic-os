@@ -57,7 +57,7 @@ pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: Map) -> Uuid {
 }
 
 /// Add an edge between two Things in the graph.
-pub fn that(src: Uuid, pred: impl Into<String>, dst: Uuid, revision: u64) {
+pub fn that(src: Uuid, pred: impl Into<String>, dst: Uuid, _revision: u64) {
     runtime::ensure_kernel_runtime();
     let _ = runtime::runtime().call(AbiRequest::Link {
         id: None,
@@ -322,7 +322,6 @@ pub fn update_thing<T: Thingable>(_id: Uuid, _thing: T) {
     // Placeholder
 }
 
-#[derive(Debug, Clone)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WindowRect {
     pub x: i64,
@@ -332,7 +331,7 @@ pub struct WindowRect {
 }
 
 impl WindowRect {
-    fn from_value(value: &Value) -> Option<Self> {
+    pub fn from_value(value: &Value) -> Option<Self> {
         let map = value.as_map()?;
         Some(WindowRect {
             x: map_i64(map, canon::X),
@@ -371,6 +370,7 @@ fn map_i64(map: &Map, key: canon::Symbol) -> i64 {
     map.get(&key).and_then(get_i64).unwrap_or(0)
 }
 
+#[derive(Clone, Debug)]
 pub struct Window {
     pub id: Uuid,
     pub width: u64,

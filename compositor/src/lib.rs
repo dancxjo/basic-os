@@ -930,6 +930,60 @@ where
         }
     }
 
+    fn apply_window_rect_hint(&mut self, window_id: Uuid) {
+        let Some(rect) = self
+            .windows
+            .get(&window_id)
+            .and_then(|surface| surface.window.window_rect)
+        else {
+            return;
+        };
+        let Some((_, metrics)) = self.content_metrics_for_window(window_id) else {
+            return;
+        };
+        if metrics.viewport_height <= 0 {
+            return;
+        }
+
+        let current_scroll = self
+            .windows
+            .get(&window_id)
+            .map(|surface| surface.scroll_y)
+            .unwrap_or(0);
+        let rect_top = clamp_i32(
+            rect.y.clamp(0, i64::from(i32::MAX)).try_into().unwrap_or(0),
+            0,
+            i32::MAX,
+        );
+        let raw_height = rect.height.max(0);
+        let rect_height = clamp_i32(
+            raw_height
+                .min(i64::from(i32::MAX))
+                .try_into()
+                .unwrap_or(FONT_HEIGHT as i32),
+            FONT_HEIGHT as i32,
+            i32::MAX,
+        );
+        let rect_bottom = rect_top.saturating_add(rect_height);
+        let viewport_bottom = current_scroll + metrics.viewport_height;
+
+        let mut desired_scroll = current_scroll;
+        if rect_top < current_scroll {
+            desired_scroll = rect_top;
+        } else if rect_bottom > viewport_bottom {
+            desired_scroll = rect_bottom - metrics.viewport_height;
+        } else {
+            return;
+        }
+
+        let clamped = metrics.clamp_scroll(desired_scroll);
+        if let Some(surface) = self.windows.get_mut(&window_id) {
+            if surface.scroll_y != clamped {
+                surface.scroll_y = clamped;
+            }
+        }
+    }
+
     fn set_scroll_offset(&mut self, window_id: Uuid, new_offset: i32) -> bool {
         if let Some((_, metrics)) = self.content_metrics_for_window(window_id) {
             if metrics.max_scroll <= 0 {
@@ -1038,6 +1092,7 @@ where
 
         self.bump_window(window_id);
         self.clamp_scroll_for(window_id);
+        self.apply_window_rect_hint(window_id);
     }
 
     fn ordered_window_ids(&self) -> Vec<Uuid> {

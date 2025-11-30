@@ -420,11 +420,7 @@ impl KeyboardDriver {
     ) -> (Option<Symbol>, String) {
         if let Some(ch) = self.key_char(key_code, scancode) {
             let symbol = canon::from_char(ch);
-            let text = if ch == ' ' {
-                "Space".to_string()
-            } else {
-                ch.to_string()
-            };
+            let text = ch.to_string();
             return (Some(symbol), text);
         }
 
@@ -512,6 +508,12 @@ impl KeyboardDriver {
             KeyCode::Character { .. } => {
                 let uppercase = self.shift ^ self.caps_lock;
 
+                if self.altgr {
+                    if let Some(ch) = altgr_char_from_scancode(scancode, self.shift, uppercase) {
+                        return Some(self.resolve_dead_key(ch));
+                    }
+                }
+
                 let ch = if let Some(letter) = letter_from_scancode(scancode) {
                     if uppercase {
                         letter.to_ascii_uppercase()
@@ -524,12 +526,7 @@ impl KeyboardDriver {
                     symbol_from_scancode(scancode, self.shift, self.altgr)?
                 };
 
-                let dead = self.deadkey;
-                self.deadkey = DeadKey::None;
-                if let Some(composed) = apply_dead_key(dead, ch) {
-                    return Some(composed);
-                }
-                Some(ch)
+                Some(self.resolve_dead_key(ch))
             }
             KeyCode::Keypad(d) if self.num_lock => Some((b'0' + d) as char),
             KeyCode::KeypadDecimal if self.num_lock => Some('.'),
@@ -542,7 +539,16 @@ impl KeyboardDriver {
         }
     }
 
+    fn resolve_dead_key(&mut self, ch: char) -> char {
+        let dead = self.deadkey;
+        self.deadkey = DeadKey::None;
+        apply_dead_key(dead, ch).unwrap_or(ch)
+    }
+
     fn start_dead_key(&mut self, scancode: u8) -> bool {
+        if self.altgr {
+            return false;
+        }
         match scancode {
             0x28 => {
                 self.deadkey = DeadKey::Acute;
@@ -748,14 +754,10 @@ fn digit_from_scancode(scancode: u8, shift: bool) -> Option<char> {
 
 fn symbol_from_scancode(scancode: u8, shift: bool, altgr: bool) -> Option<char> {
     let symbol = match scancode {
-        0x1A => {
-            if altgr {
-                '}'
-            } else {
-                return None;
-            }
-        }
-        0x1B => '[',
+        0x0C => '-',
+        0x0D => '=',
+        0x1A => return None,
+        0x1B => ']',
         0x39 => ' ',
         0x27 => ';',
         0x28 => '\'',
@@ -786,6 +788,8 @@ fn symbol_from_scancode(scancode: u8, shift: bool, altgr: bool) -> Option<char> 
         match symbol {
             '[' => '{',
             ']' => '}',
+            '-' => '_',
+            '=' => '+',
             ';' => ':',
             '\'' => '"',
             '`' => '~',
@@ -798,6 +802,49 @@ fn symbol_from_scancode(scancode: u8, shift: bool, altgr: bool) -> Option<char> 
     } else {
         symbol
     })
+}
+
+fn altgr_char_from_scancode(scancode: u8, shift: bool, uppercase: bool) -> Option<char> {
+    match scancode {
+        0x02 => Some(if shift { '¹' } else { '¡' }),
+        0x03 => Some('²'),
+        0x04 => Some('³'),
+        0x05 => Some(if shift { '£' } else { '¤' }),
+        0x06 => Some('€'),
+        0x07 => Some('¼'),
+        0x08 => Some('½'),
+        0x09 => Some('¾'),
+        0x0A => Some('‘'),
+        0x0B => Some('’'),
+        0x0C => Some('¥'),
+        0x0D => Some(if shift { '÷' } else { '×' }),
+        0x10 => Some(if uppercase { 'Ä' } else { 'ä' }),
+        0x11 => Some(if uppercase { 'Å' } else { 'å' }),
+        0x12 => Some(if uppercase { 'É' } else { 'é' }),
+        0x13 => Some('®'),
+        0x14 => Some(if uppercase { 'Þ' } else { 'þ' }),
+        0x15 => Some(if uppercase { 'Ü' } else { 'ü' }),
+        0x16 => Some(if uppercase { 'Ú' } else { 'ú' }),
+        0x17 => Some(if uppercase { 'Í' } else { 'í' }),
+        0x18 => Some(if uppercase { 'Ó' } else { 'ó' }),
+        0x19 => Some(if uppercase { 'Ö' } else { 'ö' }),
+        0x1A => Some('«'),
+        0x1B => Some('»'),
+        0x1E => Some(if uppercase { 'Á' } else { 'á' }),
+        0x1F => Some(if shift { '§' } else { 'ß' }),
+        0x20 => Some(if uppercase { 'Ð' } else { 'ð' }),
+        0x26 => Some(if uppercase { 'Ø' } else { 'ø' }),
+        0x27 => Some(if shift { '°' } else { '¶' }),
+        0x28 => Some(if shift { '¨' } else { '´' }),
+        0x2B => Some(if shift { '¦' } else { '¬' }),
+        0x2C => Some(if uppercase { 'Æ' } else { 'æ' }),
+        0x2E => Some(if shift { '¢' } else { '©' }),
+        0x31 => Some(if uppercase { 'Ñ' } else { 'ñ' }),
+        0x32 => Some('µ'),
+        0x33 => Some(if shift { 'Ç' } else { 'ç' }),
+        0x35 => Some('¿'),
+        _ => None,
+    }
 }
 
 fn apply_dead_key(dead: DeadKey, ch: char) -> Option<char> {
