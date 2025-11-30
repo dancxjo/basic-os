@@ -101,6 +101,35 @@ pub fn register_host_app(name: &str, func: fn() -> !) {
 
 #[cfg(feature = "std")]
 fn spawn_host(name: &str) -> u64 {
+    // Register bundle in graph
+    let bundle_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
+
+    let bundle_type = if name.contains("driver") {
+        crate::canon::DRIVER
+    } else if name.contains("compositor") {
+        crate::canon::COMPOSITOR
+    } else {
+        crate::canon::APP
+    };
+
+    let mut fields = alloc::collections::BTreeMap::new();
+    fields.insert(crate::canon::ID, thing_abi::Value::Uuid(bundle_id));
+    fields.insert(crate::canon::NAME, thing_abi::Value::Text(name.into()));
+    fields.insert(crate::canon::TYPE, thing_abi::Value::Symbol(bundle_type));
+    fields.insert(
+        crate::canon::STATUS,
+        thing_abi::Value::Symbol(crate::canon::INIT),
+    );
+
+    let req = thing_abi::AbiRequest::Fiat {
+        id: Some(bundle_id),
+        kind: crate::canon::BUNDLE,
+        labels: vec![crate::canon::BUNDLE],
+        fields,
+    };
+
+    crate::runtime().call(req);
+
     if let Some(apps) = HOST_APPS.get() {
         if let Some(func) = apps.lock().unwrap().get(name) {
             let func = *func;
