@@ -24,20 +24,21 @@ mod framebuffer_backend;
 pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
 
 const FONT_HEIGHT: usize = 16;
-const TITLE_BAR_HEIGHT: usize = 24;
+const TITLE_BAR_HEIGHT: usize = 32;
 const BORDER_OUTER_THICKNESS: i32 = 1;
 const BORDER_3D_THICKNESS: i32 = 1;
 const BORDER_THICKNESS: i32 = BORDER_OUTER_THICKNESS + BORDER_3D_THICKNESS;
 const RESIZE_MARGIN: i32 = 6;
 const RESIZE_CORNER_SIZE: i32 = 8;
-const CORNER_RADIUS: i32 = 4;
+const CORNER_RADIUS: i32 = 0;
 const MIN_WINDOW_WIDTH: i32 = 140;
 const MIN_WINDOW_HEIGHT: i32 = 100;
 const CLOSE_BUTTON_SIZE: i32 = 12;
-const CLOSE_BUTTON_MARGIN_LEFT: i32 = 6;
-const CLOSE_BUTTON_MARGIN_TOP: i32 = 5;
-const TITLE_TEXT_LEFT_PAD: i32 = CLOSE_BUTTON_MARGIN_LEFT + CLOSE_BUTTON_SIZE + 6;
-const TITLE_TEXT_TOP_OFFSET: i32 = 5;
+const CLOSE_BUTTON_MARGIN_RIGHT: i32 = 6;
+const CLOSE_BUTTON_MARGIN_TOP: i32 = 10;
+const TITLE_TEXT_LEFT_PAD: i32 = 8;
+const TITLE_TEXT_TOP_OFFSET: i32 = 8;
+const CURSOR_SIZE: usize = 98;
 
 #[derive(Clone, Copy)]
 pub struct Theme {
@@ -168,7 +169,7 @@ fn point_in_rect(x: i32, y: i32, rect: (i32, i32, i32, i32)) -> bool {
 }
 
 fn close_button_rect(layout: &WindowLayout) -> (i32, i32, i32, i32) {
-    let x = layout.title_x + CLOSE_BUTTON_MARGIN_LEFT;
+    let x = layout.title_x + layout.title_w - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_MARGIN_RIGHT;
     let y = layout.title_y + CLOSE_BUTTON_MARGIN_TOP;
     (x, y, CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE)
 }
@@ -1199,35 +1200,32 @@ where
         };
 
         // --- Shadow ---
-        // Windows 2000-style offset with soft feather
-        let shadow_color_1 = Rgba::new(0x10, 0, 0, 0);
-        let shadow_color_2 = Rgba::new(0x10, 0, 0, 0);
-        let shadow_color_3 = Rgba::new(0x20, 0, 0, 0);
+        // Feathered drop shadow (expanding layers)
+        // Offset (4, 4)
+        let sx = x as i32 + 4;
+        let sy = y as i32 + 4;
+        let sw = w as u32;
+        let sh = h as u32;
 
-        // Layer 1 (Outermost)
+        // Core
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 4, y as i32 + 4, w as u32, h as u32),
-            color: shadow_color_1,
+            rect: Rect::new(sx, sy, sw, sh),
+            color: Rgba::new(0x40, 0, 0, 0),
         });
-        // Layer 2
+        // Feather 1
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                x as i32 + 5,
-                y as i32 + 5,
-                (w as u32).saturating_sub(2),
-                (h as u32).saturating_sub(2),
-            ),
-            color: shadow_color_2,
+            rect: Rect::new(sx - 1, sy - 1, sw + 2, sh + 2),
+            color: Rgba::new(0x20, 0, 0, 0),
         });
-        // Layer 3 (Core)
+        // Feather 2
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                x as i32 + 6,
-                y as i32 + 6,
-                (w as u32).saturating_sub(4),
-                (h as u32).saturating_sub(4),
-            ),
-            color: shadow_color_3,
+            rect: Rect::new(sx - 2, sy - 2, sw + 4, sh + 4),
+            color: Rgba::new(0x10, 0, 0, 0),
+        });
+        // Feather 3
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(sx - 3, sy - 3, sw + 6, sh + 6),
+            color: Rgba::new(0x08, 0, 0, 0),
         });
 
         let Some(layout) = compute_window_layout(x as i32, y as i32, w as i32, h as i32) else {
@@ -1306,6 +1304,8 @@ where
             ),
             color: title_color,
         });
+
+        // Bottom line of titlebar
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 layout.title_x,
@@ -1319,10 +1319,26 @@ where
         // 6. Control Buttons
         let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(&layout);
 
+        // Dimpled look (recessed)
+        // Top/Left Shadow
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32),
-            color: BTN_BORDER,
+            rect: Rect::new(btn_x, btn_y, btn_w as u32, 1),
+            color: self.theme.frame_shadow,
         });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x, btn_y, 1, btn_h as u32),
+            color: self.theme.frame_shadow,
+        });
+        // Bottom/Right Highlight
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x, btn_y + btn_h - 1, btn_w as u32, 1),
+            color: self.theme.frame_hilight,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x + btn_w - 1, btn_y, 1, btn_h as u32),
+            color: self.theme.frame_hilight,
+        });
+        // Face
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 btn_x + 1,
@@ -1335,12 +1351,13 @@ where
 
         // Close button dot
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x + btn_w / 2 - 3, btn_y + btn_h / 2 - 3, 6, 6),
+            rect: Rect::new(btn_x + btn_w / 2 - 2, btn_y + btn_h / 2 - 2, 4, 4),
             color: BTN_GLYPH,
         });
 
         // 5. Title Text
         let title_max_w = (layout.title_w - TITLE_TEXT_LEFT_PAD - 4).max(0) as u32;
+
         scene.push(SceneItem::DrawText {
             origin: (
                 layout.title_x + TITLE_TEXT_LEFT_PAD,
@@ -1388,8 +1405,6 @@ where
             text: surface.text.clone(),
             color: COLOR_TEXT,
         });
-
-        self.mask_rounded_corners(scene, x as i32, y as i32, w as u32, h as u32);
     }
 
     fn draw_cursor(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
@@ -1405,28 +1420,6 @@ where
             sprite: icon.bitmap.clone(),
             hotspot: icon.hotspot,
         });
-    }
-
-    fn mask_rounded_corners(&self, scene: &mut Scene, x: i32, y: i32, w: u32, h: u32) {
-        let r = CORNER_RADIUS as u32;
-        if r == 0 || w < r || h < r {
-            return;
-        }
-        let positions = [
-            (x, y),
-            (x + w as i32 - r as i32, y),
-            (x, y + h as i32 - r as i32),
-            (x + w as i32 - r as i32, y + h as i32 - r as i32),
-        ];
-
-        for (cx, cy) in positions {
-            scene.push(SceneItem::BlitImage {
-                rect: Rect::new(cx, cy, r, r),
-                image: self.background.clone(),
-                repeat: true,
-                offset: (cx, cy),
-            });
-        }
     }
 
     pub fn set_cursor(&mut self, x: i32, y: i32, buttons: u8) {
@@ -1494,27 +1487,85 @@ impl CursorMask {
     }
 }
 
-fn cursor_icon_from_mask(mask: CursorMask, fill: Rgba, outline: Rgba, shadow: Rgba) -> CursorIcon {
-    let mut pixels = vec![0u32; mask.width * mask.height];
+fn fill_triangle(mask: &mut CursorMask, p1: (i32, i32), p2: (i32, i32), p3: (i32, i32)) {
+    let min_x = core::cmp::min(p1.0, core::cmp::min(p2.0, p3.0));
+    let max_x = core::cmp::max(p1.0, core::cmp::max(p2.0, p3.0));
+    let min_y = core::cmp::min(p1.1, core::cmp::min(p2.1, p3.1));
+    let max_y = core::cmp::max(p1.1, core::cmp::max(p2.1, p3.1));
 
-    // Shadow pass
-    for y in 0..mask.height {
-        for x in 0..mask.width {
-            if !mask.data[y * mask.width + x] {
-                continue;
+    let area_sign = |a: (i32, i32), b: (i32, i32), c: (i32, i32)| -> i32 {
+        (a.0 - c.0) * (b.1 - c.1) - (b.0 - c.0) * (a.1 - c.1)
+    };
+
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let p = (x, y);
+            let d1 = area_sign(p, p2, p3);
+            let d2 = area_sign(p, p3, p1);
+            let d3 = area_sign(p, p1, p2);
+
+            let has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            let has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+            if !(has_neg && has_pos) {
+                mask.set(x, y);
             }
-            let sx = x + 1;
-            let sy = y + 1;
-            if sx < mask.width && sy < mask.height {
-                pixels[sy * mask.width + sx] = shadow.to_u32();
+        }
+    }
+}
+
+fn cursor_icon_from_mask(mask: CursorMask, fill: Rgba, outline: Rgba, _shadow: Rgba) -> CursorIcon {
+    let w = mask.width;
+    let h = mask.height;
+    let mut pixels = vec![0u32; w * h];
+
+    // 1. Generate shadow map (alpha values)
+    let mut shadow_alpha = vec![0u8; w * h];
+    let offset_x = 4;
+    let offset_y = 4;
+
+    for y in 0..h {
+        for x in 0..w {
+            if mask.data[y * w + x] {
+                let sx = x + offset_x;
+                let sy = y + offset_y;
+                if sx < w && sy < h {
+                    shadow_alpha[sy * w + sx] = 0xA0; // Initial intensity
+                }
             }
         }
     }
 
-    // Outline + fill
-    for y in 0..mask.height {
-        for x in 0..mask.width {
-            if !mask.data[y * mask.width + x] {
+    // 2. Blur the shadow map (simple box blur, 3 passes)
+    for _ in 0..3 {
+        let src = shadow_alpha.clone();
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                let mut sum: u32 = 0;
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        sum +=
+                            src[(y as isize + dy) as usize * w + (x as isize + dx) as usize] as u32;
+                    }
+                }
+                shadow_alpha[y * w + x] = (sum / 9) as u8;
+            }
+        }
+    }
+
+    // 3. Composite shadow
+    for i in 0..pixels.len() {
+        let a = shadow_alpha[i];
+        if a > 0 {
+            // Black shadow
+            pixels[i] = (a as u32) << 24;
+        }
+    }
+
+    // 4. Composite cursor shape
+    for y in 0..h {
+        for x in 0..w {
+            if !mask.data[y * w + x] {
                 continue;
             }
             let neighbors = [
@@ -1525,7 +1576,7 @@ fn cursor_icon_from_mask(mask: CursorMask, fill: Rgba, outline: Rgba, shadow: Rg
             ];
             let is_edge = neighbors.iter().any(|(nx, ny)| !mask.filled(*nx, *ny));
             let color = if is_edge { outline } else { fill };
-            pixels[y * mask.width + x] = color.to_u32();
+            pixels[y * w + x] = color.to_u32();
         }
     }
 
@@ -1536,123 +1587,128 @@ fn cursor_icon_from_mask(mask: CursorMask, fill: Rgba, outline: Rgba, shadow: Rg
 }
 
 fn make_arrow_mask() -> CursorMask {
-    let width = 32;
-    let height = 32;
-    let mut mask = CursorMask::new(width, height, (0, 0));
+    let _size = CURSOR_SIZE as i32;
+    let mut mask = CursorMask::new(CURSOR_SIZE, CURSOR_SIZE, (0, 0));
 
-    // Broad triangle head
-    for y in 0..22 {
-        let max_x = core::cmp::min(2 * y + 4, width as i32 - 1);
-        for x in 0..=max_x {
-            mask.set(x, y);
-        }
-    }
+    // Standard arrow shape scaled 3x
+    // Main triangle
+    fill_triangle(&mut mask, (0, 0), (0, 45), (33, 33));
 
-    // Fatter stem
-    for y in 14..height as i32 {
-        for x in 12..18 {
-            mask.set(x, y);
-        }
-    }
+    // Stem
+    // A quad from (12, 36), (21, 54), (27, 51), (18, 33)
+    fill_triangle(&mut mask, (12, 36), (21, 54), (27, 51));
+    fill_triangle(&mut mask, (12, 36), (27, 51), (18, 33));
 
     mask
 }
 
 fn make_move_mask() -> CursorMask {
-    let mut mask = CursorMask::new(28, 28, (14, 14));
-    let c = 14;
-    for y in 6..=22 {
-        for x in c - 3..=c + 3 {
+    let size = CURSOR_SIZE as i32;
+    let c = size / 2;
+    let mut mask = CursorMask::new(CURSOR_SIZE, CURSOR_SIZE, (c, c));
+
+    // Thicker cross
+    for y in (c - 14)..=(c + 14) {
+        for x in (c - 5)..=(c + 5) {
             mask.set(x, y);
         }
     }
-    for x in 6..=22 {
-        for y in c - 3..=c + 3 {
+    for x in (c - 14)..=(c + 14) {
+        for y in (c - 5)..=(c + 5) {
             mask.set(x, y);
         }
     }
-    for i in 0..6 {
+    // Arrow heads
+    for i in 0..14 {
         for dx in -i..=i {
-            mask.set(c + dx, 5 - i);
-            mask.set(c + dx, 22 + i);
-            mask.set(5 - i, c + dx);
-            mask.set(22 + i, c + dx);
+            mask.set(c + dx, c - 15 - i);
+            mask.set(c + dx, c + 15 + i);
+            mask.set(c - 15 - i, c + dx);
+            mask.set(c + 15 + i, c + dx);
         }
     }
     mask
 }
 
 fn make_resize_ns_mask() -> CursorMask {
-    let mut mask = CursorMask::new(28, 28, (14, 14));
-    let c = 14;
-    for y in 7..=21 {
-        for x in c - 3..=c + 3 {
+    let size = CURSOR_SIZE as i32;
+    let c = size / 2;
+    let mut mask = CursorMask::new(CURSOR_SIZE, CURSOR_SIZE, (c, c));
+
+    for y in (c - 14)..=(c + 14) {
+        for x in (c - 5)..=(c + 5) {
             mask.set(x, y);
         }
     }
-    for i in 0..6 {
+    for i in 0..14 {
         for dx in -i..=i {
-            mask.set(c + dx, 6 - i);
-            mask.set(c + dx, 21 + i);
+            mask.set(c + dx, c - 15 - i);
+            mask.set(c + dx, c + 15 + i);
         }
     }
     mask
 }
 
 fn make_resize_ew_mask() -> CursorMask {
-    let mut mask = CursorMask::new(28, 28, (14, 14));
-    let c = 14;
-    for x in 7..=21 {
-        for y in c - 3..=c + 3 {
+    let size = CURSOR_SIZE as i32;
+    let c = size / 2;
+    let mut mask = CursorMask::new(CURSOR_SIZE, CURSOR_SIZE, (c, c));
+
+    for x in (c - 14)..=(c + 14) {
+        for y in (c - 5)..=(c + 5) {
             mask.set(x, y);
         }
     }
-    for i in 0..6 {
+    for i in 0..14 {
         for dy in -i..=i {
-            mask.set(6 - i, c + dy);
-            mask.set(21 + i, c + dy);
+            mask.set(c - 15 - i, c + dy);
+            mask.set(c + 15 + i, c + dy);
         }
     }
     mask
 }
 
 fn make_resize_nw_se_mask() -> CursorMask {
-    let mut mask = CursorMask::new(30, 30, (15, 15));
-    let c = 15;
-    for offset in -8..=8 {
+    let size = CURSOR_SIZE as i32;
+    let c = size / 2;
+    let mut mask = CursorMask::new(CURSOR_SIZE, CURSOR_SIZE, (c, c));
+
+    for offset in -18..=18 {
         let x = c + offset;
         let y = c + offset;
-        for t in -2..=2 {
+        for t in -4..=4 {
             mask.set(x + t, y);
         }
     }
-    for i in 0..6 {
+    for i in 0..14 {
         for dx in 0..=i {
-            mask.set(c - 9 - i, c - 2 + dx);
-            mask.set(c - 2 + dx, c - 9 - i);
-            mask.set(c + 9 + i, c + 2 - dx);
-            mask.set(c + 2 - dx, c + 9 + i);
+            mask.set(c - 19 - i, c - 4 + dx);
+            mask.set(c - 4 + dx, c - 19 - i);
+            mask.set(c + 19 + i, c + 4 - dx);
+            mask.set(c + 4 - dx, c + 19 + i);
         }
     }
     mask
 }
 
 fn make_resize_ne_sw_mask() -> CursorMask {
-    let mut mask = CursorMask::new(30, 30, (15, 15));
-    let c = 15;
-    for offset in -8..=8 {
+    let size = CURSOR_SIZE as i32;
+    let c = size / 2;
+    let mut mask = CursorMask::new(CURSOR_SIZE, CURSOR_SIZE, (c, c));
+
+    for offset in -18..=18 {
         let x = c + offset;
         let y = c - offset;
-        for t in -2..=2 {
+        for t in -4..=4 {
             mask.set(x + t, y);
         }
     }
-    for i in 0..6 {
+    for i in 0..14 {
         for dx in 0..=i {
-            mask.set(c + 9 + i, c - 2 - dx);
-            mask.set(c + 2 + dx, c - 9 - i);
-            mask.set(c - 9 - i, c + 2 + dx);
-            mask.set(c - 2 - dx, c + 9 + i);
+            mask.set(c + 19 + i, c - 4 - dx);
+            mask.set(c + 4 + dx, c - 19 - i);
+            mask.set(c - 19 - i, c + 4 + dx);
+            mask.set(c - 4 - dx, c + 19 + i);
         }
     }
     mask
