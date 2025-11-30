@@ -244,6 +244,17 @@ limine/limine:
 	git clone https://github.com/limine-bootloader/limine.git --branch=v9.x-binary --depth=1
 	$(MAKE) -C limine
 
+.PHONY: third_party
+third_party:
+	@if [ -f third_party/ascii/Cargo.toml ]; then \
+		echo "third_party present"; \
+		exit 0; \
+	fi; \
+	echo "third_party/ascii missing or empty — fetching..."; \
+	rm -rf third_party/ascii; \
+	mkdir -p third_party; \
+	git clone https://github.com/tomprogrammer/rust-ascii third_party/ascii
+
 .PHONY: userland
 userland:
 		cd compositor && RUSTFLAGS="-C link-arg=-T$(CURDIR)/compositor/link.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target $(RUST_TARGET)
@@ -253,7 +264,7 @@ userland:
 		cd drivers/framebuffer_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 
 .PHONY: kernel
-kernel:
+kernel: third_party
 	$(MAKE) -C kernel
 
 $(IMAGE_NAME).iso: limine/limine kernel userland
