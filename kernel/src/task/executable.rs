@@ -4,6 +4,7 @@ use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, TaskMode, prepare_context};
+use crate::task::scheduler::Task;
 use core::ptr;
 use goblin::elf::Elf;
 use log::info;
@@ -88,12 +89,12 @@ pub fn create_user_page_table(
     // Mirror task stacks (scheduler uses a different region)
     const TASK_STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
     const MAX_TASKS_TO_MAP: u64 = 64;
-    const TASK_STACK_SIZE: u64 = 16 * 4096;
+    let task_stack_size = Task::stack_size(); // Keep mirrored size in sync with scheduler stacks.
     mirror_kernel_region(
         &mut offset_page_table,
         frame_allocator,
         (VirtAddr::new(TASK_STACK_REGION_BASE)
-            ..VirtAddr::new(TASK_STACK_REGION_BASE + MAX_TASKS_TO_MAP * TASK_STACK_SIZE))
+            ..VirtAddr::new(TASK_STACK_REGION_BASE + MAX_TASKS_TO_MAP * task_stack_size))
             .into(),
     );
 

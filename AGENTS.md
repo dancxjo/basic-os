@@ -77,3 +77,9 @@ The `syscall` instruction does not automatically switch stacks. If the kernel us
 Any kernel code that dereferences user pointers must assume that **CR3 is the active user page table at the time of execution**.
 Kernel code must never assume that pointers are valid without explicit validation.
 Invalid user pointers must fault the *task*, not the kernel.
+
+### Timer Double Fault Masking Page Faults
+- Symptom: right after user tasks start, the first timer tick prints a switch log and then hits `EXCEPTION: DOUBLE FAULT` with no preceding page-fault trace entry.
+- Root cause: kernel task stacks were enlarged to 64 pages, but `create_user_page_table` only mirrored 16 pages per stack into the user CR3. When a timer interrupt fires in user mode, the CPU switches to the top of the kernel stack, which is unmapped in the user page table, so the stack switch faults and escalates to a double fault before the page-fault handler runs.
+- Fix: mirror the full scheduler stack size (`Task::stack_size()`) for all task stacks when building user page tables (`kernel/src/task/executable.rs`). If you change stack sizing again, update the mirrored range in lock-step.
+- Triage tip: if you see an early double fault with `TraceKind::SwitchTo` followed immediately by `TraceKind::DoubleFault` and no `TraceKind::PageFault`, first verify the stack mirror sizing before debugging other areas.
