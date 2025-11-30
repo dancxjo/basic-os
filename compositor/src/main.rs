@@ -2,7 +2,7 @@
 #![cfg_attr(not(feature = "std"), no_main)]
 
 extern crate alloc;
-use alloc::vec;
+// use alloc::vec;
 
 #[cfg(not(feature = "std"))]
 use compositor::{BitmapFramebufferDevice, BitmapRenderer, Compositor, FramebufferTarget};
@@ -37,13 +37,10 @@ pub extern "C" fn _start() -> ! {
         )
     };
 
-    let renderer = unsafe {
-        BitmapRenderer::new(
-            fb_target.info.width as usize,
-            fb_target.info.height as usize,
-            &mut BACKBUFFER_STORAGE,
-        )
-    };
+    let renderer = BitmapRenderer::new(
+        fb_target.info.width as usize,
+        fb_target.info.height as usize,
+    );
     let mut compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
         &mut watch_manager,
         compositor_app_id,
@@ -56,6 +53,25 @@ pub extern "C" fn _start() -> ! {
 
         for ev in watch_manager.drain_inbox(compositor_app_id) {
             compositor.on_event(&ev);
+        }
+
+        if compositor.is_fb_dirty() {
+            if let Some(info) = userland::sys::fb_info() {
+                let width = info.width as usize;
+                let height = info.height as usize;
+                let pitch = info.pitch as usize;
+                let addr = info.addr as *mut u32;
+
+                unsafe {
+                    compositor
+                        .fb_device_mut()
+                        .resize(width, height, pitch, addr);
+                }
+                compositor.renderer_mut().resize(width, height);
+                compositor.resize(width, height);
+                compositor.clear_fb_dirty();
+                println!("Resized compositor to {}x{}", width, height);
+            }
         }
 
         compositor.tick();
@@ -118,7 +134,7 @@ fn main() {
     use std::time::Duration;
     use userland::watch::WatchManager;
     use userland::FramebufferGeometry;
-    use userland::ThingRuntime;
+    // use userland::ThingRuntime;
 
     userland::ensure_kernel_runtime();
 
@@ -172,17 +188,9 @@ fn main() {
         fb_target.addr,
     );
 
-    // Allocate backbuffer on heap and leak it to get 'static lifetime
-    // Allocate for 4K resolution (3840x2160) to be safe
-    let max_width = 3840;
-    let max_height = 2160;
-    let backbuffer_vec = vec![0u32; max_width * max_height];
-    let backbuffer = Box::leak(backbuffer_vec.into_boxed_slice());
-
     let renderer = BitmapRenderer::new(
         fb_target.info.width as usize,
         fb_target.info.height as usize,
-        backbuffer,
     );
 
     let compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
@@ -538,14 +546,14 @@ function sendMouse(dx, dy, buttons) {
                 msg.extend_from_slice(&height.to_le_bytes());
                 msg.extend_from_slice(&bytes);
 
-                if let Err(e) = websocket.write_message(Message::Binary(msg)) {
+                if let Err(e) = websocket.send(Message::Binary(msg)) {
                     println!("Write failed: {}", e);
                     break;
                 }
 
                 // Read input
                 loop {
-                    match websocket.read_message() {
+                    match websocket.read() {
                         Ok(msg) => {
                             if let Message::Text(text) = msg {
                                 handle_input(&text);

@@ -24,8 +24,8 @@ pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
 
 const FONT_HEIGHT: usize = 16;
 const TITLE_BAR_HEIGHT: usize = 22;
-const BORDER_THICKNESS: usize = 1;
-const WINDOW_PADDING: usize = 0;
+const _BORDER_THICKNESS: usize = 1;
+const _WINDOW_PADDING: usize = 0;
 const CURSOR_SIZE: usize = 16;
 const CURSOR_MASK: [u16; CURSOR_SIZE] = [
     0b1000000000000000,
@@ -47,7 +47,7 @@ const CURSOR_MASK: [u16; CURSOR_SIZE] = [
 ];
 
 // Sky / accent blues
-const SKY_BLUE: Rgba = Rgba::new(0xff, 0x57, 0xA8, 0xFF);
+const _SKY_BLUE: Rgba = Rgba::new(0xff, 0x57, 0xA8, 0xFF);
 const NAVY_LINE: Rgba = Rgba::new(0xff, 0x28, 0x42, 0x5F);
 
 // Window frames & titlebar
@@ -67,12 +67,12 @@ const BTN_CLOSE_DOT: Rgba = Rgba::new(0xff, 0xC9, 0x5C, 0x5C);
 
 const COLOR_TITLE_BAR: Rgba = FRAME_MEDIUM;
 const COLOR_TITLE: Rgba = NAVY_LINE;
-const COLOR_WINDOW_BG: Rgba = FRAME_LIGHT;
-const COLOR_BORDER: Rgba = NAVY_LINE;
+const _COLOR_WINDOW_BG: Rgba = FRAME_LIGHT;
+const _COLOR_BORDER: Rgba = NAVY_LINE;
 const COLOR_TEXT: Rgba = NAVY_LINE;
 const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
 const COLOR_CURSOR_SHADOW: Rgba = Rgba::new(0x40, 0x00, 0x00, 0x00);
-const COLOR_SHADOW: Rgba = FRAME_SHADOW;
+const _COLOR_SHADOW: Rgba = FRAME_SHADOW;
 const CLEAR_COLOR: Rgba = Rgba::new(0xff, 0x00, 0x00, 0x00);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -295,6 +295,7 @@ pub struct Compositor<F, R> {
     watch_cursor: Option<WatchId>,
     watch_fb: Option<WatchId>,
     fb_id: Option<Uuid>,
+    fb_dirty: bool,
     cursor: CursorState,
     background: Arc<Bitmap>,
 }
@@ -321,6 +322,7 @@ where
             watch_cursor: None,
             watch_fb: None,
             fb_id: None,
+            fb_dirty: false,
             cursor: CursorState::new(width, height),
             background,
         }
@@ -340,6 +342,14 @@ where
 
     pub fn renderer_mut(&mut self) -> &mut R {
         &mut self.renderer
+    }
+
+    pub fn is_fb_dirty(&self) -> bool {
+        self.fb_dirty
+    }
+
+    pub fn clear_fb_dirty(&mut self) {
+        self.fb_dirty = false;
     }
 
     pub fn resize(&mut self, width: usize, height: usize) {
@@ -425,6 +435,7 @@ where
                 } else if Some(*watch) == self.watch_fb {
                     if thing.kind == canon::DISPLAY_FRAMEBUFFER {
                         self.fb_id = Some(thing.id);
+                        self.fb_dirty = true;
                     }
                 }
             }
@@ -648,17 +659,27 @@ where
         });
         // Layer 2
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 5, y as i32 + 5, (w as u32).saturating_sub(2), (h as u32).saturating_sub(2)),
+            rect: Rect::new(
+                x as i32 + 5,
+                y as i32 + 5,
+                (w as u32).saturating_sub(2),
+                (h as u32).saturating_sub(2),
+            ),
             color: shadow_color_2,
         });
         // Layer 3 (Core)
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 6, y as i32 + 6, (w as u32).saturating_sub(4), (h as u32).saturating_sub(4)),
+            rect: Rect::new(
+                x as i32 + 6,
+                y as i32 + 6,
+                (w as u32).saturating_sub(4),
+                (h as u32).saturating_sub(4),
+            ),
             color: shadow_color_3,
         });
 
         // Helper to draw rounded rect
-        let mut push_rounded_rect = |scene: &mut Scene, r: Rect, c: Rgba| {
+        let push_rounded_rect = |scene: &mut Scene, r: Rect, c: Rgba| {
             // Middle band
             scene.push(SceneItem::FillRect {
                 rect: Rect::new(r.x, r.y + 6, r.width, r.height.saturating_sub(12)),

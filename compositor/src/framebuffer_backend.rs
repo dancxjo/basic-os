@@ -2,13 +2,15 @@ use crate::{
     clamp_i32, Bitmap, FrameInfo, FramebufferDevice, FramebufferGeometry, Rect, RendererBackend,
     Rgba, Scene, SceneItem, CLEAR_COLOR, CURSOR_MASK, CURSOR_SIZE, FONT_HEIGHT,
 };
+use alloc::vec::Vec;
+use alloc::vec;
 use core::cmp::min;
 use unifont::get_glyph;
 
-pub struct BitmapRenderer<'a> {
+pub struct BitmapRenderer {
     width: usize,
     height: usize,
-    storage: &'a mut [u32],
+    storage: Vec<u32>,
 }
 
 pub struct BitmapFramebufferDevice {
@@ -21,31 +23,27 @@ pub struct BitmapFramebufferDevice {
 unsafe impl Send for BitmapFramebufferDevice {}
 unsafe impl Sync for BitmapFramebufferDevice {}
 
-impl<'a> BitmapRenderer<'a> {
-    pub fn new(width: usize, height: usize, storage: &'a mut [u32]) -> Self {
+impl BitmapRenderer {
+    pub fn new(width: usize, height: usize) -> Self {
         Self {
             width,
             height,
-            storage,
+            storage: vec![0; width * height],
         }
     }
 
     pub fn resize(&mut self, width: usize, height: usize) {
-        if width.saturating_mul(height) <= self.storage.len() {
-            self.width = width;
-            self.height = height;
-        }
+        self.width = width;
+        self.height = height;
+        self.storage.resize(width * height, 0);
     }
 
     fn clear(&mut self, color: Rgba) {
-        let needed = self.width * self.height;
-        if needed <= self.storage.len() {
-            self.storage[..needed].fill(color.to_u32());
-        }
+        self.storage.fill(color.to_u32());
     }
 }
 
-impl<'a> RendererBackend for BitmapRenderer<'a> {
+impl RendererBackend for BitmapRenderer {
     type Output<'b>
         = &'b [u32]
     where
@@ -89,12 +87,7 @@ impl<'a> RendererBackend for BitmapRenderer<'a> {
                 }
             }
         }
-        let needed = self.width * self.height;
-        if needed <= self.storage.len() {
-            &self.storage[..needed]
-        } else {
-            &self.storage[..]
-        }
+        &self.storage
     }
 }
 
@@ -412,9 +405,7 @@ mod tests {
 
     #[test]
     fn raster_blit_image_skips_out_of_bounds_when_not_repeating() {
-        let storage = vec![0u32; 9];
-        let backbuffer: &'static mut [u32] = Box::leak(storage.into_boxed_slice());
-        let mut backend = BitmapRenderer::new(3, 3, backbuffer);
+        let mut backend = BitmapRenderer::new(3, 3);
         let bmp = Bitmap::new(2, 2, vec![1, 2, 3, 4]);
 
         raster_blit_image(&mut backend, &Rect::new(0, 0, 3, 3), &bmp, false);
