@@ -756,6 +756,7 @@ fn symbol_from_scancode(scancode: u8, shift: bool, altgr: bool) -> Option<char> 
             }
         }
         0x1B => '[',
+        0x39 => ' ',
         0x27 => ';',
         0x28 => '\'',
         0x29 => '`',
