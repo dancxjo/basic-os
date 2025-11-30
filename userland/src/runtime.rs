@@ -220,7 +220,9 @@ impl ThingRuntime for KernelRuntime {
             | AbiRequest::DevRead { .. }
             | AbiRequest::DevWrite { .. }
             | AbiRequest::IrqBind { .. }
-            | AbiRequest::IrqAck { .. } => AbiResponse::Error {
+            | AbiRequest::IrqAck { .. }
+            | AbiRequest::FbInfo
+            | AbiRequest::FbMap => AbiResponse::Error {
                 message: "device ops not supported via runtime on kernel".into(),
             },
         }

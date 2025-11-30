@@ -317,3 +317,20 @@ macro_rules! app_main {
         }
     };
 }
+
+#[cfg(feature = "std")]
+pub fn run_app<A: App + 'static>() -> ! {
+    crate::ensure_kernel_runtime();
+    let mut watch_manager = WatchManager::new();
+    let compositor_id = Uuid::nil();
+    
+    let mut app_runner = create_app::<A>(compositor_id, &mut watch_manager);
+    let mut tick = 0;
+    loop {
+        let app_id = app_runner.app_id();
+        watch_manager.process_graph(&[app_id]);
+        app_runner.tick(&mut watch_manager, tick);
+        tick = tick.wrapping_add(1);
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+}

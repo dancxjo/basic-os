@@ -569,9 +569,7 @@ pub fn log_args(args: fmt::Arguments) {
     struct LogWriter;
     impl fmt::Write for LogWriter {
         fn write_str(&mut self, s: &str) -> fmt::Result {
-            unsafe {
-                sys::syscall(sys::SYSCALL_LOG, s.as_ptr() as u64, s.len() as u64, 0, 0);
-            }
+            sys::log(s);
             Ok(())
         }
     }

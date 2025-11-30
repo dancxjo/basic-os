@@ -469,6 +469,8 @@ pub enum AbiRequest {
     IrqAck {
         handle: u64,
     },
+    FbInfo,
+    FbMap,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -515,6 +517,12 @@ pub enum AbiResponse {
         handle: Option<u64>,
     },
     IrqAcked,
+    FbInfo {
+        info: FramebufferGeometry,
+    },
+    FbMapped {
+        addr: u64,
+    },
     Error {
         message: String,
     },

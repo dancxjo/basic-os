@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use thing_abi::{
-    AbiRequest, AbiResponse, GraphChange, GraphEdge, GraphFiatRequest, GraphGetRequest,
-    GraphLinkRequest, GraphThing, GraphWatchBatch, NodePattern, ThingRuntime, WatchId,
+    AbiRequest, AbiResponse, FramebufferGeometry, GraphChange, GraphEdge, GraphFiatRequest,
+    GraphGetRequest, GraphLinkRequest, GraphThing, GraphWatchBatch, NodePattern, ThingRuntime,
+    WatchId,
 };
 mod store;
 mod symbols;
@@ -18,6 +19,7 @@ pub struct HostRuntime {
     next_watch: AtomicU64,
     keyboard_fifo: Mutex<VecDeque<u8>>,
     mouse_fifo: Mutex<VecDeque<u8>>,
+    framebuffer: Mutex<Vec<u32>>,
     open_devices: Mutex<HashMap<u64, DeviceState>>,
     next_handle: AtomicU64,
 }
@@ -55,9 +57,27 @@ impl HostRuntime {
             next_watch: AtomicU64::new(1),
             keyboard_fifo: Mutex::new(VecDeque::new()),
             mouse_fifo: Mutex::new(VecDeque::new()),
+            framebuffer: Mutex::new(vec![0; 1024 * 768]),
             open_devices: Mutex::new(HashMap::new()),
             next_handle: AtomicU64::new(1),
         }
+    }
+
+    pub fn get_framebuffer_bytes(&self) -> Vec<u8> {
+        let fb = self.framebuffer.lock();
+        let mut bytes = Vec::with_capacity(fb.len() * 4);
+        for pixel in fb.iter() {
+            // Assuming 0x00RRGGBB format from BitmapRenderer
+            // Canvas expects RGBA
+            let r = ((pixel >> 16) & 0xFF) as u8;
+            let g = ((pixel >> 8) & 0xFF) as u8;
+            let b = (pixel & 0xFF) as u8;
+            bytes.push(r);
+            bytes.push(g);
+            bytes.push(b);
+            bytes.push(255);
+        }
+        bytes
     }
 
     pub fn push_scancode(&self, code: u8) {
@@ -321,6 +341,19 @@ impl ThingRuntime for HostRuntime {
                 AbiResponse::IrqBound { handle: Some(1) }
             }
             AbiRequest::IrqAck { handle: _ } => AbiResponse::IrqAcked,
+            AbiRequest::FbInfo => AbiResponse::FbInfo {
+                info: FramebufferGeometry {
+                    width: 1024,
+                    height: 768,
+                    pitch: 1024 * 4,
+                    bpp: 32,
+                },
+            },
+            AbiRequest::FbMap => {
+                let mut fb = self.framebuffer.lock();
+                let addr = fb.as_mut_ptr() as u64;
+                AbiResponse::FbMapped { addr }
+            }
             AbiRequest::GrantCapability { request: _ } => {
                 AbiResponse::CapabilityGranted { granted: true }
             }

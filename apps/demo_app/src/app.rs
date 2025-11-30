@@ -19,7 +19,7 @@ pub struct DemoApp {
 
 impl App for DemoApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
-        let window = ctx.create_window("Clouds");
+        let window = ctx.create_window("Demo Application");
 
         ctx.watch_graph(ThingFilter {
             kind: Some(canon::KEY_PRESSED),

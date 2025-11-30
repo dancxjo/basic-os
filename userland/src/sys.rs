@@ -75,7 +75,41 @@ pub const SYSCALL_SPAWN: u64 = 0x30;
 pub const SYSCALL_LOG: u64 = 0x99;
 
 pub fn spawn(name: &str) -> u64 {
-    unsafe { syscall(SYSCALL_SPAWN, name.as_ptr() as u64, name.len() as u64, 0, 0) }
+    #[cfg(target_os = "none")]
+    {
+        unsafe { syscall(SYSCALL_SPAWN, name.as_ptr() as u64, name.len() as u64, 0, 0) }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        #[cfg(feature = "std")]
+        return spawn_host(name);
+        #[cfg(not(feature = "std"))]
+        return 0;
+    }
+}
+
+#[cfg(feature = "std")]
+static HOST_APPS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, fn() -> !>>> = std::sync::OnceLock::new();
+
+#[cfg(feature = "std")]
+pub fn register_host_app(name: &str, func: fn() -> !) {
+    let apps = HOST_APPS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    apps.lock().unwrap().insert(name.to_string(), func);
+}
+
+#[cfg(feature = "std")]
+fn spawn_host(name: &str) -> u64 {
+    if let Some(apps) = HOST_APPS.get() {
+        if let Some(func) = apps.lock().unwrap().get(name) {
+            let func = *func;
+            std::thread::spawn(move || {
+                func();
+            });
+            return 1;
+        }
+    }
+    println!("Host spawn failed: app '{}' not registered", name);
+    0
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -114,151 +148,332 @@ pub struct FramebufferInfo {
 }
 
 pub fn fb_info() -> Option<FramebufferInfo> {
-    let mut info = FramebufferInfo {
-        width: 0,
-        height: 0,
-        pitch: 0,
-        bpp: 0,
-        addr: 0,
-    };
-    let ret = unsafe {
-        syscall(
-            SYSCALL_FB_INFO,
-            &mut info as *mut _ as u64,
-            core::mem::size_of::<FramebufferInfo>() as u64,
-            0,
-            0,
-        )
-    };
-    if ret == core::mem::size_of::<FramebufferInfo>() as u64 {
-        Some(info)
-    } else {
-        None
+    #[cfg(target_os = "none")]
+    {
+        let mut info = FramebufferInfo {
+            width: 0,
+            height: 0,
+            pitch: 0,
+            bpp: 0,
+            addr: 0,
+        };
+        let ret = unsafe {
+            syscall(
+                SYSCALL_FB_INFO,
+                &mut info as *mut _ as u64,
+                core::mem::size_of::<FramebufferInfo>() as u64,
+                0,
+                0,
+            )
+        };
+        if ret == core::mem::size_of::<FramebufferInfo>() as u64 {
+            Some(info)
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req = thing_abi::AbiRequest::FbInfo;
+        match crate::runtime().call(req) {
+            thing_abi::AbiResponse::FbInfo { info } => Some(FramebufferInfo {
+                width: info.width as u64,
+                height: info.height as u64,
+                pitch: info.pitch as u64,
+                bpp: info.bpp as u64,
+                addr: 0, // Addr is not returned by info, but by map
+            }),
+            _ => None,
+        }
     }
 }
 
 pub fn fb_map() -> u64 {
-    unsafe { syscall(SYSCALL_FB_MAP, 0, 0, 0, 0) }
+    #[cfg(target_os = "none")]
+    {
+        unsafe { syscall(SYSCALL_FB_MAP, 0, 0, 0, 0) }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req = thing_abi::AbiRequest::FbMap;
+        match crate::runtime().call(req) {
+            thing_abi::AbiResponse::FbMapped { addr } => addr,
+            _ => 0,
+        }
+    }
 }
 
 pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_FIAT,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_FIAT,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req: thing_abi::GraphFiatRequest = postcard::from_bytes(payload).expect("deserialize fiat");
+        let abi_req = thing_abi::AbiRequest::Fiat {
+            id: req.id,
+            kind: req.kind,
+            labels: req.labels,
+            fields: req.fields,
+        };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::Fiat { thing } => thing.revision,
+            _ => 0,
+        }
     }
 }
 
 pub fn graph_find_by_kind_raw(req: &GraphFindByKind, out: &mut [u8]) -> u64 {
-    let req_ptr = req as *const _ as u64;
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_FIND_BY_KIND,
-            req_ptr,
-            out.as_mut_ptr() as u64,
-            out.len() as u64,
-            0,
-        )
+    #[cfg(target_os = "none")]
+    {
+        let req_ptr = req as *const _ as u64;
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_FIND_BY_KIND,
+                req_ptr,
+                out.as_mut_ptr() as u64,
+                out.len() as u64,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let kind_slice = unsafe { core::slice::from_raw_parts(req.kind_ptr as *const u8, req.kind_len as usize) };
+        let kind_str = core::str::from_utf8(kind_slice).unwrap_or("");
+        let abi_req = thing_abi::AbiRequest::FindByKind {
+            kind: kind_str.to_string(),
+            cursor: None,
+        };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::Find { things, .. } => {
+                let slice = postcard::to_slice(&things, out).unwrap_or(&mut []);
+                slice.len() as u64
+            }
+            _ => 0,
+        }
     }
 }
 
 pub fn graph_link_raw(payload: &[u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_LINK,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_LINK,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req: thing_abi::GraphLinkRequest = postcard::from_bytes(payload).expect("deserialize link");
+        let abi_req = thing_abi::AbiRequest::Link {
+            id: req.id,
+            from: req.from,
+            pred: req.pred,
+            to: req.to,
+            props: req.props,
+        };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::Link { edge: Some(edge) } => edge.revision,
+            _ => 0,
+        }
     }
 }
 
 pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_GET_PROPS,
-            request.as_ptr() as u64,
-            request.len() as u64,
-            out.as_mut_ptr() as u64,
-            out.len() as u64,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_GET_PROPS,
+                request.as_ptr() as u64,
+                request.len() as u64,
+                out.as_mut_ptr() as u64,
+                out.len() as u64,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req: thing_abi::GraphPropsGetRequest = postcard::from_bytes(request).expect("deserialize props get");
+        let abi_req = thing_abi::AbiRequest::PropsGet { request: req };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::Props { props } => {
+                let slice = postcard::to_slice(&props, out).unwrap_or(&mut []);
+                slice.len() as u64
+            }
+            _ => 0,
+        }
     }
 }
 
 pub fn graph_set_props_raw(request: &[u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_SET_PROPS,
-            request.as_ptr() as u64,
-            request.len() as u64,
-            0,
-            0,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_SET_PROPS,
+                request.as_ptr() as u64,
+                request.len() as u64,
+                0,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req: thing_abi::GraphPropsRequest = postcard::from_bytes(request).expect("deserialize props set");
+        let abi_req = thing_abi::AbiRequest::PropsSet { request: req };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::Props { .. } => 1, // Success
+            _ => 0,
+        }
     }
 }
 
 pub fn graph_watch_register_raw(payload: &[u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_WATCH_REGISTER,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_WATCH_REGISTER,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let pattern: thing_abi::NodePattern = postcard::from_bytes(payload).expect("deserialize watch pattern");
+        let abi_req = thing_abi::AbiRequest::WatchRegister { pattern };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::WatchRegistered { watch_id } => watch_id,
+            _ => 0,
+        }
     }
 }
 
 pub fn graph_watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_WATCH_POLL,
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_WATCH_POLL,
+                watch_id,
+                out.as_mut_ptr() as u64,
+                out.len() as u64,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let abi_req = thing_abi::AbiRequest::WatchPoll {
             watch_id,
-            out.as_mut_ptr() as u64,
-            out.len() as u64,
-            0,
-        )
+            max_events: None,
+        };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::WatchEvents { events } => {
+                let slice = postcard::to_slice(&events, out).unwrap_or(&mut []);
+                slice.len() as u64
+            }
+            _ => 0,
+        }
     }
 }
 
 pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_KBD_READ,
-            out.as_mut_ptr() as u64,
-            out.len() as u64,
-            0,
-            0,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_KBD_READ,
+                out.as_mut_ptr() as u64,
+                out.len() as u64,
+                0,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        // Not implemented on host via this syscall, use DevRead or similar if needed
+        0
     }
 }
 
 pub fn graph_get_raw(request: &[u8], out: &mut [u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRAPH_GET,
-            request.as_ptr() as u64,
-            request.len() as u64,
-            out.as_mut_ptr() as u64,
-            out.len() as u64,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRAPH_GET,
+                request.as_ptr() as u64,
+                request.len() as u64,
+                out.as_mut_ptr() as u64,
+                out.len() as u64,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req: thing_abi::GraphGetRequest = postcard::from_bytes(request).unwrap();
+        let abi_req = match req {
+            thing_abi::GraphGetRequest::Thing(id) => thing_abi::AbiRequest::Get { id },
+            thing_abi::GraphGetRequest::Pattern(pattern) => thing_abi::AbiRequest::Query { pattern },
+        };
+
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::Get { thing: Some(node) } => {
+                let slice = postcard::to_slice(&node, out).unwrap_or(&mut []);
+                slice.len() as u64
+            }
+            thing_abi::AbiResponse::Query { things } => {
+                let slice = postcard::to_slice(&things, out).unwrap_or(&mut []);
+                slice.len() as u64
+            }
+            _ => 0,
+        }
     }
 }
 
 pub fn grant_capability_raw(payload: &[u8]) -> u64 {
-    unsafe {
-        syscall(
-            SYSCALL_GRANT_CAPABILITY,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        )
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_GRANT_CAPABILITY,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            )
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req: thing_abi::GrantCapabilityRequest = postcard::from_bytes(payload).expect("deserialize grant cap");
+        let abi_req = thing_abi::AbiRequest::GrantCapability { request: req };
+        match crate::runtime().call(abi_req) {
+            thing_abi::AbiResponse::CapabilityGranted { granted } => if granted { 0 } else { 1 },
+            _ => 1,
+        }
     }
 }
 
@@ -310,45 +525,78 @@ pub fn irq_ack(handle: u64) -> bool {
 }
 
 pub fn dma_map(request: DmaMapRequest) -> Option<u64> {
-    let payload = serialize_request(&request)?;
-    let handle = unsafe {
-        syscall(
-            SYSCALL_DMA_MAP,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        )
-    };
-    (handle != !0).then_some(handle)
+    #[cfg(target_os = "none")]
+    {
+        let payload = serialize_request(&request)?;
+        let handle = unsafe {
+            syscall(
+                SYSCALL_DMA_MAP,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            )
+        };
+        (handle != !0).then_some(handle)
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        None
+    }
 }
 
 pub fn dma_submit(request: DmaSubmitRequest) -> Option<u64> {
-    let payload = serialize_request(&request)?;
-    let handle = unsafe {
-        syscall(
-            SYSCALL_DMA_SUBMIT,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        )
-    };
-    (handle != !0).then_some(handle)
+    #[cfg(target_os = "none")]
+    {
+        let payload = serialize_request(&request)?;
+        let handle = unsafe {
+            syscall(
+                SYSCALL_DMA_SUBMIT,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            )
+        };
+        (handle != !0).then_some(handle)
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        None
+    }
 }
 
 pub fn dma_wait(request: DmaWaitRequest) -> bool {
-    let Some(payload) = serialize_request(&request) else {
-        return false;
-    };
-    unsafe {
-        syscall(
-            SYSCALL_DMA_WAIT,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        ) == 0
+    #[cfg(target_os = "none")]
+    {
+        let Some(payload) = serialize_request(&request) else {
+            return false;
+        };
+        unsafe {
+            syscall(
+                SYSCALL_DMA_WAIT,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            ) == 0
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        false
+    }
+}
+
+pub fn log(s: &str) {
+    #[cfg(target_os = "none")]
+    {
+        unsafe { syscall(SYSCALL_LOG, s.as_ptr() as u64, s.len() as u64, 0, 0) };
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        // On host, print to stderr
+        eprint!("{}", s);
     }
 }
 
@@ -438,10 +686,17 @@ pub fn dev_write(handle: u64, buf: &[u8]) -> usize {
 }
 
 pub fn dev_map(handle: u64) -> Option<u64> {
-    let ret = unsafe { syscall(SYSCALL_DEV_MAP, handle, 0, 0, 0) };
-    if ret == 0 {
+    #[cfg(target_os = "none")]
+    {
+        let ret = unsafe { syscall(SYSCALL_DEV_MAP, handle, 0, 0, 0) };
+        if ret == 0 {
+            None
+        } else {
+            Some(ret)
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
         None
-    } else {
-        Some(ret)
     }
 }

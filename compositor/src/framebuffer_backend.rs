@@ -5,10 +5,10 @@ use crate::{
 use core::cmp::min;
 use unifont::get_glyph;
 
-pub struct BitmapRenderer {
+pub struct BitmapRenderer<'a> {
     width: usize,
     height: usize,
-    backbuffer: &'static mut [u32],
+    backbuffer: &'a mut [u32],
 }
 
 pub struct BitmapFramebufferDevice {
@@ -18,8 +18,11 @@ pub struct BitmapFramebufferDevice {
     addr: *mut u32,
 }
 
-impl BitmapRenderer {
-    pub fn new(width: usize, height: usize, backbuffer_storage: &'static mut [u32]) -> Self {
+unsafe impl Send for BitmapFramebufferDevice {}
+unsafe impl Sync for BitmapFramebufferDevice {}
+
+impl<'a> BitmapRenderer<'a> {
+    pub fn new(width: usize, height: usize, backbuffer_storage: &'a mut [u32]) -> Self {
         let needed = width.saturating_mul(height).min(backbuffer_storage.len());
         let backbuffer = &mut backbuffer_storage[..needed];
 
@@ -35,9 +38,9 @@ impl BitmapRenderer {
     }
 }
 
-impl RendererBackend for BitmapRenderer {
-    type Output<'a> = &'a [u32];
-    fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a> {
+impl<'a> RendererBackend for BitmapRenderer<'a> {
+    type Output<'b> = &'b [u32] where Self: 'b;
+    fn render<'b>(&'b mut self, scene: &Scene) -> Self::Output<'b> {
         self.clear(CLEAR_COLOR);
         for item in scene.items() {
             match item {

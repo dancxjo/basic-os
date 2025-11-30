@@ -19,12 +19,8 @@ use userland::{
 use uuid::Uuid;
 
 mod framebuffer_backend;
-#[cfg(feature = "host")]
-mod svg_backend;
 
 pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
-#[cfg(feature = "host")]
-pub use svg_backend::{HostFramebufferDevice, SvgRenderer};
 
 const FONT_HEIGHT: usize = 16;
 const TITLE_BAR_HEIGHT: usize = FONT_HEIGHT + 4;
@@ -59,10 +55,6 @@ const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0x00, 0xff, 0xff, 0xff);
 const COLOR_CURSOR_SHADOW: Rgba = Rgba::new(0x00, 0x00, 0x00, 0x00);
 const COLOR_SHADOW: Rgba = Rgba::new(0x00, 0x0d, 0x11, 0x18);
 const CLEAR_COLOR: Rgba = Rgba::new(0xff, 0x00, 0x00, 0x00);
-
-const MAX_BACKBUFFER_PIXELS: usize = 8_388_608; // 8 Mi pixels (~32 MiB)
-const SAFE_FB_WIDTH: usize = 1024;
-const SAFE_FB_HEIGHT: usize = 768;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {

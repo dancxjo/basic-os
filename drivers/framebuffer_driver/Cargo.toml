@@ -12,6 +12,10 @@ uuid = { version = "=1.10", default-features = false, features = [
 postcard = { version = "1.0", default-features = false, features = ["alloc"] }
 serde = { workspace = true }
 
+[features]
+default = []
+std = ["userland/std"]
+
 [[bin]]
 name = "framebuffer_driver"
 path = "src/lib.rs"
