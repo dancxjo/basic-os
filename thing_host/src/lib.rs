@@ -1,19 +1,23 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use thing_abi::{
-    AbiRequest, AbiResponse, GraphChange, GraphEdge, GraphThing, GraphWatchBatch, NodePattern,
+    AbiRequest, AbiResponse, GraphChange, GraphEdge, GraphFiatRequest, GraphLinkRequest,
+    GraphPropsGetRequest, GraphPropsRequest, GraphThing, GraphWatchBatch, NodePattern,
     ThingRuntime, WatchId,
 };
 use uuid::Uuid;
 
+mod store;
+pub use store::{init_graph_store, GraphConfig, GraphStore};
+
 pub struct HostRuntime {
-    things: Mutex<HashMap<Uuid, GraphThing>>,
-    edges: Mutex<HashMap<Uuid, GraphEdge>>,
+    store: Arc<dyn GraphStore>,
+    rt: tokio::runtime::Runtime,
     watchers: Mutex<HashMap<WatchId, WatchState>>,
     next_watch: AtomicU64,
-    revision: AtomicU64,
 }
 
 struct WatchState {
@@ -24,17 +28,16 @@ struct WatchState {
 
 impl HostRuntime {
     pub fn new() -> Self {
+        let config = GraphConfig::from_env();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let store = rt.block_on(init_graph_store(config));
+
         Self {
-            things: Mutex::new(HashMap::new()),
-            edges: Mutex::new(HashMap::new()),
+            store,
+            rt,
             watchers: Mutex::new(HashMap::new()),
             next_watch: AtomicU64::new(1),
-            revision: AtomicU64::new(1),
         }
-    }
-
-    fn next_revision(&self) -> u64 {
-        self.revision.fetch_add(1, Ordering::SeqCst)
     }
 
     fn push_change(&self, change: GraphChange) {
@@ -60,19 +63,21 @@ impl ThingRuntime for HostRuntime {
                 if labels.is_empty() {
                     labels.push(kind);
                 }
-                let thing_id = id.unwrap_or_else(|| thing_abi::next_uuid());
-                let revision = self.next_revision();
-                let thing = GraphThing {
-                    id: thing_id,
+                let req = GraphFiatRequest {
+                    id,
                     kind,
-                    labels: labels.iter().copied().collect(),
+                    labels,
                     fields,
-                    owner: Uuid::nil(),
-                    revision,
                 };
-                self.things.lock().insert(thing_id, thing.clone());
-                self.push_change(GraphChange::Thing(thing.clone()));
-                AbiResponse::Fiat { thing }
+                match self.rt.block_on(self.store.fiat(req)) {
+                    Ok(thing) => {
+                        self.push_change(GraphChange::Thing(thing.clone()));
+                        AbiResponse::Fiat { thing }
+                    }
+                    Err(e) => AbiResponse::Error {
+                        message: e.to_string(),
+                    },
+                }
             }
             AbiRequest::Link {
                 id,
@@ -81,40 +86,44 @@ impl ThingRuntime for HostRuntime {
                 to,
                 props,
             } => {
-                let edge_id = id.unwrap_or_else(|| thing_abi::next_uuid());
-                let revision = self.next_revision();
-                let edge = GraphEdge {
-                    id: edge_id,
-                    src: from,
-                    pred: rel,
-                    dst: to,
+                let req = GraphLinkRequest {
+                    id,
+                    kind: rel,
+                    from,
+                    to,
                     props,
-                    owner: Uuid::nil(),
-                    revision,
                 };
-                self.edges.lock().insert(edge_id, edge.clone());
-                self.push_change(GraphChange::Edge(edge.clone()));
-                AbiResponse::Link { edge: Some(edge) }
+                match self.rt.block_on(self.store.link(req)) {
+                    Ok(edge) => {
+                        self.push_change(GraphChange::Edge(edge.clone()));
+                        AbiResponse::Link { edge: Some(edge) }
+                    }
+                    Err(e) => AbiResponse::Error {
+                        message: e.to_string(),
+                    },
+                }
             }
-            AbiRequest::Get { id } => {
-                let thing = self.things.lock().get(&id).cloned();
-                AbiResponse::Get { thing }
-            }
-            AbiRequest::Query { pattern } => {
-                let things = self
-                    .things
-                    .lock()
-                    .values()
-                    .filter(|thing| pattern_matches(thing, &pattern))
-                    .cloned()
-                    .collect();
-                AbiResponse::Query { things }
-            }
-            AbiRequest::FindByKind { .. } => {
-                let things = self.things.lock().values().cloned().collect();
-                AbiResponse::Find {
-                    things,
-                    next_cursor: None,
+            AbiRequest::Get { id } => match self.rt.block_on(self.store.get(id)) {
+                Ok(thing) => AbiResponse::Get { thing },
+                Err(e) => AbiResponse::Error {
+                    message: e.to_string(),
+                },
+            },
+            AbiRequest::Query { pattern } => match self.rt.block_on(self.store.query(pattern)) {
+                Ok(things) => AbiResponse::Query { things },
+                Err(e) => AbiResponse::Error {
+                    message: e.to_string(),
+                },
+            },
+            AbiRequest::FindByKind { kind, cursor } => {
+                match self.rt.block_on(self.store.find_by_kind(kind, cursor)) {
+                    Ok(things) => AbiResponse::Find {
+                        things,
+                        next_cursor: None,
+                    },
+                    Err(e) => AbiResponse::Error {
+                        message: e.to_string(),
+                    },
                 }
             }
             AbiRequest::WatchRegister { pattern } => {
@@ -156,34 +165,24 @@ impl ThingRuntime for HostRuntime {
                 }
             }
             AbiRequest::PropsGet { request } => {
-                let thing = self.things.lock().get(&request.node).cloned();
-                let props = thing.map(|t| {
-                    if request.keys.is_empty() {
-                        t.fields
-                    } else {
-                        request
-                            .keys
-                            .iter()
-                            .filter_map(|k| t.fields.get(k).map(|v| (*k, v.clone())))
-                            .collect()
-                    }
-                });
-                props
-                    .map(|props| AbiResponse::Props { props })
-                    .unwrap_or_else(|| AbiResponse::Error {
-                        message: "thing not found".into(),
-                    })
+                match self.rt.block_on(self.store.props_get(request)) {
+                    Ok(props) => AbiResponse::Props { props },
+                    Err(e) => AbiResponse::Error {
+                        message: e.to_string(),
+                    },
+                }
             }
             AbiRequest::PropsSet { request } => {
-                if let Some(mut thing) = self.things.lock().get_mut(&request.node) {
-                    thing.fields.extend(request.props.clone());
-                    AbiResponse::Props {
-                        props: thing.fields.clone(),
+                match self.rt.block_on(self.store.props_set(request)) {
+                    Ok(thing) => {
+                        self.push_change(GraphChange::Thing(thing.clone()));
+                        AbiResponse::Props {
+                            props: thing.fields,
+                        }
                     }
-                } else {
-                    AbiResponse::Error {
-                        message: "thing not found".into(),
-                    }
+                    Err(e) => AbiResponse::Error {
+                        message: e.to_string(),
+                    },
                 }
             }
             AbiRequest::GrantCapability { request: _ } => {

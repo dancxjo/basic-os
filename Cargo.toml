@@ -11,8 +11,11 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-serde = { version = "=1.0.226", default-features = false, features = ["derive", "alloc"] }
-serde_derive = { version = "=1.0.226" }
+serde = { version = "=1.0.215", default-features = false, features = [
+    "derive",
+    "alloc",
+] }
+serde_derive = { version = "1.0" }
 
 [patch.crates-io]
 ascii = { path = "third_party/ascii" }

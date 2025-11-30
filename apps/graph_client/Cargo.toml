@@ -1,0 +1,9 @@
+[package]
+name = "graph_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland", features = ["std"] }
+thing_host = { path = "../../thing_host" }
+uuid = { version = "=1.10", features = ["v5"] }

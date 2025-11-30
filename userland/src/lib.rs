@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![feature(alloc_error_handler)]
+#![cfg_attr(not(feature = "std"), feature(alloc_error_handler))]
 
 extern crate alloc;
 
@@ -148,14 +148,15 @@ pub mod canon {
     pub const CAN_HANDLE_IRQ: Symbol = canon(b'C', b'I', b'Q');
     pub const CAN_DMA: Symbol = canon(b'C', b'D', b'M');
     pub const CAN_MMIO: Symbol = canon(b'C', b'M', b'M');
-    pub const CAN_PORT_IO: Symbol = canon(b'C', b'P', b'O');
+    pub const CLOUD: Symbol = canon(b'C', b'L', b'D');
+    pub const NEXT: Symbol = cc('N', 'X');
 }
 
 pub mod prelude {
     pub use crate::app::{App, AppContext, WindowHandle};
     pub use crate::app_main;
     pub use crate::graph::{
-        declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing,
+        declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, find_by_kind,
         grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state,
         update_thing, QueueState, SharedBuffer, Surface, Thingable, Window,
     };
@@ -165,9 +166,9 @@ pub mod prelude {
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
 pub use graph::{
-    declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, grant_capability,
-    load_thing, load_things_of_kind, map, that, update_queue_state, update_thing, GraphEdge,
-    GraphThing, NodePattern, QueueState, SharedBuffer, Surface, Thingable, Window,
+    declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, find_by_kind,
+    grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state, update_thing,
+    GraphEdge, GraphThing, NodePattern, QueueState, SharedBuffer, Surface, Thingable, Window,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 
