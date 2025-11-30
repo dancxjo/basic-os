@@ -141,10 +141,7 @@ fn main() {
     // Register host apps
     userland::sys::register_host_app("init", init::app_main);
     userland::sys::register_host_app("demo_app", userland::app::run_app::<demo_app::DemoApp>);
-    userland::sys::register_host_app(
-        "self_editing_demo",
-        self_editing_demo::app_main,
-    );
+    userland::sys::register_host_app("self_editing_demo", self_editing_demo::app_main);
     userland::sys::register_host_app(
         "mouse_driver",
         userland::app::run_app::<app_mouse_driver::MouseDriver>,
