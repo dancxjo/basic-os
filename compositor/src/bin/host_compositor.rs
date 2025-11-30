@@ -56,24 +56,16 @@ fn main() {
     for mut request in server.incoming_requests() {
         let url = request.url().to_string();
         match url.as_str() {
-            "/" => {
-                let html = r#"<!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>ThingOS Host Compositor</title></head>
-  <body style="margin:0; background:#111; color:#eee; font-family:sans-serif;">
-    <h1 style="font-size:14px; margin:4px;">ThingOS Host Compositor</h1>
-    <object id="view" type="image/svg+xml" data="/frame.svg" style="width:100%; height:90vh; border:1px solid #444;"></object>
-    <script>
-      setInterval(function() {
-        var obj = document.getElementById('view');
-        obj.data = '/frame.svg?ts=' + Date.now();
-      }, 250);
-    </script>
-  </body>
-</html>
-"#;
-                let response = Response::from_string(html).with_header(
-                    "Content-Type: text/html; charset=utf-8"
+            "/" | "/frame.svg" => {
+                let xml = {
+                    let comp = compositor.lock().expect("compositor mutex poisoned");
+                    match comp.backend().export() {
+                        Some(CompositorExport::Svg { xml, .. }) => xml.to_string(),
+                        _ => "<svg/>".to_string(),
+                    }
+                };
+                let response = Response::from_string(xml).with_header(
+                    "Content-Type: image/svg+xml; charset=utf-8"
                         .parse::<Header>()
                         .unwrap(),
                 );

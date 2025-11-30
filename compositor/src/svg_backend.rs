@@ -45,6 +45,8 @@ impl CompositorBackend for SvgBackend {
       const svg = evt.target;
       const doc = svg.ownerDocument;
 
+      setInterval(refresh, 250);
+
       doc.addEventListener('mousemove', function(e) {{
         sendInput({{
           kind: 'mouse_move',
@@ -93,6 +95,21 @@ impl CompositorBackend for SvgBackend {
       }});
     }}
 
+    function refresh() {{
+      fetch('/frame.svg?ts=' + Date.now())
+        .then(r => r.text())
+        .then(text => {{
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(text, "image/svg+xml");
+          const newScene = doc.getElementById('scene');
+          const oldScene = document.getElementById('scene');
+          if (newScene && oldScene) {{
+            oldScene.replaceWith(newScene);
+          }}
+        }})
+        .catch(e => console.error(e));
+    }}
+
     function sendInput(event) {{
       fetch('/input', {{
         method: 'POST',
@@ -103,6 +120,8 @@ impl CompositorBackend for SvgBackend {
   ]]></script>"#
         )
         .unwrap();
+
+        writeln!(&mut self.xml, r#"<g id="scene">"#).unwrap();
 
         for cmd in scene.commands() {
             match cmd {
@@ -200,7 +219,8 @@ impl CompositorBackend for SvgBackend {
             }
         }
 
-        self.xml.push_str("</svg>");
+        writeln!(&mut self.xml, r#"</g>"#).unwrap();
+        writeln!(&mut self.xml, "</svg>").unwrap();
     }
 
     fn export(&self) -> Option<CompositorExport<'_>> {
