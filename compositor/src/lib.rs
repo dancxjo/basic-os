@@ -201,6 +201,14 @@ impl Bitmap {
         }
     }
 
+    pub fn pixel(&self, x: usize, y: usize) -> Option<u32> {
+        if x >= self.width || y >= self.height {
+            None
+        } else {
+            Some(self.pixels[y * self.width + x])
+        }
+    }
+
     pub fn sample(&self, x: usize, y: usize) -> u32 {
         if self.width == 0 || self.height == 0 {
             return 0;

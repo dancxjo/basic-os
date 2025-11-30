@@ -161,8 +161,8 @@ fn raster_blit_image(backend: &mut FramebufferBackend, rect: &Rect, bmp: &Bitmap
             let sample_y = yy - y0;
             let color = if repeat {
                 bmp.sample(sample_x, sample_y)
-            } else if sample_x < bmp.width && sample_y < bmp.height {
-                bmp.pixels[sample_y * bmp.width + sample_x]
+            } else if let Some(c) = bmp.pixel(sample_x, sample_y) {
+                c
             } else {
                 continue;
             };
