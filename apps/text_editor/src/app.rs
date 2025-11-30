@@ -30,6 +30,7 @@ pub struct TextEditor {
     cursor_hint_dirty: bool,
     cursor_visible: bool,
     cursor_blink_ticks: u64,
+    redraw_needed: bool,
 }
 
 struct Document {
@@ -102,6 +103,7 @@ impl App for TextEditor {
             cursor_hint_dirty: true,
             cursor_visible: true,
             cursor_blink_ticks: 0,
+            redraw_needed: true,
         };
 
         editor.flush_cursor_hint();
@@ -154,41 +156,32 @@ impl App for TextEditor {
         if self.cursor_blink_ticks >= CURSOR_BLINK_PERIOD_TICKS {
             self.cursor_visible = !self.cursor_visible;
             self.cursor_blink_ticks = 0;
+            self.redraw_needed = true;
         }
-        ctx.clear_window(&self.window);
 
-        // Header
-        let dirty_marker = if self.dirty { "[dirty]" } else { "" };
-        ctx.draw_text(
-            &self.window,
-            format_args!("Advent_Notes (edit) {}\n", dirty_marker),
-        );
-        ctx.draw_text(&self.window, format_args!("------------------------\n"));
+        if self.redraw_needed {
+            ctx.clear_window(&self.window);
 
-        // Content with cursor indicator
-        let (head, tail) = self.content.split_at(self.cursor_index);
-        let mut display = String::with_capacity(self.content.len() + 1);
-        display.push_str(head);
-        if self.cursor_visible {
-            display.push('|');
+            // Header
+            let dirty_marker = if self.dirty { "[dirty]" } else { "" };
+            ctx.draw_text(
+                &self.window,
+                format_args!("Advent_Notes (edit) {}\n", dirty_marker),
+            );
+            ctx.draw_text(&self.window, format_args!("------------------------\n"));
+
+            // Content with cursor indicator
+            let (head, tail) = self.content.split_at(self.cursor_index);
+            let mut display = String::with_capacity(self.content.len() + 1);
+            display.push_str(head);
+            if self.cursor_visible {
+                display.push('|');
+            }
+            display.push_str(tail);
+            ctx.draw_text(&self.window, format_args!("{}", display));
+
+            self.redraw_needed = false;
         }
-        display.push_str(tail);
-        ctx.draw_text(&self.window, format_args!("{}", display));
-
-        let (line, column) = self.cursor_line_col();
-        ctx.draw_text(
-            &self.window,
-            format_args!(
-                "\n\nCursor: line {} column {} — {}\n",
-                line + 1,
-                column + 1,
-                if self.cursor_visible {
-                    "visible"
-                } else {
-                    "hidden (blinking)"
-                }
-            ),
-        );
 
         self.flush_cursor_hint();
     }
@@ -226,6 +219,7 @@ impl TextEditor {
     fn mark_dirty(&mut self, dirty: bool) {
         if self.dirty != dirty {
             self.dirty = dirty;
+            self.redraw_needed = true;
             // Update graph
             let mut fields = graph::map();
             fields.insert(canon::DIRTY, Value::Bool(dirty));
@@ -266,6 +260,7 @@ impl TextEditor {
         self.cursor_hint_dirty = true;
         self.reset_cursor_blink();
         self.mark_dirty(true);
+        self.redraw_needed = true;
     }
 
     fn cursor_line_col(&self) -> (usize, usize) {
@@ -328,5 +323,6 @@ impl TextEditor {
     fn reset_cursor_blink(&mut self) {
         self.cursor_visible = true;
         self.cursor_blink_ticks = 0;
+        self.redraw_needed = true;
     }
 }
