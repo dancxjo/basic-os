@@ -15,6 +15,10 @@ pub fn app_main() -> ! {
     userland::println!("Spawning mouse_driver...");
     userland::sys::spawn("mouse_driver");
 
+    // Spawn rootfs
+    userland::println!("Spawning rootfs...");
+    userland::sys::spawn("rootfs");
+
     // Spawn compositor
     userland::println!("Spawning compositor...");
     userland::sys::spawn("compositor");

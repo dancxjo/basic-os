@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod app;
 pub mod drivers;
+pub mod fs;
 pub mod graph;
 pub mod graphics;
 pub mod heap;

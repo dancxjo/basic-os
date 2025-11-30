@@ -1,0 +1,19 @@
+[package]
+name = "rootfs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+
+[features]
+default = []
+std = ["userland/std"]
+
+[lib]
+name = "rootfs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rootfs"
+path = "src/main.rs"
