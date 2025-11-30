@@ -11,6 +11,7 @@ uuid = { version = "1.10", default-features = false, features = [
   "serde",
 ] }
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
+tiny_http = { version = "0.12", optional = true }
 
 [build-dependencies]
 flate2 = "1.0"
@@ -18,11 +19,16 @@ flate2 = "1.0"
 [features]
 default = []
 demo-apps = []
-host = []
+host = ["tiny_http"]
 
 [[bin]]
 name = "compositor"
 path = "src/main.rs"
+
+[[bin]]
+name = "host_compositor"
+path = "src/bin/host_compositor.rs"
+required-features = ["host"]
 
 [lib]
 path = "src/lib.rs"

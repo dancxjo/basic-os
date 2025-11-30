@@ -2,6 +2,8 @@
 
 extern crate alloc;
 
+use core::prelude::v1::*;
+
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
@@ -10,18 +12,43 @@ use alloc::vec::Vec;
 use core::cmp::{max, min};
 use core::convert::TryInto;
 
-use unifont::{get_glyph, Glyph};
 use userland::{
     canon, load_thing, println, AppEvent, NodePattern, Surface, Thingable, Value, WatchId,
     WatchManager, Window,
 };
 use uuid::Uuid;
 
+mod framebuffer_backend;
+#[cfg(feature = "host")]
+mod svg_backend;
+
+pub use framebuffer_backend::FramebufferBackend;
+#[cfg(feature = "host")]
+pub use svg_backend::SvgBackend;
+
 const FONT_HEIGHT: usize = 16;
 const TITLE_BAR_HEIGHT: usize = FONT_HEIGHT + 4;
 const BORDER_THICKNESS: usize = 2;
 const WINDOW_PADDING: usize = 6;
 const CURSOR_SIZE: usize = 16;
+const CURSOR_MASK: [u16; CURSOR_SIZE] = [
+    0b1000000000000000,
+    0b1100000000000000,
+    0b1110000000000000,
+    0b1111000000000000,
+    0b1111100000000000,
+    0b1111110000000000,
+    0b1111111000000000,
+    0b1111111100000000,
+    0b1111111000000000,
+    0b1111110000000000,
+    0b1111000000000000,
+    0b1110000000000000,
+    0b1100000000000000,
+    0b1100000000000000,
+    0b1000000000000000,
+    0b0000000000000000,
+];
 
 const COLOR_TITLE_BAR: Rgba = Rgba::new(0x00, 0x3c, 0x45, 0x55);
 const COLOR_TITLE: Rgba = Rgba::new(0x00, 0xf2, 0xf4, 0xf8);
@@ -174,6 +201,14 @@ impl Bitmap {
         }
     }
 
+    pub fn pixel(&self, x: usize, y: usize) -> Option<u32> {
+        if x >= self.width || y >= self.height {
+            None
+        } else {
+            Some(self.pixels[y * self.width + x])
+        }
+    }
+
     pub fn sample(&self, x: usize, y: usize) -> u32 {
         if self.width == 0 || self.height == 0 {
             return 0;
@@ -269,6 +304,10 @@ impl<B: CompositorBackend> Compositor<B> {
             cursor: CursorState::new(width, height),
             background,
         }
+    }
+
+    pub fn backend(&self) -> &B {
+        &self.backend
     }
 
     pub fn init_with_watches(watch_manager: &mut WatchManager, app_id: usize, backend: B) -> Self {
@@ -775,571 +814,6 @@ pub struct FramebufferTarget {
     pub len_bytes: usize,
 }
 
-struct FramebufferSurface {
-    width: usize,
-    height: usize,
-    stride: usize,
-    addr: *mut u32,
-}
-
-pub struct FramebufferBackend {
-    framebuffer: FramebufferSurface,
-    backbuffer: Vec<u32>,
-}
-
-impl FramebufferBackend {
-    pub fn new(target: FramebufferTarget) -> Self {
-        let fb_info = sanitize_fb_info(target.info);
-        let mut stride = max(fb_info.pitch / 4, fb_info.width.max(1));
-        let mut height = fb_info.height.max(1);
-        if stride.saturating_mul(height) > MAX_BACKBUFFER_PIXELS {
-            println!(
-                "Clamping framebuffer from {}x{} stride {} to {}x{}",
-                fb_info.width, fb_info.height, stride, SAFE_FB_WIDTH, SAFE_FB_HEIGHT
-            );
-            stride = SAFE_FB_WIDTH;
-            height = SAFE_FB_HEIGHT;
-        } else if stride.saturating_mul(height) > 2_000_000 {
-            stride = max(SAFE_FB_WIDTH, fb_info.width);
-            height = max(SAFE_FB_HEIGHT, fb_info.height);
-        }
-        let width = min(fb_info.width.max(1), stride);
-
-        Self {
-            framebuffer: FramebufferSurface {
-                width,
-                height,
-                stride,
-                addr: target.addr,
-            },
-            backbuffer: vec![0u32; stride * height],
-        }
-    }
-
-    fn ensure_backbuffer(&mut self) {
-        let needed = self
-            .framebuffer
-            .stride
-            .saturating_mul(self.framebuffer.height);
-        if self.backbuffer.len() < needed {
-            self.backbuffer.resize(needed, 0);
-        }
-    }
-
-    fn clear(&mut self, color: Rgba) {
-        self.backbuffer.fill(color.to_u32());
-    }
-
-    fn fill_rect(&mut self, rect: &Rect, color: Rgba) {
-        if rect.width == 0 || rect.height == 0 {
-            return;
-        }
-        let x0 = min(rect.x.max(0) as usize, self.framebuffer.width);
-        let y0 = min(rect.y.max(0) as usize, self.framebuffer.height);
-        let x1 = min(x0 + rect.width as usize, self.framebuffer.width);
-        let y1 = min(y0 + rect.height as usize, self.framebuffer.height);
-        let color_u32 = color.to_u32();
-        for yy in y0..y1 {
-            let row = yy * self.framebuffer.stride;
-            for xx in x0..x1 {
-                self.backbuffer[row + xx] = color_u32;
-            }
-        }
-    }
-
-    fn blit_bitmap(&mut self, rect: &Rect, bmp: &Bitmap, repeat: bool) {
-        if rect.width == 0 || rect.height == 0 {
-            return;
-        }
-        let x0 = min(rect.x.max(0) as usize, self.framebuffer.width);
-        let y0 = min(rect.y.max(0) as usize, self.framebuffer.height);
-        let x1 = min(x0 + rect.width as usize, self.framebuffer.width);
-        let y1 = min(y0 + rect.height as usize, self.framebuffer.height);
-        for yy in y0..y1 {
-            let row = yy * self.framebuffer.stride;
-            for xx in x0..x1 {
-                let sample_x = xx - x0;
-                let sample_y = yy - y0;
-                let color = if repeat {
-                    bmp.sample(sample_x, sample_y)
-                } else if sample_x < bmp.width && sample_y < bmp.height {
-                    bmp.pixels[sample_y * bmp.width + sample_x]
-                } else {
-                    continue;
-                };
-                self.backbuffer[row + xx] = color;
-            }
-        }
-    }
-
-    fn draw_text(&mut self, origin: (i32, i32), text: &str, color: Rgba, max_width: Option<u32>) {
-        let mut cursor_x = origin.0.max(0) as usize;
-        let mut cursor_y = origin.1.max(0) as usize;
-        let limit_x = max_width.map(|w| cursor_x + w as usize);
-        for ch in text.chars() {
-            if ch == '\n' {
-                cursor_x = origin.0.max(0) as usize;
-                cursor_y += FONT_HEIGHT;
-                continue;
-            }
-            let Some(glyph) = get_glyph(ch) else { continue };
-            let gw = glyph.get_width();
-            if let Some(limit) = limit_x {
-                if cursor_x + gw > limit {
-                    break;
-                }
-            }
-            self.draw_glyph(cursor_x, cursor_y, glyph, color.to_u32());
-            cursor_x += gw;
-        }
-    }
-
-    fn draw_text_block(&mut self, rect: &Rect, text: &str, color: Rgba) {
-        let mut cursor_x = rect.x.max(0) as usize;
-        let mut cursor_y = rect.y.max(0) as usize;
-        let max_x = rect.x.max(0) as usize + rect.width as usize;
-        let max_y = rect.y.max(0) as usize + rect.height as usize;
-        for ch in text.chars() {
-            if ch == '\n' {
-                cursor_x = rect.x.max(0) as usize;
-                cursor_y += FONT_HEIGHT;
-                if cursor_y + FONT_HEIGHT >= max_y {
-                    break;
-                }
-                continue;
-            }
-            let Some(glyph) = get_glyph(ch) else { continue };
-            let gw = glyph.get_width();
-            if cursor_x + gw >= max_x {
-                cursor_x = rect.x.max(0) as usize;
-                cursor_y += FONT_HEIGHT;
-                if cursor_y + FONT_HEIGHT >= max_y {
-                    break;
-                }
-            }
-            self.draw_glyph(cursor_x, cursor_y, glyph, color.to_u32());
-            cursor_x += gw;
-        }
-    }
-
-    fn draw_glyph(&mut self, x: usize, y: usize, glyph: &Glyph, color: u32) {
-        if x >= self.framebuffer.width || y >= self.framebuffer.height {
-            return;
-        }
-
-        let width = glyph.get_width();
-        for row in 0..FONT_HEIGHT {
-            let dst_y = y + row;
-            if dst_y >= self.framebuffer.height {
-                break;
-            }
-            for col in 0..width {
-                let dst_x = x + col;
-                if dst_x >= self.framebuffer.width {
-                    break;
-                }
-                if glyph.get_pixel(col, row) {
-                    let idx = dst_y * self.framebuffer.stride + dst_x;
-                    self.backbuffer[idx] = color;
-                }
-            }
-        }
-    }
-
-    fn draw_cursor(&mut self, origin: (i32, i32), primary: Rgba, shadow: Rgba) {
-        let base_x =
-            clamp_i32(origin.0, 0, self.framebuffer.width.saturating_sub(1) as i32) as usize;
-        let base_y = clamp_i32(
-            origin.1,
-            0,
-            self.framebuffer.height.saturating_sub(1) as i32,
-        ) as usize;
-
-        for (row, mask) in CURSOR_MASK.iter().enumerate() {
-            let y = base_y + row;
-            if y >= self.framebuffer.height {
-                break;
-            }
-            for col in 0..CURSOR_SIZE {
-                let bit = 15 - col;
-                if (mask & (1 << bit)) == 0 {
-                    continue;
-                }
-
-                let x = base_x + col;
-                if x >= self.framebuffer.width {
-                    break;
-                }
-
-                if x + 1 < self.framebuffer.width && y + 1 < self.framebuffer.height {
-                    let shadow_idx = (y + 1) * self.framebuffer.stride + (x + 1);
-                    self.backbuffer[shadow_idx] = shadow.to_u32();
-                }
-
-                let idx = y * self.framebuffer.stride + x;
-                self.backbuffer[idx] = primary.to_u32();
-            }
-        }
-    }
-
-    fn present(&self) {
-        if !self.framebuffer.addr.is_null() {
-            unsafe {
-                core::ptr::copy_nonoverlapping(
-                    self.backbuffer.as_ptr(),
-                    self.framebuffer.addr,
-                    self.backbuffer.len(),
-                );
-            }
-        }
-    }
-}
-
-impl CompositorBackend for FramebufferBackend {
-    fn size(&self) -> (usize, usize) {
-        (self.framebuffer.width, self.framebuffer.height)
-    }
-
-    fn render(&mut self, scene: &Scene) {
-        self.ensure_backbuffer();
-
-        for cmd in scene.commands() {
-            match cmd {
-                DrawCommand::Clear { color } => self.clear(*color),
-                DrawCommand::FillRect { rect, color } => self.fill_rect(rect, *color),
-                DrawCommand::BlitImage {
-                    rect,
-                    image,
-                    repeat,
-                } => self.blit_bitmap(rect, image, *repeat),
-                DrawCommand::DrawText {
-                    origin,
-                    text,
-                    color,
-                    max_width,
-                } => self.draw_text(*origin, text, *color, *max_width),
-                DrawCommand::DrawTextBlock { rect, text, color } => {
-                    self.draw_text_block(rect, text, *color)
-                }
-                DrawCommand::DrawCursor {
-                    origin,
-                    primary,
-                    shadow,
-                    ..
-                } => self.draw_cursor(*origin, *primary, *shadow),
-            }
-        }
-
-        self.present();
-    }
-
-    fn export(&self) -> Option<CompositorExport<'_>> {
-        Some(CompositorExport::Framebuffer {
-            addr: self.backbuffer.as_ptr(),
-            width: self.framebuffer.width,
-            height: self.framebuffer.height,
-            stride_bytes: self.framebuffer.stride * 4,
-        })
-    }
-}
-
-pub struct SvgBackend {
-    width: u32,
-    height: u32,
-    buffer: String,
-}
-
-impl SvgBackend {
-    pub fn new(width: u32, height: u32) -> Self {
-        Self {
-            width,
-            height,
-            buffer: String::new(),
-        }
-    }
-
-    pub fn svg(&self) -> &str {
-        &self.buffer
-    }
-}
-
-fn svg_color(color: Rgba) -> String {
-    alloc::format!(
-        "#{:02x}{:02x}{:02x}{:02x}",
-        color.a,
-        color.r,
-        color.g,
-        color.b
-    )
-}
-
-fn escape_xml(text: &str) -> String {
-    let mut escaped = String::new();
-    for ch in text.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '"' => escaped.push_str("&quot;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
-fn image_id(image: &Bitmap) -> u64 {
-    (image.width as u64) ^ (image.height as u64) ^ (image.pixels.as_ptr() as u64)
-}
-
-fn bmp_data_uri(image: &Bitmap) -> String {
-    let bmp = encode_bitmap_as_bmp(image);
-    let encoded = base64(&bmp);
-    alloc::format!("data:image/bmp;base64,{encoded}")
-}
-
-fn encode_bitmap_as_bmp(bitmap: &Bitmap) -> Vec<u8> {
-    let stride = ((bitmap.width * 3 + 3) / 4) * 4;
-    let data_size = stride * bitmap.height;
-    let file_size = 54 + data_size;
-
-    let mut out = Vec::with_capacity(file_size);
-    out.extend_from_slice(b"BM");
-    out.extend_from_slice(&(file_size as u32).to_le_bytes());
-    out.extend_from_slice(&[0u8; 4]);
-    out.extend_from_slice(&(54u32).to_le_bytes());
-    out.extend_from_slice(&(40u32).to_le_bytes());
-    out.extend_from_slice(&(bitmap.width as i32).to_le_bytes());
-    out.extend_from_slice(&(bitmap.height as i32).to_le_bytes());
-    out.extend_from_slice(&(1u16).to_le_bytes());
-    out.extend_from_slice(&(24u16).to_le_bytes());
-    out.extend_from_slice(&(0u32).to_le_bytes());
-    out.extend_from_slice(&(data_size as u32).to_le_bytes());
-    out.extend_from_slice(&(2835u32).to_le_bytes());
-    out.extend_from_slice(&(2835u32).to_le_bytes());
-    out.extend_from_slice(&(0u32).to_le_bytes());
-    out.extend_from_slice(&(0u32).to_le_bytes());
-
-    for row in (0..bitmap.height).rev() {
-        let row_start = out.len();
-        for col in 0..bitmap.width {
-            let pixel = bitmap.pixels[row * bitmap.width + col];
-            let r = ((pixel >> 16) & 0xFF) as u8;
-            let g = ((pixel >> 8) & 0xFF) as u8;
-            let b = (pixel & 0xFF) as u8;
-            out.extend_from_slice(&[b, g, r]);
-        }
-        let row_len = out.len() - row_start;
-        let pad = stride.saturating_sub(row_len);
-        out.extend(core::iter::repeat(0).take(pad));
-    }
-
-    out
-}
-
-fn base64(data: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(((data.len() + 2) / 3) * 4);
-    let mut i = 0;
-    while i + 3 <= data.len() {
-        let chunk = (data[i] as u32) << 16 | (data[i + 1] as u32) << 8 | data[i + 2] as u32;
-        out.push(TABLE[((chunk >> 18) & 0x3F) as usize] as char);
-        out.push(TABLE[((chunk >> 12) & 0x3F) as usize] as char);
-        out.push(TABLE[((chunk >> 6) & 0x3F) as usize] as char);
-        out.push(TABLE[(chunk & 0x3F) as usize] as char);
-        i += 3;
-    }
-    if i < data.len() {
-        let mut chunk = (data[i] as u32) << 16;
-        out.push(TABLE[((chunk >> 18) & 0x3F) as usize] as char);
-        if i + 1 < data.len() {
-            chunk |= (data[i + 1] as u32) << 8;
-            out.push(TABLE[((chunk >> 12) & 0x3F) as usize] as char);
-            out.push(TABLE[((chunk >> 6) & 0x3F) as usize] as char);
-            out.push('=');
-        } else {
-            out.push(TABLE[((chunk >> 12) & 0x3F) as usize] as char);
-            out.push('=');
-            out.push('=');
-        }
-    }
-    out
-}
-
-impl CompositorBackend for SvgBackend {
-    fn size(&self) -> (usize, usize) {
-        (self.width as usize, self.height as usize)
-    }
-
-    fn render(&mut self, scene: &Scene) {
-        self.buffer.clear();
-        use core::fmt::Write;
-        let _ = write!(
-            &mut self.buffer,
-            r#"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">"#,
-            w = scene.width,
-            h = scene.height
-        );
-
-        for cmd in scene.commands() {
-            match cmd {
-                DrawCommand::Clear { color } => {
-                    let _ = write!(
-                        &mut self.buffer,
-                        "<rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"{fill}\" />",
-                        w = scene.width,
-                        h = scene.height,
-                        fill = svg_color(*color)
-                    );
-                }
-                DrawCommand::FillRect { rect, color } => {
-                    let _ = write!(
-                        &mut self.buffer,
-                        "<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fill}\" />",
-                        x = rect.x,
-                        y = rect.y,
-                        w = rect.width,
-                        h = rect.height,
-                        fill = svg_color(*color)
-                    );
-                }
-                DrawCommand::BlitImage {
-                    rect,
-                    image,
-                    repeat,
-                } => {
-                    let uri = bmp_data_uri(image);
-                    if *repeat {
-                        let pattern_id = image_id(image.as_ref());
-                        let _ = write!(
-                            &mut self.buffer,
-                            concat!(
-                                "<defs><pattern id=\"{id}\" patternUnits=\"userSpaceOnUse\" ",
-                                "width=\"{pw}\" height=\"{ph}\">",
-                                "<image href=\"{uri}\" width=\"{pw}\" height=\"{ph}\" /></pattern></defs>"
-                            ),
-                            id = pattern_id,
-                            pw = image.width,
-                            ph = image.height,
-                            uri = uri
-                        );
-                        let _ = write!(
-                            &mut self.buffer,
-                            "<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"url(#{id})\" />",
-                            x = rect.x,
-                            y = rect.y,
-                            w = rect.width,
-                            h = rect.height,
-                            id = pattern_id
-                        );
-                    } else {
-                        let _ = write!(
-                            &mut self.buffer,
-                            "<image href=\"{uri}\" x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" preserveAspectRatio=\"none\" />",
-                            uri = uri,
-                            x = rect.x,
-                            y = rect.y,
-                            w = rect.width,
-                            h = rect.height
-                        );
-                    }
-                }
-                DrawCommand::DrawText {
-                    origin,
-                    text,
-                    color,
-                    ..
-                } => {
-                    let _ = write!(
-                        &mut self.buffer,
-                        "<text x=\"{x}\" y=\"{y}\" fill=\"{fill}\" font-family=\"monospace\" font-size=\"16\">{content}</text>",
-                        x = origin.0,
-                        y = origin.1 + FONT_HEIGHT as i32,
-                        fill = svg_color(*color),
-                        content = escape_xml(text)
-                    );
-                }
-                DrawCommand::DrawTextBlock { rect, text, color } => {
-                    let mut y = rect.y + FONT_HEIGHT as i32;
-                    for line in text.lines() {
-                        let _ = write!(
-                            &mut self.buffer,
-                            "<text x=\"{x}\" y=\"{y}\" fill=\"{fill}\" font-family=\"monospace\" font-size=\"16\">{content}</text>",
-                            x = rect.x,
-                            y = y,
-                            fill = svg_color(*color),
-                            content = escape_xml(line)
-                        );
-                        y += FONT_HEIGHT as i32;
-                        if y as u32 >= rect.y as u32 + rect.height {
-                            break;
-                        }
-                    }
-                }
-                DrawCommand::DrawCursor {
-                    origin,
-                    primary,
-                    shadow,
-                    ..
-                } => {
-                    for (row, mask) in CURSOR_MASK.iter().enumerate() {
-                        let y = origin.1 + row as i32;
-                        for col in 0..CURSOR_SIZE {
-                            let bit = 15 - col;
-                            if (mask & (1 << bit)) == 0 {
-                                continue;
-                            }
-                            let x = origin.0 + col as i32;
-                            let _ = write!(
-                                &mut self.buffer,
-                                "<rect x=\"{x}\" y=\"{y}\" width=\"1\" height=\"1\" fill=\"{fill}\" />",
-                                x = x + 1,
-                                y = y + 1,
-                                fill = svg_color(*shadow)
-                            );
-                            let _ = write!(
-                                &mut self.buffer,
-                                "<rect x=\"{x}\" y=\"{y}\" width=\"1\" height=\"1\" fill=\"{fill}\" />",
-                                x = x,
-                                y = y,
-                                fill = svg_color(*primary)
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        self.buffer.push_str("</svg>");
-    }
-
-    fn export(&self) -> Option<CompositorExport<'_>> {
-        Some(CompositorExport::Svg {
-            xml: &self.buffer,
-            width: self.width,
-            height: self.height,
-        })
-    }
-}
-
-const CURSOR_MASK: [u16; CURSOR_SIZE] = [
-    0b1000000000000000,
-    0b1100000000000000,
-    0b1110000000000000,
-    0b1111000000000000,
-    0b1111100000000000,
-    0b1111110000000000,
-    0b1111111000000000,
-    0b1111111100000000,
-    0b1111111000000000,
-    0b1111110000000000,
-    0b1111000000000000,
-    0b1110000000000000,
-    0b1100000000000000,
-    0b1100000000000000,
-    0b1000000000000000,
-    0b0000000000000000,
-];
-
 #[cfg(test)]
 extern crate std;
 
@@ -1361,6 +835,21 @@ mod tests {
     }
 
     #[test]
+    fn bitmap_pixel_accessor_bounds_checks() {
+        let bmp = Bitmap::new(2, 2, vec![0x00000001, 0x00000002, 0x00000003, 0x00000004]);
+
+        assert_eq!(bmp.pixel(0, 0), Some(0x00000001));
+        assert_eq!(bmp.pixel(1, 0), Some(0x00000002));
+        assert_eq!(bmp.pixel(0, 1), Some(0x00000003));
+        assert_eq!(bmp.pixel(1, 1), Some(0x00000004));
+
+        assert_eq!(bmp.pixel(2, 0), None);
+        assert_eq!(bmp.pixel(0, 2), None);
+        assert_eq!(bmp.pixel(2, 2), None);
+    }
+
+    #[cfg(feature = "host")]
+    #[test]
     fn svg_backend_renders() {
         let mut backend = SvgBackend::new(10, 10);
         let mut scene = Scene::new(10, 10);
@@ -1368,6 +857,17 @@ mod tests {
             color: Rgba::opaque(0, 0, 0),
         });
         backend.render(&scene);
-        assert!(backend.svg().contains("<svg"));
+        let xml = match backend.export() {
+            Some(CompositorExport::Svg { xml, .. }) => xml.to_string(),
+            _ => String::new(),
+        };
+        assert!(xml.contains("<svg"));
+    }
+
+    #[cfg(feature = "host")]
+    #[test]
+    fn color_layout_matches_old_values() {
+        assert_eq!(COLOR_TITLE_BAR.to_u32(), 0x003c4555);
+        assert_eq!(CLEAR_COLOR.to_u32(), 0xff000000);
     }
 }

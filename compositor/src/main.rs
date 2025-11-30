@@ -8,6 +8,7 @@ use compositor::{Compositor, FramebufferBackend, FramebufferInfo, FramebufferTar
 use userland::{println, WatchManager};
 
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
+static mut BACKBUFFER_STORAGE: [u32; 8_388_608] = [0; 8_388_608];
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
@@ -26,7 +27,15 @@ pub extern "C" fn _start() -> ! {
         fb_target.info.width, fb_target.info.height, fb_target.info.pitch, fb_target.info.bpp
     );
 
-    let backend = FramebufferBackend::new(fb_target);
+    let backend = unsafe {
+        FramebufferBackend::new(
+            fb_target.info.width,
+            fb_target.info.height,
+            fb_target.info.pitch,
+            fb_target.addr,
+            &mut BACKBUFFER_STORAGE,
+        )
+    };
     let mut compositor =
         Compositor::init_with_watches(&mut watch_manager, compositor_app_id, backend);
     let mut tick: u64 = 0;
