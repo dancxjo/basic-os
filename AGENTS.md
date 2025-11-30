@@ -24,6 +24,10 @@ Important: When running `make run`, prefer to run it with a timeout so QEMU exit
 - `apps/` – small user apps (clouds, hello, clock) that publish window buffers.
 - `limine.conf` describes boot configuration and modules included in the ISO.
 
+## Accessibility expectations
+
+Agents working on compositor primitives, drivers, apps, or any new UI surface (including the upcoming scroll support) should pair code changes with a quick WCAG-inspired sanity check. Keep interfaces perceivable, operable, understandable, and robust by annotating focus/navigation behavior, text/contrast choices, and any semantics exposed to the graph. Document how the change keeps assistive usage paths in mind so we bake accessibility in from day one.
+
 ## Device & Driver Philosophy (Critical)
 
 The kernel only exposes **raw hardware streams and memory regions** through

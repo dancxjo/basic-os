@@ -44,6 +44,12 @@ The compositor builds a device-neutral `Scene` (`compositor/src/lib.rs`) each ti
 
 Because the compositor only manipulates `Scene` commands it does **not** know whether the output will land on hardware, a QEMU window, or a browser `<svg>` element. Similarly, it only manipulates cursor state and window surfaces pulled from the graph—networking, HTTP servers, and browser plumbing are all handled in the host wrapper.
 
+### Accessibility-first interfaces
+
+Before we layer in features like scrolling, agents working on the compositor, drivers, or apps should explicitly check new interface surface changes against WCAG-inspired considerations so accessibility is never an afterthought. That means keeping things perceivable (text alternatives for icons, contrast checks, zoom-aware layouts), operable (keyboard navigation, focus traps, clear input affordances), understandable (consistent semantics, predictable state transitions, meaningful labels for status windows), and robust (exposing intent to assistive tech via the graph, not hiding behavior behind platform quirks).
+
+Whenever a task touches the windowing scene graph, mouse/keyboard interactions, or framebuffer output, add a quick note about how the change respects those principles—especially focus management, scroll affordances, and how events get marshaled so screen readers or remote clients could interpret them in the future. Baking these checkpoints into the documentation keeps us honest while we build scrolling and other interface features from the ground up.
+
 ### Host vs. kernel responsibilities
 
 | Area | Kernel (bare metal) | Host runtime / tooling | Shared via ABI |

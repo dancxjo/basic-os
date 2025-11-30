@@ -7,7 +7,7 @@ This document summarizes the intended architecture so agents can pick up work wi
 - **Everything is a Thing**: uniform data unit with stable ID, kind, fields, and externalized state (no in-place mutation). Declarative, inspectable, serializable.
 - **Bundles own capabilities**: user-visible authority is expressed as bundles with graph-tracked capabilities to read/write/link Things or access devices. Bundles are the unit of execution and delegation.
 - **The Graph is the system**: a directed, labeled multigraph; nodes are Things, edges capture containment, dependencies, supervision, IO streams, configuration, and subscriptions. All userland interactions happen as graph reads/writes.
-- **The Journal is the CPU**: append-only event log; components react to events and emit new ones. State is reconstructed by replay; persistence is the log.
+- **Accessibility-first interfaces**: new drivers, compositor features, and apps (scrolling included) should be designed around WCAG-style principals—perceivable, operable, understandable, and robust. Call out how focus order, keyboard navigation, contrast, and semantic metadata stay intact so assistive clients can rely on the graph without surprises.
 
 ## Current implementation (March 2025)
 
