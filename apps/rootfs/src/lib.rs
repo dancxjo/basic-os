@@ -33,17 +33,8 @@ pub fn app_main() -> ! {
     userland::println!("Created /tmp: {:?}", tmp_id);
 
     // Populate /bin
-    let apps = [
-        "init",
-        "compositor",
-        "demo_app",
-        "graph_viewer",
-        "text_editor",
-        "self_editing_demo",
-    ];
-
-    for app in apps {
-        create_file(app, bin_id);
+    for app in userland::apps_manifest::APPS {
+        create_app_file(app, bin_id);
     }
 
     // Populate /dev
@@ -58,8 +49,8 @@ pub fn app_main() -> ! {
 }
 
 fn create_directory(name: &str, parent: Option<Uuid>) -> Uuid {
-    let id = userland::simple_uuid(name.as_bytes()); 
-    
+    let id = userland::simple_uuid(name.as_bytes());
+
     let mut fields = userland::map();
     fields.insert(canon::NAME, Value::Text(name.into()));
     fields.insert(canon::KIND, Value::Symbol(canon::DIRECTORY));
@@ -77,18 +68,23 @@ fn create_directory(name: &str, parent: Option<Uuid>) -> Uuid {
     dir_id
 }
 
-fn create_file(name: &str, parent: Uuid) {
+fn create_app_file(app: &userland::apps_manifest::AppSpec, parent: Uuid) {
     let mut fields = userland::map();
-    fields.insert(canon::NAME, Value::Text(name.into()));
+    fields.insert(canon::NAME, Value::Text(app.name.into()));
     fields.insert(canon::KIND, Value::Symbol(canon::FILE));
     fields.insert(canon::PARENT, Value::Uuid(parent));
-    
+
     // Bundle ID (using simple_uuid of name as placeholder)
-    let bundle_id = userland::simple_uuid(name.as_bytes());
+    let bundle_id = userland::simple_uuid(app.name.as_bytes());
     fields.insert(canon::BUNDLE_ID, Value::Uuid(bundle_id));
 
+    // Metadata
+    fields.insert(canon::BIN_NAME, Value::Text(app.bin_name.into()));
+    fields.insert(canon::AUTOSTART, Value::Bool(app.autostart));
+    fields.insert(canon::SHOW_IN_LAUNCHER, Value::Bool(app.show_in_launcher));
+
     // Maybe add executable info
-    fields.insert(canon::canon(b'E', b'X', b'E'), Value::Text(name.into()));
+    fields.insert(canon::canon(b'E', b'X', b'E'), Value::Text(app.name.into()));
 
     let file_id = userland::fiat(None, canon::FILE, fields);
 
@@ -101,7 +97,7 @@ fn create_device(name: &str, parent: Uuid) {
     fields.insert(canon::NAME, Value::Text(name.into()));
     fields.insert(canon::KIND, Value::Symbol(canon::DEVICE));
     fields.insert(canon::PARENT, Value::Uuid(parent));
-    
+
     if name == "tty0" {
         fields.insert(canon::DEVICE_DRIVER, Value::Text("console".into()));
         fields.insert(canon::DEVICE_ID, Value::Text("tty0".into()));

@@ -4,6 +4,7 @@
 extern crate alloc;
 
 pub mod app;
+pub mod apps_manifest;
 pub mod drivers;
 pub mod fs;
 pub mod graph;
@@ -108,6 +109,9 @@ pub mod canon {
     pub const DEVICE: Symbol = canon(b'D', b'E', b'V');
     pub const EMITS: Symbol = canon(b'E', b'M', b'T');
     pub const FRAMEBUFFER_DEVICE: Symbol = canon(b'F', b'B', b'D');
+    pub const AUTOSTART: Symbol = canon(b'A', b'U', b'T');
+    pub const SHOW_IN_LAUNCHER: Symbol = canon(b'S', b'I', b'L');
+    pub const BIN_NAME: Symbol = canon(b'B', b'N', b'M');
     pub const KEYBOARD_DEVICE: Symbol = canon(b'K', b'B', b'D');
     pub const MOUSE_DEVICE: Symbol = canon(b'M', b'D', b'V');
     pub const NIC_DEVICE: Symbol = canon(b'N', b'I', b'C');

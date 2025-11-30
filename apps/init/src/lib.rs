@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use userland::canon;
+use userland::fs::{self, FsKind};
 use userland::prelude::*;
 
 pub fn app_main() -> ! {
@@ -19,21 +20,42 @@ pub fn app_main() -> ! {
     userland::println!("Spawning rootfs...");
     userland::sys::spawn("rootfs");
 
-    // Spawn compositor
-    userland::println!("Spawning compositor...");
-    userland::sys::spawn("compositor");
+    // Wait a bit for rootfs to populate /bin
+    // In a real system we would watch for /bin changes or have a dependency graph.
+    // For now, just sleep a bit or retry.
+    // userland::sys::sleep(500); // sleep not implemented yet, spin loop
 
-    // Spawn demo app
-    userland::println!("Spawning demo_app...");
-    userland::sys::spawn("demo_app");
+    let mut retries = 0;
+    loop {
+        userland::println!(
+            "Scanning /bin for autostart apps (attempt {})...",
+            retries + 1
+        );
+        if let Ok(entries) = fs::read_dir("/bin") {
+            if !entries.is_empty() {
+                for node in entries {
+                    if node.kind == FsKind::File && node.autostart {
+                        if let Some(bin_name) = &node.bin_name {
+                            userland::println!("Autostarting {}...", node.name);
+                            userland::sys::spawn(bin_name);
+                        }
+                    }
+                }
+                break;
+            }
+        }
 
-    // Spawn self_editing_demo
-    userland::println!("Spawning self_editing_demo...");
-    userland::sys::spawn("self_editing_demo");
+        retries += 1;
+        if retries > 10 {
+            userland::println!("Failed to read /bin or empty after retries");
+            break;
+        }
 
-    // Spawn graph_viewer
-    userland::println!("Spawning graph_viewer...");
-    userland::sys::spawn("graph_viewer");
+        // Spin for a bit
+        for _ in 0..1000000 {
+            core::hint::spin_loop();
+        }
+    }
 
     // Create LaunchRequest for text_editor
     userland::println!("Creating LaunchRequest for text_editor...");
