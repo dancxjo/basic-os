@@ -35,3 +35,5 @@ template-x86_64.iso
 ovmf/ovmf-code-x86_64.fd
 ovmf/ovmf-vars-x86_64.fd
 userland.bin
+
+third_party/
