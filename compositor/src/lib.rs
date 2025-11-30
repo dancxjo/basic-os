@@ -834,6 +834,20 @@ mod tests {
         assert_eq!(scene.commands().len(), 2);
     }
 
+    #[test]
+    fn bitmap_pixel_accessor_bounds_checks() {
+        let bmp = Bitmap::new(2, 2, vec![0x00000001, 0x00000002, 0x00000003, 0x00000004]);
+
+        assert_eq!(bmp.pixel(0, 0), Some(0x00000001));
+        assert_eq!(bmp.pixel(1, 0), Some(0x00000002));
+        assert_eq!(bmp.pixel(0, 1), Some(0x00000003));
+        assert_eq!(bmp.pixel(1, 1), Some(0x00000004));
+
+        assert_eq!(bmp.pixel(2, 0), None);
+        assert_eq!(bmp.pixel(0, 2), None);
+        assert_eq!(bmp.pixel(2, 2), None);
+    }
+
     #[cfg(feature = "host")]
     #[test]
     fn svg_backend_renders() {
