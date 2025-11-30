@@ -8,6 +8,7 @@ description = "Shared ThingOS ABI definitions for kernel and userland"
 [dependencies]
 serde = { workspace = true }
 uuid = { version = "=1.10", default-features = false, features = ["serde", "v5"] }
+once_cell = { version = "1.19", default-features = false, features = ["alloc", "race"] }
 
 [dev-dependencies]
 postcard = { version = "1.0.4", default-features = false, features = ["alloc"] }
