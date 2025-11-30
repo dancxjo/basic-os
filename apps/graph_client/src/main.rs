@@ -28,7 +28,7 @@ fn main() {
     println!("Created Thing: World ({})", world_id);
 
     // Link them
-    that(hello_id, canon::NEXT, world_id, 0);
+    that(hello_id, "NEXT", world_id, 0);
     println!("Linked Hello -> World");
 
     // Query by kind

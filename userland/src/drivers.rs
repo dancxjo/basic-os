@@ -89,7 +89,7 @@ pub fn register_builtin_drivers() {
 
 /// Add a `STREAMS` edge from the named driver to a destination Thing.
 pub fn connect_stream(name: &str, dst: Uuid, revision: u64) {
-    that(driver_id(name), canon::STREAMS, dst, revision);
+    that(driver_id(name), "STREAMS", dst, revision);
 }
 
 /// Stable UUID for a driver name (v5 namespace).

@@ -19,7 +19,7 @@ pub(crate) fn emit_edge_event(edge: &GraphEdge) {
     let mut payload = BTreeMap::new();
     payload.insert(canon::SRC, Value::Uuid(edge.src));
     payload.insert(canon::DST, Value::Uuid(edge.dst));
-    payload.insert(canon::PREDICATE, Value::Symbol(edge.pred));
+    payload.insert(canon::PREDICATE, Value::Text(edge.pred.clone()));
     payload.insert(canon::OWNER, Value::Uuid(edge.owner));
     if !edge.props.is_empty() {
         payload.insert(canon::FIELDS, Value::Map(edge.props.clone()));

@@ -212,7 +212,7 @@ pub struct GraphThing {
 pub struct GraphEdge {
     pub id: Uuid,
     pub src: Uuid,
-    pub pred: Symbol,
+    pub pred: String,
     pub dst: Uuid,
     pub props: Map,
     pub owner: BundleId,
@@ -247,7 +247,7 @@ pub struct GraphFiatRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphThatRequest {
     pub src: Uuid,
-    pub pred: Symbol,
+    pub pred: String,
     pub dst: Uuid,
     pub revision_hint: u64,
     #[serde(default)]
@@ -284,7 +284,7 @@ pub struct GraphNodeRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphLinkRequest {
     pub id: Option<Uuid>,
-    pub kind: Symbol,
+    pub pred: String,
     pub from: Uuid,
     pub to: Uuid,
     #[serde(default)]
@@ -333,7 +333,7 @@ pub struct QueueStateSpec {
 pub struct GrantCapabilityRequest {
     pub grantee: BundleId,
     pub target: Uuid,
-    pub capability: Symbol,
+    pub capability: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,7 +390,7 @@ pub enum AbiRequest {
     Link {
         id: Option<ThingId>,
         from: ThingId,
-        rel: Symbol,
+        pred: String,
         to: ThingId,
         #[serde(default)]
         props: Map,

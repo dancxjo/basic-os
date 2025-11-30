@@ -1,5 +1,7 @@
 //! Symbol table helpers. Keep codes short and human-readable for dumps.
 
+use alloc::string::String;
+use alloc::vec::Vec;
 pub use thing_abi::{Symbol, canon, cc, from_char, from_u16};
 
 // Common symbols used by early drivers and journal dumps.
@@ -234,4 +236,134 @@ pub fn from_str(s: &str) -> Option<Symbol> {
         i += 1;
     }
     None
+}
+
+pub fn symbol_to_string(sym: Symbol) -> String {
+    const TBL: &[(Symbol, &str)] = &[
+        (JOURNAL, "journal"),
+        (KEYBOARD, "keyboard"),
+        (KEY_PRESSED, "key_pressed"),
+        (KEY_EVENT, "key_event"),
+        (MOUSE, "mouse"),
+        (MOUSE_MOVED, "mouse_moved"),
+        (MOUSE_MOVE, "mouse_move"),
+        (MOUSE_BUTTON, "mouse_button"),
+        (INPUT_DEVICE_MOUSE, "input.device.mouse"),
+        (INPUT_EVENT, "input.event"),
+        (MOVE, "move"),
+        (DEVICE_ID, "device_id"),
+        (TS, "ts"),
+        (DOWN, "down"),
+        (BUTTON, "button"),
+        (AT, "at"),
+        (INIT, "init"),
+        (FAIL, "fail"),
+        (DRIVER, "driver"),
+        (THING_CREATED, "thing_created"),
+        (EDGE_ADDED, "edge_added"),
+        (ID, "id"),
+        (KIND, "kind"),
+        (FIELDS, "fields"),
+        (REVISION, "revision"),
+        (SRC, "src"),
+        (DST, "dst"),
+        (PREDICATE, "predicate"),
+        (NAME, "name"),
+        (STATUS, "status"),
+        (SCANCODE, "scancode"),
+        (KEY, "key"),
+        (DX, "dx"),
+        (DY, "dy"),
+        (BUTTONS, "buttons"),
+        (WRITE, "write"),
+        (BUNDLE, "bundle"),
+        (OWNER, "owner"),
+        (OWNS, "owns"),
+        (CAN_READ, "can_read"),
+        (CAN_WRITE, "can_write"),
+        (CAN_LINK, "can_link"),
+        (CAN_HANDLE_IRQ, "can_handle_irq"),
+        (CAN_DMA, "can_dma"),
+        (CAN_MMIO, "can_mmio"),
+        (CAN_PORT_IO, "can_port_io"),
+        (TARGET, "target"),
+        (TEXT, "text"),
+        (STDOUT, "stdout"),
+        (ADDR, "addr"),
+        (WIDTH, "width"),
+        (HEIGHT, "height"),
+        (PITCH, "pitch"),
+        (BPP, "bpp"),
+        (COMPOSITOR, "compositor"),
+        (WINDOW, "window"),
+        (PIXMAP, "pixmap"),
+        (STREAMS, "streams"),
+        (COMPOSED_BY, "composed_by"),
+        (WINDOW_CREATED, "window_created"),
+        (WINDOW_BUFFER_UPDATED, "window_buffer_updated"),
+        (FRAME_READY, "frame_ready"),
+        (DRIVER_INPUT, "driver_input"),
+        (DRIVER_DISPLAY, "driver_display"),
+        (DRIVER_STORAGE, "driver_storage"),
+        (DRIVER_TIMER, "driver_timer"),
+        (DRIVER_OTHER, "driver_other"),
+        (DEVICE, "device"),
+        (FRAMEBUFFER_DEVICE, "device.framebuffer"),
+        (KEYBOARD_DEVICE, "device.keyboard"),
+        (MOUSE_DEVICE, "device.mouse"),
+        (NIC_DEVICE, "device.nic"),
+        (IRQ_EVENT, "irq.event"),
+        (DMA_EVENT, "dma.event"),
+        (IRQ_LINE, "irq_line"),
+        (BUFFER, "buffer"),
+        (BYTES, "bytes"),
+        (DONE, "done"),
+        (WINDOW_RECT, "window_rect"),
+        (COLOR, "color"),
+        (VISIBLE, "visible"),
+        (BITMAP, "bitmap"),
+        (DIRTY, "dirty"),
+        (HAS_SURFACE, "has_surface"),
+        (PRESENTS, "presents"),
+        (SURFACE, "surface"),
+        (CURSOR, "cursor"),
+        (SHARED_BUFFER, "buffer.shared"),
+        (QUEUE_STATE, "queue.state"),
+        (BUFFER_KIND, "buffer.kind"),
+        (BUFFER_USAGE, "buffer.usage"),
+        (RING, "ring"),
+        (LINEAR, "linear"),
+        (PIPE_USAGE, "pipe"),
+        (SURFACE_USAGE, "surface"),
+        (RX_RING_USAGE, "rx_ring"),
+        (HEAD, "head"),
+        (TAIL, "tail"),
+        (HAS_DATA, "has_data"),
+        (CAPACITY, "capacity"),
+        (X, "x"),
+        (Y, "y"),
+        (Z, "z"),
+        (APP, "app"),
+        (TYPE, "type"),
+        (VERSION, "version"),
+    ];
+    for (s, name) in TBL {
+        if *s == sym {
+            return name.to_ascii_uppercase();
+        }
+    }
+    let val = sym.0;
+    let c1 = ((val >> 16) & 0xFF) as u8;
+    let c2 = ((val >> 8) & 0xFF) as u8;
+    let c3 = (val & 0xFF) as u8;
+    let mut bytes = Vec::new();
+    if c1 != 0 { bytes.push(c1); }
+    if c2 != 0 { bytes.push(c2); }
+    if c3 != 0 { bytes.push(c3); }
+    if let Ok(s) = String::from_utf8(bytes) {
+        if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+             return s.to_ascii_uppercase();
+        }
+    }
+    alloc::format!("SYM_{}", val)
 }

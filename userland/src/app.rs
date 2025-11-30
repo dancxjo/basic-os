@@ -142,7 +142,7 @@ impl<'a> AppContext<'a> {
         fields.insert(canon::TARGET, Value::Uuid(pixmap));
         fields.insert(canon::STATUS, Value::Symbol(canon::INIT));
         graph::fiat(Some(window_id), canon::WINDOW, fields);
-        graph::that(window_id, canon::COMPOSED_BY, self.state.compositor, 0);
+        graph::that(window_id, "COMPOSED_BY", self.state.compositor, 0);
 
         self.state.window_pixmaps.insert(window_id, pixmap);
 
@@ -197,7 +197,7 @@ impl<'a> AppContext<'a> {
                 }
 
                 graph::fiat(Some(*pixmap), canon::SURFACE, payload);
-                graph::that(*window, canon::HAS_SURFACE, *pixmap, 0);
+                graph::that(*window, "HAS_SURFACE", *pixmap, 0);
             }
         }
         self.state.buffers.clear();

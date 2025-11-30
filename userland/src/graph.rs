@@ -56,12 +56,12 @@ pub fn fiat(id: Option<Uuid>, kind: Symbol, fields: Map) -> Uuid {
 }
 
 /// Add an edge between two Things in the graph.
-pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
+pub fn that(src: Uuid, pred: impl Into<String>, dst: Uuid, revision: u64) {
     runtime::ensure_kernel_runtime();
     let _ = runtime::runtime().call(AbiRequest::Link {
         id: None,
         from: src,
-        rel: pred,
+        pred: pred.into(),
         to: dst,
         props: map(),
     });
@@ -71,14 +71,14 @@ pub fn that(src: Uuid, pred: Symbol, dst: Uuid, revision: u64) {
 /// Data capabilities (read/write/link) may be delegated only by the owner of
 /// the target Thing. Hardware capabilities (IRQ/DMA/MMIO/PORT IO) are
 /// kernel-only. Returns true if the capability was successfully granted.
-pub fn grant_capability(grantee: Uuid, target: Uuid, capability: Symbol) -> bool {
+pub fn grant_capability(grantee: Uuid, target: Uuid, capability: impl Into<String>) -> bool {
     runtime::ensure_kernel_runtime();
     matches!(
         runtime::runtime().call(AbiRequest::GrantCapability {
             request: GrantCapabilityRequest {
                 grantee,
                 target,
-                capability,
+                capability: capability.into(),
             },
         }),
         AbiResponse::CapabilityGranted { granted: true }

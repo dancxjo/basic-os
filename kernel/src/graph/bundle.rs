@@ -117,7 +117,7 @@ pub fn grant_initial_capability(bundle: BundleId, target: Uuid, capability: Symb
     let req = crate::graph::GrantCapabilityRequest {
         grantee: bundle,
         target,
-        capability,
+        capability: crate::graph::canon::symbol_to_string(capability),
     };
     grant_capability(KERNEL_BUNDLE_ID, req)
 }

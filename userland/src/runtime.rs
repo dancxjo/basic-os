@@ -63,13 +63,13 @@ impl ThingRuntime for KernelRuntime {
             AbiRequest::Link {
                 id,
                 from,
-                rel,
+                pred,
                 to,
                 props,
             } => {
                 let request = GraphThatRequest {
                     src: from,
-                    pred: rel,
+                    pred: pred.clone(),
                     dst: to,
                     revision_hint: 0,
                     props,
@@ -80,7 +80,7 @@ impl ThingRuntime for KernelRuntime {
                     let edge = GraphEdge {
                         id: edge_id,
                         src: from,
-                        pred: rel,
+                        pred,
                         dst: to,
                         props: request.props,
                         owner: Uuid::nil(),

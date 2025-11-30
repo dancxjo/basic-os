@@ -77,7 +77,7 @@ impl GraphStore for InMemoryGraphStore {
         let edge = GraphEdge {
             id,
             src: req.from,
-            pred: req.kind,
+            pred: req.pred,
             dst: req.to,
             props: req.props,
             owner: Uuid::nil(),
@@ -323,36 +323,38 @@ impl GraphStore for Neo4jGraphStore {
         let revision = self.next_revision().await?;
         let props_json = serde_json::to_string(&req.props)?;
         let owner = Uuid::nil().to_string();
-        let pred_name = Self::symbol_display(req.kind);
+
+        if !is_valid_relationship_type(&req.pred) {
+            return Err(anyhow!("Invalid relationship type: {}", req.pred));
+        }
+
+        let query_str = format!(
+            "MERGE (src:Thing {{uuid: $src}})
+             ON CREATE SET src.kind = 0,
+                           src.kind_name = 'unknown',
+                           src.labels = [],
+                           src.props_json = '{{}}',
+                           src.owner = $owner,
+                           src.revision = 0
+             MERGE (dst:Thing {{uuid: $dst}})
+             ON CREATE SET dst.kind = 0,
+                           dst.kind_name = 'unknown',
+                           dst.labels = [],
+                           dst.props_json = '{{}}',
+                           dst.owner = $owner,
+                           dst.revision = 0
+             MERGE (src)-[r:{} {{uuid: $uuid}}]->(dst)
+             SET r.props_json = $props,
+                 r.revision = $revision",
+            req.pred
+        );
 
         self.graph
             .run(
-                query(
-                    "MERGE (src:Thing {uuid: $src})
-                     ON CREATE SET src.kind = 0,
-                                   src.kind_name = 'unknown',
-                                   src.labels = [],
-                                   src.props_json = '{}',
-                                   src.owner = $owner,
-                                   src.revision = 0
-                     MERGE (dst:Thing {uuid: $dst})
-                     ON CREATE SET dst.kind = 0,
-                                   dst.kind_name = 'unknown',
-                                   dst.labels = [],
-                                   dst.props_json = '{}',
-                                   dst.owner = $owner,
-                                   dst.revision = 0
-                     MERGE (src)-[r:LINK {uuid: $uuid}]->(dst)
-                     SET r.pred = $pred,
-                         r.pred_name = $pred_name,
-                         r.props_json = $props,
-                         r.revision = $revision",
-                )
+                query(&query_str)
                 .param("src", req.from.to_string())
                 .param("dst", req.to.to_string())
                 .param("uuid", id.to_string())
-                .param("pred", req.kind.raw() as i64)
-                .param("pred_name", pred_name)
                 .param("props", props_json)
                 .param("revision", revision as i64)
                 .param("owner", owner),
@@ -362,7 +364,7 @@ impl GraphStore for Neo4jGraphStore {
         Ok(GraphEdge {
             id,
             src: req.from,
-            pred: req.kind,
+            pred: req.pred,
             dst: req.to,
             props: req.props,
             owner: Uuid::nil(),
@@ -561,4 +563,22 @@ impl std::fmt::Display for GraphBackend {
             GraphBackend::Neo4j => f.write_str("Neo4j"),
         }
     }
+}
+
+fn is_valid_relationship_type(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let mut chars = s.chars();
+    if let Some(first) = chars.next() {
+        if !first.is_ascii_alphabetic() {
+            return false;
+        }
+    }
+    for c in chars {
+        if !c.is_ascii_alphanumeric() && c != '_' {
+            return false;
+        }
+    }
+    true
 }

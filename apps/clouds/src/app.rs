@@ -42,7 +42,7 @@ impl App for CloudsApp {
         graph::fiat(Some(world_id), canon::WINDOW, fields);
 
         // Link them
-        graph::that(hello_id, canon::NEXT, world_id, 0);
+        graph::that(hello_id, "NEXT", world_id, 0);
 
         // --- Graph Smoke Logic ---
         let smoke_node_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, NODE_NAME.as_bytes());

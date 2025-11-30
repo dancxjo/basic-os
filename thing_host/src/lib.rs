@@ -89,13 +89,13 @@ impl ThingRuntime for HostRuntime {
             AbiRequest::Link {
                 id,
                 from,
-                rel,
+                pred,
                 to,
                 props,
             } => {
                 let req = GraphLinkRequest {
                     id,
-                    kind: rel,
+                    pred,
                     from,
                     to,
                     props,
@@ -274,8 +274,17 @@ fn pattern_matches(thing: &GraphThing, pattern: &NodePattern) -> bool {
 }
 
 fn edge_matches(edge: &GraphEdge, pattern: &NodePattern) -> bool {
-    if !pattern.labels.is_empty() && !pattern.labels.iter().any(|label| *label == edge.pred) {
-        return false;
+    if !pattern.labels.is_empty() {
+        let match_found = pattern.labels.iter().any(|label| {
+            if let Some(name) = symbols::symbol_name(*label) {
+                name == edge.pred
+            } else {
+                false
+            }
+        });
+        if !match_found {
+            return false;
+        }
     }
     pattern.props.is_empty()
 }

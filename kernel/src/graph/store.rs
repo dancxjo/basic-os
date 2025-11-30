@@ -3,6 +3,7 @@ use crate::graph::canon::Symbol;
 use crate::graph::events::{emit_edge_event, emit_thing_event, reflect_thing_side_effects};
 use crate::graph::types::*;
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use thing_abi::{Value, WatchQuery};
 use uuid::Uuid;
@@ -15,7 +16,7 @@ pub struct Store {
     things: BTreeMap<Uuid, Vec<GraphThing>>,
     edges: Vec<GraphEdge>,
     kind_index: BTreeMap<Symbol, BTreeSet<Uuid>>,
-    edges_by_src_pred: BTreeMap<(Uuid, Symbol), Vec<GraphEdge>>,
+    edges_by_src_pred: BTreeMap<(Uuid, String), Vec<GraphEdge>>,
     watches: BTreeMap<WatchId, Watch>,
     next_watch_id: WatchId,
 }
@@ -153,7 +154,7 @@ impl Store {
         let kind = *labels.iter().next().unwrap_or(&canon::THING_CREATED);
         let mut props = request.props;
         props.entry(canon::OWNER).or_insert(Value::Uuid(owner));
-        let id = request.id.unwrap_or_else(|| derive_uuid(kind, &props));
+        let id = request.id.unwrap_or_else(|| derive_uuid(&kind.0.to_be_bytes(), &props));
         let revision = self.next_revision();
         let thing = GraphThing {
             id,
@@ -175,7 +176,7 @@ impl Store {
     pub fn that(&mut self, owner: BundleId, request: GraphThatRequest) -> u64 {
         let link_request = GraphLinkRequest {
             id: None,
-            kind: request.pred,
+            pred: request.pred,
             from: request.src,
             to: request.dst,
             props: request.props,
@@ -184,19 +185,19 @@ impl Store {
     }
 
     pub fn link_edge(&mut self, owner: BundleId, request: GraphLinkRequest) -> u64 {
-        if !self.can_link(owner, request.from, request.to, request.kind) {
+        if !self.can_link(owner, request.from, request.to, &request.pred) {
             return 0;
         }
-        if let Some(existing) = self.edge_between(request.from, request.kind, request.to) {
+        if let Some(existing) = self.edge_between(request.from, &request.pred, request.to) {
             return existing.revision;
         }
         let revision = self.next_revision();
         let edge = GraphEdge {
             id: request
                 .id
-                .unwrap_or_else(|| derive_uuid(request.kind, &request.props)),
+                .unwrap_or_else(|| derive_uuid(request.pred.as_bytes(), &request.props)),
             src: request.from,
-            pred: request.kind,
+            pred: request.pred,
             dst: request.to,
             props: request.props,
             owner,
@@ -264,8 +265,8 @@ impl Store {
     /// Returns true if the capability was successfully granted.
     pub fn grant_capability(&mut self, grantor: BundleId, request: GrantCapabilityRequest) -> bool {
         // Validate the capability symbol
-        if !Self::is_data_capability(request.capability)
-            && !Self::is_hardware_capability(request.capability)
+        if !Self::is_data_capability(&request.capability)
+            && !Self::is_hardware_capability(&request.capability)
         {
             return false;
         }
@@ -274,7 +275,7 @@ impl Store {
         // - Hardware capabilities can only be minted by the kernel.
         // - Data capabilities can be granted by the owner of the target Thing
         //   (or by the kernel, which owns everything).
-        let can_grant = if Self::is_hardware_capability(request.capability) {
+        let can_grant = if Self::is_hardware_capability(&request.capability) {
             grantor == KERNEL_BUNDLE_ID
         } else {
             grantor == KERNEL_BUNDLE_ID || self.owns(grantor, request.target)
@@ -294,10 +295,11 @@ impl Store {
         props.insert(canon::OWNER, Value::Uuid(grantor));
         props.insert(canon::DST, Value::Uuid(request.target));
 
+        let pred = request.capability.clone();
         let edge = GraphEdge {
-            id: derive_uuid(request.capability, &props),
+            id: derive_uuid(pred.as_bytes(), &props),
             src: grantee_node,
-            pred: request.capability,
+            pred,
             dst: request.target,
             props,
             owner: grantor,
@@ -326,16 +328,16 @@ impl Store {
             .collect::<Vec<_>>()
     }
 
-    pub fn edges_of(&self, src: Uuid, pred: Symbol) -> Vec<GraphEdge> {
+    pub fn edges_of(&self, src: Uuid, pred: &str) -> Vec<GraphEdge> {
         self.edges_by_src_pred
-            .get(&(src, pred))
+            .get(&(src, pred.to_string()))
             .cloned()
             .unwrap_or_else(Vec::new)
     }
 
-    fn edge_between(&self, src: Uuid, pred: Symbol, dst: Uuid) -> Option<GraphEdge> {
+    fn edge_between(&self, src: Uuid, pred: &str, dst: Uuid) -> Option<GraphEdge> {
         self.edges_by_src_pred
-            .get(&(src, pred))
+            .get(&(src, pred.to_string()))
             .and_then(|edges| edges.iter().rev().find(|edge| edge.dst == dst))
             .cloned()
     }
@@ -433,7 +435,18 @@ impl Store {
                 (Some(existing), _) if existing == v => {}
                 (_, Some(e)) if *k == canon::SRC && *v == Value::Uuid(e.src) => {}
                 (_, Some(e)) if *k == canon::DST && *v == Value::Uuid(e.dst) => {}
-                (_, Some(e)) if *k == canon::PREDICATE && *v == Value::Symbol(e.pred) => {}
+                (_, Some(e)) if *k == canon::PREDICATE => {
+                    let matches = if let Some(s) = v.as_text() {
+                        s == &e.pred
+                    } else if let Some(sym) = v.as_symbol() {
+                        canon::symbol_to_string(sym) == e.pred
+                    } else {
+                        false
+                    };
+                    if !matches {
+                        return false;
+                    }
+                }
                 _ => return false,
             }
         }
@@ -468,10 +481,11 @@ impl Store {
         let mut props = BTreeMap::new();
         props.insert(canon::OWNER, Value::Uuid(owner));
         props.insert(canon::DST, Value::Uuid(node));
+        let pred = canon::symbol_to_string(canon::OWNS);
         let edge = GraphEdge {
-            id: derive_uuid(canon::OWNS, &props),
+            id: derive_uuid(pred.as_bytes(), &props),
             src: Self::bundle_node_id(owner),
-            pred: canon::OWNS,
+            pred,
             dst: node,
             props,
             owner,
@@ -482,30 +496,32 @@ impl Store {
 
     fn owns(&self, bundle: BundleId, node: Uuid) -> bool {
         let bundle_node = Self::bundle_node_id(bundle);
+        let pred = canon::symbol_to_string(canon::OWNS);
         self.edges_by_src_pred
-            .get(&(bundle_node, canon::OWNS))
+            .get(&(bundle_node, pred))
             .map(|edges| edges.iter().any(|e| e.dst == node))
             .unwrap_or(false)
     }
 
-    fn is_data_capability(capability: Symbol) -> bool {
+    fn is_data_capability(capability: &str) -> bool {
         matches!(
             capability,
-            canon::CAN_READ | canon::CAN_WRITE | canon::CAN_LINK
+            "CAN_READ" | "CAN_WRITE" | "CAN_LINK"
         )
     }
 
-    fn is_hardware_capability(capability: Symbol) -> bool {
+    fn is_hardware_capability(capability: &str) -> bool {
         matches!(
             capability,
-            canon::CAN_HANDLE_IRQ | canon::CAN_DMA | canon::CAN_MMIO | canon::CAN_PORT_IO
+            "CAN_HANDLE_IRQ" | "CAN_DMA" | "CAN_MMIO" | "CAN_PORT_IO"
         )
     }
 
     fn has_capability(&self, bundle: BundleId, target: Uuid, predicate: Symbol) -> bool {
         let bundle_node = Self::bundle_node_id(bundle);
+        let pred = canon::symbol_to_string(predicate);
         self.edges_by_src_pred
-            .get(&(bundle_node, predicate))
+            .get(&(bundle_node, pred))
             .map(|edges| edges.iter().any(|e| e.dst == target))
             .unwrap_or(false)
     }
@@ -532,16 +548,17 @@ impl Store {
             || self.has_capability(bundle, node, canon::CAN_WRITE)
     }
 
-    fn can_link(&self, bundle: BundleId, from: Uuid, to: Uuid, kind: Symbol) -> bool {
+    fn can_link(&self, bundle: BundleId, from: Uuid, to: Uuid, kind: &str) -> bool {
         if bundle == KERNEL_BUNDLE_ID || self.owns(bundle, from) || self.owns(bundle, to) {
             return true;
         }
         let bundle_node = Self::bundle_node_id(bundle);
-        if let Some(edges) = self.edges_by_src_pred.get(&(bundle_node, canon::CAN_LINK)) {
+        let can_link_pred = canon::symbol_to_string(canon::CAN_LINK);
+        if let Some(edges) = self.edges_by_src_pred.get(&(bundle_node, can_link_pred)) {
             for edge in edges.iter() {
                 if edge.dst == from || edge.dst == to {
                     if let Some(Value::Symbol(cap_kind)) = edge.props.get(&canon::KIND) {
-                        if *cap_kind == kind {
+                        if canon::symbol_to_string(*cap_kind) == kind {
                             return true;
                         }
                     } else {
@@ -598,16 +615,16 @@ impl Store {
         if should_add {
             self.edges.push(edge.clone());
             self.edges_by_src_pred
-                .entry((edge.src, edge.pred))
+                .entry((edge.src, edge.pred.clone()))
                 .or_default()
                 .push(edge);
         }
     }
 }
 
-fn derive_uuid(kind: Symbol, fields: &BTreeMap<Symbol, Value>) -> Uuid {
+fn derive_uuid(kind_bytes: &[u8], fields: &BTreeMap<Symbol, Value>) -> Uuid {
     let mut name: Vec<u8> = Vec::new();
-    name.extend_from_slice(&kind.0.to_be_bytes());
+    name.extend_from_slice(kind_bytes);
     if let Ok(buf) = postcard::to_allocvec(fields) {
         name.extend_from_slice(&buf);
     }
