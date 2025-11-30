@@ -60,7 +60,7 @@ impl ThingRuntime for HostRuntime {
                 if labels.is_empty() {
                     labels.push(kind);
                 }
-                let thing_id = id.unwrap_or_else(Uuid::new_v4);
+                let thing_id = id.unwrap_or_else(|| thing_abi::next_uuid());
                 let revision = self.next_revision();
                 let thing = GraphThing {
                     id: thing_id,
@@ -81,7 +81,7 @@ impl ThingRuntime for HostRuntime {
                 to,
                 props,
             } => {
-                let edge_id = id.unwrap_or_else(Uuid::new_v4);
+                let edge_id = id.unwrap_or_else(|| thing_abi::next_uuid());
                 let revision = self.next_revision();
                 let edge = GraphEdge {
                     id: edge_id,

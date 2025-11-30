@@ -1,9 +1,10 @@
 use crate::graph::canon;
 use crate::graph::canon::Symbol;
-use crate::graph::journal::Value;
 use crate::graph::types::{BundleId, GraphFiatRequest, KERNEL_BUNDLE_ID};
 use crate::graph::{fiat_for_bundle, grant_capability};
 use alloc::collections::BTreeMap;
+use alloc::vec;
+use thing_abi::Value;
 use uuid::Uuid;
 
 /// Bundle type classification for the bundle lifecycle.

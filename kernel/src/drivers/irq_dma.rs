@@ -1,10 +1,12 @@
 use alloc::collections::BTreeMap;
+use alloc::vec;
 use alloc::vec::Vec;
 use spin::Mutex as SpinMutex;
 use uuid::Uuid;
 use x86_64::instructions::interrupts;
 
-use crate::graph::{self, BundleId, GraphFiatRequest, canon, journal::Value};
+use crate::graph::{self, BundleId, GraphFiatRequest, canon};
+use thing_abi::Value;
 
 pub type IrqHandle = u64;
 pub type DmaMappingHandle = u64;

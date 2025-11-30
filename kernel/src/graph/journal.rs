@@ -66,7 +66,7 @@ pub fn snapshot() -> Vec<Event> {
 pub fn dump_pretty() {
     let snapshot = snapshot();
     for entry in &snapshot {
-        serial_println!("@{} {} {}", entry.timestamp, entry.kind, entry.data);
+        serial_println!("@{} {:?} {}", entry.timestamp, entry.kind, entry.data);
     }
 }
 

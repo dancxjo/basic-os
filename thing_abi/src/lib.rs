@@ -5,8 +5,9 @@ extern crate alloc;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::cell::UnsafeCell;
 use core::fmt;
-use once_cell::race::OnceCell;
+use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -451,11 +452,55 @@ pub enum AbiResponse {
     },
 }
 
-pub trait ThingRuntime {
+pub trait ThingRuntime: Sync {
     fn call(&self, req: AbiRequest) -> AbiResponse;
 }
 
-static RUNTIME: OnceCell<&'static dyn ThingRuntime> = OnceCell::new();
+struct RuntimeCell {
+    state: AtomicU8,
+    value: UnsafeCell<Option<&'static dyn ThingRuntime>>,
+}
+
+unsafe impl Sync for RuntimeCell {}
+
+const STATE_UNINIT: u8 = 0;
+const STATE_INITING: u8 = 1;
+const STATE_INITED: u8 = 2;
+
+impl RuntimeCell {
+    const fn new() -> Self {
+        Self { state: AtomicU8::new(STATE_UNINIT), value: UnsafeCell::new(None) }
+    }
+
+    fn set(&self, runtime: &'static dyn ThingRuntime) -> Result<(), &'static dyn ThingRuntime> {
+        match self.state.compare_exchange(
+            STATE_UNINIT,
+            STATE_INITING,
+            Ordering::Acquire,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                unsafe { *self.value.get() = Some(runtime) };
+                self.state.store(STATE_INITED, Ordering::Release);
+                Ok(())
+            }
+            Err(_) => Err(runtime),
+        }
+    }
+
+    fn get(&self) -> Option<&'static dyn ThingRuntime> {
+        if self.state.load(Ordering::Acquire) != STATE_INITED {
+            return None;
+        }
+        unsafe { (*self.value.get()).clone() }
+    }
+
+    fn is_set(&self) -> bool {
+        self.state.load(Ordering::Acquire) == STATE_INITED
+    }
+}
+
+static RUNTIME: RuntimeCell = RuntimeCell::new();
 
 pub fn set_runtime(runtime: &'static dyn ThingRuntime) -> Result<(), &'static dyn ThingRuntime> {
     RUNTIME.set(runtime)
@@ -466,7 +511,14 @@ pub fn runtime() -> &'static dyn ThingRuntime {
 }
 
 pub fn runtime_is_set() -> bool {
-    RUNTIME.get().is_some()
+    RUNTIME.is_set()
+}
+
+static UUID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+pub fn next_uuid() -> Uuid {
+    let id = UUID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    Uuid::from_u128(((id as u128) << 64) | (id as u128))
 }
 
 #[cfg(test)]

@@ -3,12 +3,14 @@
 //! callbacks so higher-level policy can live in userland drivers.
 
 use alloc::collections::BTreeMap;
+use alloc::vec;
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
 use spin::Mutex as SpinMutex;
 use uuid::Uuid;
 
-use crate::graph::{self, GraphFiatRequest, canon, journal::Value};
+use crate::graph::{self, GraphFiatRequest, canon};
+use thing_abi::Value;
 
 pub type DeviceHandle = u64;
 

@@ -1,7 +1,8 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::device::{self, DeviceKind, MOUSE_DEVICE_NAME};
 use crate::drivers::input::InputBuffer;
-use crate::graph::{canon, journal::Value};
+use crate::graph::canon;
+use thing_abi::Value;
 use alloc::collections::BTreeMap;
 use log::warn;
 use uuid::Uuid;

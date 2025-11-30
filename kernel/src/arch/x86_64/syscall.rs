@@ -6,8 +6,8 @@ use crate::drivers::irq_dma;
 use crate::graph::{
     self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphGetRequest,
     GraphLinkRequest, GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, NodePattern,
-    WatchQuery,
 };
+use thing_abi::WatchQuery;
 use crate::serial_println;
 use crate::task::runtime::current_bundle;
 

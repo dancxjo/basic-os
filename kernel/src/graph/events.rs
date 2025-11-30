@@ -1,8 +1,9 @@
 use crate::graph::canon;
-use crate::graph::journal::{self, Value};
+use crate::graph::journal;
 use crate::graph::types::{GraphEdge, GraphThing};
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use thing_abi::Value;
 
 pub(crate) fn emit_thing_event(thing: &GraphThing) {
     let mut payload = BTreeMap::new();

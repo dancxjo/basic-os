@@ -43,7 +43,7 @@ impl ThingRuntime for KernelRuntime {
                     };
                 };
                 let revision = sys::graph_fiat_raw(&buf);
-                let thing_id = request.id.unwrap_or_else(Uuid::new_v4);
+                let thing_id = request.id.unwrap_or_else(|| thing_abi::next_uuid());
                 let thing = match fetch_thing(thing_id) {
                     Some(mut thing) => {
                         thing.revision = revision;
@@ -76,7 +76,7 @@ impl ThingRuntime for KernelRuntime {
                 };
                 if let Ok(buf) = postcard::to_allocvec(&request) {
                     let revision = sys::graph_link_raw(&buf);
-                    let edge_id = id.unwrap_or_else(Uuid::new_v4);
+                    let edge_id = id.unwrap_or_else(|| thing_abi::next_uuid());
                     let edge = GraphEdge {
                         id: edge_id,
                         src: from,
@@ -257,6 +257,3 @@ pub fn runtime() -> &'static dyn ThingRuntime {
 pub fn set_runtime(runtime: &'static dyn ThingRuntime) {
     let _ = abi_set_runtime(runtime);
 }
-
-pub use thing_abi::{AbiRequest, AbiResponse, ThingRuntime};
-pub use thing_abi::{GraphEdge, GraphThing};

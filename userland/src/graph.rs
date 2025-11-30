@@ -3,9 +3,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::runtime::{self, AbiRequest, AbiResponse};
+use crate::runtime;
 use crate::{canon, sys, Symbol, Value};
-use thing_abi::{GrantCapabilityRequest, GraphPropsGetRequest, GraphPropsRequest, Map, WatchQuery};
+use thing_abi::{
+    AbiRequest, AbiResponse, GrantCapabilityRequest, GraphPropsGetRequest, GraphPropsRequest, Map,
+    WatchQuery,
+};
 use uuid::Uuid;
 
 pub use thing_abi::{GraphChange, GraphEdge, GraphThing, NodePattern};

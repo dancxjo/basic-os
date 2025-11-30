@@ -1,11 +1,11 @@
 use crate::graph::canon;
 use crate::graph::canon::Symbol;
 use crate::graph::events::{emit_edge_event, emit_thing_event, reflect_thing_side_effects};
-use crate::graph::journal::Value;
 use crate::graph::types::*;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use uuid::Uuid;
+use thing_abi::{Value, WatchQuery};
 
 const MAX_WATCH_QUEUE: usize = 1024;
 
