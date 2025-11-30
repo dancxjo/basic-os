@@ -19,6 +19,7 @@ app-keyboard-driver = { path = "../drivers/keyboard_driver", optional = true }
 app-framebuffer-driver = { path = "../drivers/framebuffer_driver", optional = true }
 graph_viewer = { path = "../apps/graph_viewer", optional = true }
 text_editor = { path = "../apps/text_editor", optional = true }
+rootfs = { path = "../apps/rootfs", optional = true }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 tiny_http = { version = "0.12", optional = true }
@@ -44,6 +45,7 @@ host = [
   "app-framebuffer-driver/std",
   "graph_viewer/std",
   "text_editor/std",
+  "rootfs/std",
 ]
 
 [[bin]]

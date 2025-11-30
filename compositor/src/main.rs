@@ -162,6 +162,7 @@ fn main() {
         "text_editor",
         userland::app::run_app::<text_editor::TextEditor>,
     );
+    userland::sys::register_host_app("rootfs", rootfs::app_main);
     userland::sys::register_host_app("compositor", || {
         println!("Compositor spawned (ignored)");
         loop {
