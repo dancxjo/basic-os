@@ -9,6 +9,7 @@ pub mod graph;
 pub mod graphics;
 pub mod heap;
 pub mod runtime;
+pub mod semantic_ui;
 pub mod sys;
 pub mod watch;
 
@@ -177,6 +178,20 @@ pub mod canon {
     // Document & Editor symbols
     pub const DOCUMENT: Symbol = canon(b'D', b'O', b'C');
     pub const VIEW: Symbol = canon(b'V', b'I', b'W');
+    pub const WIDGET: Symbol = canon(b'W', b'D', b'G');
+    pub const ROLE: Symbol = canon(b'R', b'O', b'L');
+    pub const LABEL: Symbol = canon(b'L', b'B', b'L');
+    pub const DESCRIPTION: Symbol = canon(b'D', b'S', b'C');
+    pub const FOCUSABLE: Symbol = canon(b'F', b'C', b'S');
+    pub const TAB_INDEX: Symbol = canon(b'T', b'B', b'I');
+    pub const CHILD: Symbol = canon(b'C', b'H', b'D');
+    pub const LABEL_FOR: Symbol = canon(b'L', b'B', b'F');
+    pub const HAS_CURSOR: Symbol = canon(b'H', b'C', b'R');
+    pub const CONTROLS: Symbol = canon(b'C', b'T', b'L');
+    pub const PAGE_SIZE: Symbol = canon(b'P', b'G', b'S');
+    pub const TOTAL_SIZE: Symbol = canon(b'T', b'T', b'S');
+    pub const POSITION: Symbol = canon(b'P', b'O', b'S');
+    pub const ORIENTATION: Symbol = canon(b'O', b'R', b'N');
     pub const MIME: Symbol = canon(b'M', b'I', b'M');
     pub const ENCODING: Symbol = canon(b'E', b'N', b'C');
     pub const LENGTH: Symbol = canon(b'L', b'E', b'N');
