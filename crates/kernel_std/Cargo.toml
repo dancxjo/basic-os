@@ -1,0 +1,9 @@
+[package]
+name = "thingos_kernel_std"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = { version = "0.4", default-features = false }
+uuid = { version = "1.10", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }

@@ -51,7 +51,7 @@ impl BundleType {
 /// This is the primary entry point for creating bundles with the full lifecycle.
 pub fn create_bundle(name: &str, bundle_type: BundleType, version: Option<&str>) -> BundleId {
     let bundle_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
-    create_bundle_with_id(bundle_id, name, bundle_type, version)
+    create_bundle_with_id(BundleId(bundle_id), name, bundle_type, version)
 }
 
 /// Create a bundle node with an explicit ID.
@@ -63,7 +63,7 @@ pub fn create_bundle_with_id(
     version: Option<&str>,
 ) -> BundleId {
     let mut fields = BTreeMap::new();
-    fields.insert(canon::ID, Value::Uuid(bundle_id));
+    fields.insert(canon::ID, Value::Uuid(bundle_id.0));
     fields.insert(canon::NAME, Value::Text(name.into()));
     fields.insert(canon::TYPE, Value::Symbol(bundle_type.to_symbol()));
     fields.insert(canon::STATUS, Value::Symbol(canon::INIT));
@@ -72,7 +72,7 @@ pub fn create_bundle_with_id(
     }
 
     let req = GraphFiatRequest {
-        id: Some(bundle_id),
+        id: Some(bundle_id.0),
         kind: canon::BUNDLE,
         labels: vec![canon::BUNDLE],
         fields,
@@ -89,7 +89,7 @@ pub fn lookup_bundle(name: &str) -> Option<BundleId> {
     crate::graph::with_store(|store| {
         store.latest(&expected_id).map(|thing| {
             if thing.kind == canon::BUNDLE {
-                Some(thing.id)
+                Some(BundleId(thing.id))
             } else {
                 None
             }

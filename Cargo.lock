@@ -767,6 +767,7 @@ dependencies = [
  "spin 0.10.0",
  "spinning_top 0.3.0",
  "thing_abi",
+ "thingos_kernel_std",
  "uuid",
  "x86_64 0.14.13",
 ]
@@ -1552,6 +1553,15 @@ dependencies = [
  "serde_json",
  "thing_abi",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "thingos_kernel_std"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
  "uuid",
 ]
 

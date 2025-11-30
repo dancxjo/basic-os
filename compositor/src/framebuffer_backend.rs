@@ -74,8 +74,13 @@ impl RendererBackend for BitmapRenderer {
                 } => {
                     raster_draw_text(self, *origin, text, *color, *max_width);
                 }
-                SceneItem::DrawTextBlock { rect, text, color } => {
-                    raster_draw_text_block(self, rect, text, *color);
+                SceneItem::DrawTextBlock {
+                    rect,
+                    text,
+                    color,
+                    scroll_offset,
+                } => {
+                    raster_draw_text_block(self, rect, text, *color, *scroll_offset);
                 }
                 SceneItem::DrawCursor {
                     origin,
@@ -235,17 +240,17 @@ fn raster_draw_text(
     if backend.width == 0 {
         return;
     }
-    let mut cursor_x = origin.0.max(0) as usize;
-    let mut cursor_y = origin.1.max(0) as usize;
-    let limit_x = max_width.map(|w| cursor_x + w as usize);
+    let mut cursor_x = origin.0;
+    let mut cursor_y = origin.1;
+    let limit_x = max_width.map(|w| origin.0 + w as i32);
     for ch in text.chars() {
         if ch == '\n' {
-            cursor_x = origin.0.max(0) as usize;
-            cursor_y = cursor_y.saturating_add(FONT_HEIGHT);
+            cursor_x = origin.0;
+            cursor_y = cursor_y.saturating_add(FONT_HEIGHT as i32);
             continue;
         }
         let Some(glyph) = get_glyph(ch) else { continue };
-        let gw = glyph.get_width();
+        let gw = glyph.get_width() as i32;
         if let Some(limit) = limit_x {
             if cursor_x + gw > limit {
                 break;
@@ -256,61 +261,75 @@ fn raster_draw_text(
     }
 }
 
-fn raster_draw_text_block(backend: &mut BitmapRenderer, rect: &Rect, text: &str, color: Rgba) {
+fn raster_draw_text_block(
+    backend: &mut BitmapRenderer,
+    rect: &Rect,
+    text: &str,
+    color: Rgba,
+    scroll_offset: i32,
+) {
     if backend.width == 0 {
         return;
     }
-    let mut cursor_x = rect.x.max(0) as usize;
-    let mut cursor_y = rect.y.max(0) as usize;
-    let max_x = rect.x.max(0) as usize + rect.width as usize;
-    let max_y = rect.y.max(0) as usize + rect.height as usize;
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    let content_width = rect.width as i32;
+    let view_top = rect.y;
+    let view_bottom = rect.y + rect.height as i32;
+    let mut cursor_x: i32 = 0;
+    let mut cursor_y: i32 = 0;
     for ch in text.chars() {
         if ch == '\n' {
-            cursor_x = rect.x.max(0) as usize;
-            cursor_y = cursor_y.saturating_add(FONT_HEIGHT);
-            if cursor_y + FONT_HEIGHT >= max_y {
+            cursor_x = 0;
+            cursor_y = cursor_y.saturating_add(FONT_HEIGHT as i32);
+            if rect.y + cursor_y - scroll_offset >= view_bottom {
                 break;
             }
             continue;
         }
         let Some(glyph) = get_glyph(ch) else { continue };
-        let gw = glyph.get_width();
-        if cursor_x + gw >= max_x {
-            cursor_x = rect.x.max(0) as usize;
-            cursor_y = cursor_y.saturating_add(FONT_HEIGHT);
-            if cursor_y + FONT_HEIGHT >= max_y {
-                break;
-            }
+        let gw = glyph.get_width() as i32;
+        if cursor_x + gw > content_width {
+            cursor_x = 0;
+            cursor_y = cursor_y.saturating_add(FONT_HEIGHT as i32);
         }
-        raster_draw_glyph(backend, cursor_x, cursor_y, glyph, color.to_u32());
+        let draw_y = rect.y + cursor_y - scroll_offset;
+        if draw_y >= view_bottom {
+            break;
+        }
+        if draw_y + FONT_HEIGHT as i32 > view_top {
+            let draw_x = rect.x + cursor_x;
+            raster_draw_glyph(backend, draw_x, draw_y, glyph, color.to_u32());
+        }
         cursor_x += gw;
     }
 }
 
 fn raster_draw_glyph(
     backend: &mut BitmapRenderer,
-    x: usize,
-    y: usize,
+    x: i32,
+    y: i32,
     glyph: &unifont::Glyph,
     color: u32,
 ) {
-    if x >= backend.width || y >= backend.height || backend.width == 0 {
+    if backend.width == 0 || backend.height == 0 {
         return;
     }
 
-    let width = glyph.get_width();
-    for row in 0..FONT_HEIGHT {
+    let glyph_width = glyph.get_width() as i32;
+    for row in 0..FONT_HEIGHT as i32 {
         let dst_y = y + row;
-        if dst_y >= backend.height {
+        if dst_y < 0 || dst_y >= backend.height as i32 {
             break;
         }
-        for col in 0..width {
+        for col in 0..glyph_width {
             let dst_x = x + col;
-            if dst_x >= backend.width {
-                break;
+            if dst_x < 0 || dst_x >= backend.width as i32 {
+                continue;
             }
-            if glyph.get_pixel(col, row) {
-                let idx = dst_y * backend.width + dst_x;
+            if glyph.get_pixel(col as usize, row as usize) {
+                let idx = dst_y as usize * backend.width + dst_x as usize;
                 backend.storage[idx] = color;
             }
         }

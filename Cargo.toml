@@ -3,6 +3,7 @@ members = [
     "thing_abi",
     "thing_host",
     "kernel",
+    "crates/kernel_std",
     "userland",
     "compositor",
     "apps/*",

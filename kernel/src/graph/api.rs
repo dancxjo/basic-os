@@ -75,7 +75,7 @@ pub fn declare_shared_buffer(owner: BundleId, spec: SharedBufferSpec) -> GraphTh
     fields.insert(canon::BYTES, Value::U64(spec.size_bytes));
     fields.insert(canon::BUFFER_KIND, Value::Symbol(spec.kind));
     fields.insert(canon::BUFFER_USAGE, Value::Symbol(spec.usage));
-    fields.insert(canon::OWNER, Value::Uuid(owner));
+    fields.insert(canon::OWNER, Value::Uuid(owner.0));
     if let Some(addr) = spec.addr {
         fields.insert(canon::ADDR, Value::U64(addr));
     }
@@ -104,7 +104,7 @@ pub fn declare_queue_state(spec: QueueStateSpec) -> GraphThing {
         labels: vec![canon::QUEUE_STATE],
         props: fields,
     };
-    fiat_node(spec.owner, request)
+    fiat_node(BundleId(spec.owner), request)
 }
 
 pub fn update_queue_state(

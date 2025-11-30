@@ -3,7 +3,7 @@ use crate::mm::allocator::{BootFrameAllocator, global_mapper};
 use crate::task::context::TaskMode;
 use crate::task::scheduler::{SCHEDULER, Scheduler};
 
-pub type TaskId = usize;
+pub use thingos_kernel_std::id::TaskId;
 
 /// Handle to a spawned task. Currently just wraps an index in the scheduler.
 #[derive(Clone, Copy, Debug)]
@@ -29,7 +29,9 @@ pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
     with_scheduler(|sched| {
         let id = sched.tasks.len();
         sched.spawn(entry, TaskMode::Kernel, mapper, frame_allocator);
-        TaskHandle { id }
+        TaskHandle {
+            id: TaskId::from(id),
+        }
     })
 }
 
@@ -57,7 +59,7 @@ pub fn spawn_kernel_with_bundle(
 /// Mark the given task as belonging to a bundle.
 pub fn assign_bundle(task: TaskId, bundle: BundleId) {
     with_scheduler(|sched| {
-        if let Some(Some(t)) = sched.tasks.get_mut(task).map(|t| t.as_mut()) {
+        if let Some(Some(t)) = sched.tasks.get_mut(task.0 as usize).map(|t| t.as_mut()) {
             t.bundle = bundle;
         }
     });
@@ -92,8 +94,9 @@ pub fn task_count() -> usize {
 /// Request the scheduler to make `task` the next runnable slot.
 pub fn select_task(task: TaskId) -> bool {
     with_scheduler(|sched| {
-        if task < sched.tasks.len() && sched.tasks[task].is_some() {
-            sched.current = (task + sched.tasks.len() - 1) % sched.tasks.len();
+        let idx = task.0 as usize;
+        if idx < sched.tasks.len() && sched.tasks[idx].is_some() {
+            sched.current = (idx + sched.tasks.len() - 1) % sched.tasks.len();
             true
         } else {
             false
