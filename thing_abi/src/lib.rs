@@ -6,6 +6,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
+use once_cell::race::OnceCell;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -227,6 +228,8 @@ pub struct GraphWatchBatch {
 pub struct GraphFiatRequest {
     pub id: Option<Uuid>,
     pub kind: Symbol,
+    #[serde(default)]
+    pub labels: Vec<Symbol>,
     pub fields: Map,
 }
 
@@ -358,6 +361,113 @@ pub trait ThingSys {
 }
 
 pub type WatchId = u64;
+
+pub type ThingId = Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThingFields(pub Map);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AbiRequest {
+    Fiat {
+        id: Option<ThingId>,
+        kind: Symbol,
+        #[serde(default)]
+        labels: Vec<Symbol>,
+        fields: Map,
+    },
+    Link {
+        id: Option<ThingId>,
+        from: ThingId,
+        rel: Symbol,
+        to: ThingId,
+        #[serde(default)]
+        props: Map,
+    },
+    Get {
+        id: ThingId,
+    },
+    Query {
+        pattern: NodePattern,
+    },
+    FindByKind {
+        kind: String,
+        cursor: Option<u64>,
+    },
+    WatchRegister {
+        pattern: NodePattern,
+    },
+    WatchUnregister {
+        watch_id: WatchId,
+    },
+    WatchPoll {
+        watch_id: WatchId,
+        max_events: Option<u32>,
+    },
+    PropsGet {
+        request: GraphPropsGetRequest,
+    },
+    PropsSet {
+        request: GraphPropsRequest,
+    },
+    GrantCapability {
+        request: GrantCapabilityRequest,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AbiResponse {
+    Fiat {
+        thing: GraphThing,
+    },
+    Link {
+        edge: Option<GraphEdge>,
+    },
+    Get {
+        thing: Option<GraphThing>,
+    },
+    Query {
+        things: Vec<GraphThing>,
+    },
+    Find {
+        things: Vec<GraphThing>,
+        next_cursor: Option<u64>,
+    },
+    WatchRegistered {
+        watch_id: WatchId,
+    },
+    WatchUnregistered,
+    WatchEvents {
+        events: GraphWatchBatch,
+    },
+    Props {
+        props: Map,
+    },
+    CapabilityGranted {
+        granted: bool,
+    },
+    Error {
+        message: String,
+    },
+}
+
+pub trait ThingRuntime {
+    fn call(&self, req: AbiRequest) -> AbiResponse;
+}
+
+static RUNTIME: OnceCell<&'static dyn ThingRuntime> = OnceCell::new();
+
+pub fn set_runtime(runtime: &'static dyn ThingRuntime) -> Result<(), &'static dyn ThingRuntime> {
+    RUNTIME.set(runtime)
+}
+
+pub fn runtime() -> &'static dyn ThingRuntime {
+    RUNTIME.get().expect("thing runtime not set")
+}
+
+pub fn runtime_is_set() -> bool {
+    RUNTIME.get().is_some()
+}
 
 #[cfg(test)]
 extern crate std;

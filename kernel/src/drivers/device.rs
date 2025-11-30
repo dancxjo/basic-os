@@ -173,6 +173,7 @@ pub fn create_device_node(
     let req = GraphFiatRequest {
         id: Some(id),
         kind,
+        labels: vec![kind],
         fields,
     };
     graph::fiat_for_bundle(graph::KERNEL_BUNDLE_ID, req).id

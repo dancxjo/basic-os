@@ -224,6 +224,7 @@ fn emit_irq_event(binding: &IrqBinding) {
     let req = GraphFiatRequest {
         id: None,
         kind: canon::IRQ_EVENT,
+        labels: vec![canon::IRQ_EVENT],
         fields,
     };
     let _ = graph::fiat_for_bundle(binding.bundle, req);
@@ -260,6 +261,7 @@ fn emit_dma_event(submission: &DmaSubmission) {
     let req = GraphFiatRequest {
         id: None,
         kind: canon::DMA_EVENT,
+        labels: vec![canon::DMA_EVENT],
         fields,
     };
     let _ = graph::fiat_for_bundle(submission.bundle, req);
