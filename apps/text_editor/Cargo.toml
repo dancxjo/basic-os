@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-userland = { path = "../../userland", features = ["std"] }
+userland = { path = "../../userland" }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-uuid = { version = "1.0", default-features = false, features = ["v4", "serde"] }
+uuid = { version = "1.0", default-features = false, features = ["v5", "serde"] }
+
+[features]
+default = []
+std = ["userland/std"]

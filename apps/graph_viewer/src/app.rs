@@ -13,6 +13,11 @@ struct TaskInfo {
     state: String,
 }
 
+struct DocumentInfo {
+    name: String,
+    dirty: bool,
+}
+
 impl App for GraphViewerApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
         let window = ctx.create_window("Graph Inspector");
@@ -49,6 +54,27 @@ impl App for GraphViewerApp {
                 format_args!("{:<20} {:<10} {:<10}\n", task.name, task.role, task.state),
             );
         }
+
+        // Documents
+        let docs = self.list_documents_from_graph();
+        if !docs.is_empty() {
+            ctx.draw_text(&self.window, format_args!("\nDocuments:\n"));
+            ctx.draw_text(
+                &self.window,
+                format_args!("{:<20} {:<10}\n", "Name", "Dirty"),
+            );
+            ctx.draw_text(
+                &self.window,
+                format_args!("----------------------------------------\n"),
+            );
+            for doc in docs {
+                let dirty_str = if doc.dirty { "yes" } else { "no" };
+                ctx.draw_text(
+                    &self.window,
+                    format_args!("{:<20} {:<10}\n", doc.name, dirty_str),
+                );
+            }
+        }
     }
 }
 
@@ -79,6 +105,29 @@ impl GraphViewerApp {
                     .map(|s| String::from(s))
                     .unwrap_or_else(|| "IN".to_string());
                 TaskInfo { name, role, state }
+            })
+            .collect()
+    }
+
+    fn list_documents_from_graph(&self) -> Vec<DocumentInfo> {
+        let mut pattern = NodePattern::default();
+        pattern.labels.push(canon::DOCUMENT);
+        let things = userland::graph::get_nodes(pattern);
+        things
+            .into_iter()
+            .map(|t| {
+                let name = t
+                    .fields
+                    .get(&canon::NAME)
+                    .and_then(|v| v.as_text())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                let dirty = t
+                    .fields
+                    .get(&canon::DIRTY)
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                DocumentInfo { name, dirty }
             })
             .collect()
     }

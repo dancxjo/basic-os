@@ -249,7 +249,7 @@ impl ContentMetrics {
             if max_scroll > 0 {
                 let track_height = viewport_height;
                 let ratio = track_height as f32 / content_height.max(1) as f32;
-                let mut thumb_height = (ratio * track_height as f32).round() as i32;
+                let mut thumb_height = ((ratio * track_height as f32) + 0.5) as i32;
                 thumb_height = clamp_i32(
                     thumb_height,
                     SCROLLBAR_MIN_THUMB.min(track_height),
@@ -259,7 +259,7 @@ impl ContentMetrics {
                 let thumb_offset = if thumb_travel == 0 || max_scroll == 0 {
                     0
                 } else {
-                    ((clamped_scroll as f32 / max_scroll as f32) * thumb_travel as f32).round()
+                    (((clamped_scroll as f32 / max_scroll as f32) * thumb_travel as f32) + 0.5)
                         as i32
                 };
                 let thumb_rect = Rect::new(
@@ -678,7 +678,7 @@ pub struct Compositor<F, R> {
     theme: Theme,
     background: Arc<Bitmap>,
     drag_state: Option<DragState>,
-    meta_down: bool,
+    alt_down: bool,
 }
 
 impl<F, R> Compositor<F, R>
@@ -713,7 +713,7 @@ where
             theme,
             background,
             drag_state: None,
-            meta_down: false,
+            alt_down: false,
         }
     }
 
@@ -1125,12 +1125,17 @@ where
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let scancode = thing.fields.get(&canon::SCANCODE).and_then(|v| v.as_u64());
+
         if let Some(key) = key {
-            if key == canon::cc('G', 'U') {
-                self.meta_down = down;
+            if scancode == Some(0x38)
+                || (scancode.is_none()
+                    && (key == canon::cc('A', 'L') || key == canon::cc('Y', 'L')))
+            {
+                self.alt_down = down;
             }
             if down
-                && self.meta_down
+                && self.alt_down
                 && (key == canon::from_char('t') || key == canon::from_char('T'))
             {
                 self.tile_windows();
@@ -1178,11 +1183,18 @@ where
             let x = col * w;
             let y = row * h;
 
+            if let Some(entry) = self.windows.get_mut(win_id) {
+                entry.window.x = x.max(0) as u64;
+                entry.window.y = y.max(0) as u64;
+                entry.window.width = w.max(MIN_WINDOW_WIDTH) as u64;
+                entry.window.height = h.max(MIN_WINDOW_HEIGHT) as u64;
+            }
+
             let mut props = BTreeMap::new();
-            props.insert(canon::X, Value::I64(x as i64));
-            props.insert(canon::Y, Value::I64(y as i64));
-            props.insert(canon::WIDTH, Value::I64(w as i64));
-            props.insert(canon::HEIGHT, Value::I64(h as i64));
+            props.insert(canon::X, Value::U64(x.max(0) as u64));
+            props.insert(canon::Y, Value::U64(y.max(0) as u64));
+            props.insert(canon::WIDTH, Value::U64(w.max(MIN_WINDOW_WIDTH) as u64));
+            props.insert(canon::HEIGHT, Value::U64(h.max(MIN_WINDOW_HEIGHT) as u64));
 
             self.update_window_props(*win_id, props);
         }
@@ -1381,7 +1393,7 @@ where
                 let delta_pixels = self.cursor.y - start_cursor_y;
                 let new_thumb_offset = clamp_i32(thumb_offset + delta_pixels, 0, travel);
                 let ratio = new_thumb_offset as f32 / travel as f32;
-                let new_scroll = (ratio * *max_scroll as f32).round() as i32;
+                let new_scroll = ((ratio * *max_scroll as f32) + 0.5) as i32;
                 self.set_scroll_offset(drag.window_id, new_scroll);
             }
         }

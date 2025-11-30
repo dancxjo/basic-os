@@ -1,8 +1,6 @@
-use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use userland::prelude::*;
-use userland::{canon, graph, simple_uuid, AppEvent, Symbol, ThingFilter};
+use userland::{canon, graph, simple_uuid, AppEvent, ThingFilter};
 use uuid::Uuid;
 
 const DOCUMENT_NAME: &str = "Advent_Notes";
@@ -10,18 +8,34 @@ const DOCUMENT_NAME: &str = "Advent_Notes";
 pub struct TextEditor {
     window: WindowHandle,
     document_id: Uuid,
+    #[allow(dead_code)]
     view_id: Uuid,
     content: String,
     dirty: bool,
+    #[allow(dead_code)]
     watch_id: WatchId,
     ctrl_down: bool,
+}
+
+struct Document {
+    #[allow(dead_code)]
+    id: Uuid,
+}
+
+impl userland::Thingable for Document {
+    fn kind() -> &'static str {
+        "DOCUMENT"
+    }
+    fn load(thing: &graph::GraphThing) -> Option<Self> {
+        Some(Document { id: thing.id })
+    }
 }
 
 impl App for TextEditor {
     fn init(ctx: &mut AppContext<'_>) -> Self {
         // 1. Find or Create Document
         let doc_uuid = simple_uuid(DOCUMENT_NAME.as_bytes());
-        let existing_doc = graph::load_thing::<graph::GraphThing>(doc_uuid);
+        let existing_doc = graph::load_thing::<Document>(doc_uuid);
 
         if existing_doc.is_none() {
             let mut fields = graph::map();
@@ -34,7 +48,7 @@ impl App for TextEditor {
         }
 
         // 2. Create View
-        let view_uuid = Uuid::new_v4();
+        let view_uuid = simple_uuid(b"Advent_Notes_View");
         let mut view_fields = graph::map();
         view_fields.insert(canon::KIND, Value::Text("text".to_string()));
         view_fields.insert(canon::MODE, Value::Symbol(canon::EDIT));
@@ -150,7 +164,10 @@ impl TextEditor {
             if dirty {
                 fields.insert(canon::LENGTH, Value::U64(self.content.len() as u64));
             }
-            graph::update_thing(self.document_id, fields);
+            graph::set_props(graph::GraphPropsRequest {
+                node: self.document_id,
+                props: fields,
+            });
         }
     }
 }
