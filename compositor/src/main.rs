@@ -157,6 +157,10 @@ fn main() {
         "framebuffer_driver",
         userland::app::run_app::<app_framebuffer_driver::FramebufferDriver>,
     );
+    userland::sys::register_host_app(
+        "graph_viewer",
+        userland::app::run_app::<graph_viewer::GraphViewerApp>,
+    );
     userland::sys::register_host_app("compositor", || {
         println!("Compositor spawned (ignored)");
         loop {
@@ -240,8 +244,8 @@ fn main() {
         });
     }
 
-    let listener = TcpListener::bind("0.0.0.0:8080").expect("failed to bind HTTP server");
-    println!("Host compositor: http://127.0.0.1:8080/");
+    let listener = TcpListener::bind("0.0.0.0:8081").expect("failed to bind HTTP server");
+    println!("Host compositor: http://127.0.0.1:8081/");
 
     for stream in listener.incoming() {
         if let Ok(stream) = stream {

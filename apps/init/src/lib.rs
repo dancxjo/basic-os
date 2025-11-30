@@ -26,6 +26,10 @@ pub fn app_main() -> ! {
     userland::println!("Spawning task_list...");
     userland::sys::spawn("task_list");
 
+    // Spawn graph viewer
+    userland::println!("Spawning graph_viewer...");
+    userland::sys::spawn("graph_viewer");
+
     userland::println!("Init sequence complete. Entering idle loop.");
     loop {
         // TODO: Wait for children or handle signals

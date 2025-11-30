@@ -213,6 +213,7 @@ dependencies = [
  "app-mouse-driver",
  "demo_app",
  "flate2",
+ "graph_viewer",
  "init",
  "serde",
  "serde_json",
@@ -539,6 +540,14 @@ dependencies = [
  "log",
  "plain",
  "scroll",
+]
+
+[[package]]
+name = "graph_viewer"
+version = "0.1.0"
+dependencies = [
+ "userland",
+ "uuid",
 ]
 
 [[package]]

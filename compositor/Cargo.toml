@@ -17,6 +17,7 @@ task_list = { path = "../apps/task_list", optional = true }
 app-mouse-driver = { path = "../drivers/mouse_driver", optional = true }
 app-keyboard-driver = { path = "../drivers/keyboard_driver", optional = true }
 app-framebuffer-driver = { path = "../drivers/framebuffer_driver", optional = true }
+graph_viewer = { path = "../apps/graph_viewer", optional = true }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 tiny_http = { version = "0.12", optional = true }
@@ -40,6 +41,7 @@ host = [
   "app-mouse-driver/std",
   "app-keyboard-driver/std",
   "app-framebuffer-driver/std",
+  "graph_viewer/std",
 ]
 
 [[bin]]
