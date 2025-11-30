@@ -1111,6 +1111,8 @@ where
 
     fn ingest_window(&mut self, window: Window) {
         let window_id = window.id;
+        let is_new = !self.windows.contains_key(&window_id);
+
         if let Some(entry) = self.windows.get_mut(&window_id) {
             entry.window = window;
         } else {
@@ -1136,10 +1138,12 @@ where
             .unwrap_or(false);
         if is_active {
             self.active_window = Some(window_id);
+            self.bump_window(window_id);
         } else if self.active_window == Some(window_id) {
             self.active_window = None;
+        } else if is_new {
+            self.bump_window(window_id);
         }
-        self.bump_window(window_id);
     }
 
     fn bump_window(&mut self, window_id: Uuid) {
