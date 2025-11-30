@@ -352,12 +352,12 @@ impl GraphStore for Neo4jGraphStore {
         self.graph
             .run(
                 query(&query_str)
-                .param("src", req.from.to_string())
-                .param("dst", req.to.to_string())
-                .param("uuid", id.to_string())
-                .param("props", props_json)
-                .param("revision", revision as i64)
-                .param("owner", owner),
+                    .param("src", req.from.to_string())
+                    .param("dst", req.to.to_string())
+                    .param("uuid", id.to_string())
+                    .param("props", props_json)
+                    .param("revision", revision as i64)
+                    .param("owner", owner),
             )
             .await?;
 

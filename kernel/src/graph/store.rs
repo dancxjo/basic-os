@@ -154,7 +154,9 @@ impl Store {
         let kind = *labels.iter().next().unwrap_or(&canon::THING_CREATED);
         let mut props = request.props;
         props.entry(canon::OWNER).or_insert(Value::Uuid(owner));
-        let id = request.id.unwrap_or_else(|| derive_uuid(&kind.0.to_be_bytes(), &props));
+        let id = request
+            .id
+            .unwrap_or_else(|| derive_uuid(&kind.0.to_be_bytes(), &props));
         let revision = self.next_revision();
         let thing = GraphThing {
             id,
@@ -504,10 +506,7 @@ impl Store {
     }
 
     fn is_data_capability(capability: &str) -> bool {
-        matches!(
-            capability,
-            "CAN_READ" | "CAN_WRITE" | "CAN_LINK"
-        )
+        matches!(capability, "CAN_READ" | "CAN_WRITE" | "CAN_LINK")
     }
 
     fn is_hardware_capability(capability: &str) -> bool {
