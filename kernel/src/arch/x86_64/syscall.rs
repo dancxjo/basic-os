@@ -41,6 +41,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64
         SYSCALL_DEV_WRITE => dev_write(rdi, rsi, rdx),
         SYSCALL_DEV_MAP => dev_map(rdi),
         SYSCALL_SPAWN => spawn(rdi, rsi),
+        SYSCALL_GET_SELF => get_self(rdi),
         SYSCALL_LOG => sys_log(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
@@ -75,7 +76,15 @@ const SYSCALL_DEV_READ: u64 = 0x21;
 const SYSCALL_DEV_WRITE: u64 = 0x22;
 const SYSCALL_DEV_MAP: u64 = 0x23;
 const SYSCALL_SPAWN: u64 = 0x30;
+const SYSCALL_GET_SELF: u64 = 0x40;
 const SYSCALL_LOG: u64 = 0x99;
+
+fn get_self(buf_ptr: u64) -> u64 {
+    let task_id = current_bundle();
+    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, 16) };
+    buf.copy_from_slice(task_id.0.as_bytes());
+    0
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IrqBindRequest {

@@ -44,16 +44,19 @@ pub fn spawn_kernel_with_bundle(
 ) -> (TaskHandle, BundleId) {
     use crate::graph;
 
-    // Create or get the bundle
-    let bundle_id = graph::create_bundle(bundle_name, bundle_type, None);
+    // Create or get the package
+    let package_id = graph::create_package(bundle_name, bundle_type, None);
+
+    // Create task
+    let task_id = graph::create_task(package_id, bundle_name, alloc::vec::Vec::new());
 
     // Spawn the task
     let handle = spawn_kernel(entry);
 
     // Assign the bundle to the task before first run
-    assign_bundle(handle.id(), bundle_id);
+    assign_bundle(handle.id(), task_id);
 
-    (handle, bundle_id)
+    (handle, task_id)
 }
 
 /// Mark the given task as belonging to a bundle.

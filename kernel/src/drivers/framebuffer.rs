@@ -162,14 +162,12 @@ pub fn register_framebuffer_device(framebuffer: Arc<SpinMutex<Framebuffer>>) {
     fields.insert(canon::HEIGHT, Value::U64(fb.height as u64));
     fields.insert(canon::PITCH, Value::U64(fb.pitch as u64));
     fields.insert(canon::BPP, Value::U64(fb.bpp as u64));
+    fields.insert(canon::KIND, Value::Text("framebuffer".into()));
+    fields.insert(canon::MODE, Value::Text("native".into()));
     if let Some((addr, _len)) = *FRAMEBUFFER_REGION.lock() {
         fields.insert(canon::ADDR, Value::U64(addr));
     }
-    let node = device::create_device_node(
-        canon::FRAMEBUFFER_DEVICE,
-        device::FRAMEBUFFER_DEVICE_NAME,
-        fields,
-    );
+    let node = device::create_device_node(canon::DEVICE, device::FRAMEBUFFER_DEVICE_NAME, fields);
     drop(fb);
     *FRAMEBUFFER_DEVICE.lock() = Some(framebuffer);
     device::register_device(

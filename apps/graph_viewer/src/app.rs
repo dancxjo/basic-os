@@ -81,7 +81,7 @@ impl App for GraphViewerApp {
 impl GraphViewerApp {
     fn list_tasks_from_graph(&self) -> Vec<TaskInfo> {
         let mut pattern = NodePattern::default();
-        pattern.labels.push(canon::BUNDLE);
+        pattern.labels.push(canon::TASK);
         let things = userland::graph::get_nodes(pattern);
         things
             .into_iter()

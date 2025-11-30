@@ -292,7 +292,7 @@ mod tests {
 
     fn ensure_bundle(name: &str, ty: BundleType) -> BundleId {
         let id = new_id(name);
-        graph::create_bundle_with_id(id, name, ty, None)
+        graph::create_package_with_id(BundleId(id), name, ty, None)
     }
 
     #[test]

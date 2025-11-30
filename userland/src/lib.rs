@@ -161,6 +161,19 @@ pub mod canon {
     pub const CLOUD: Symbol = canon(b'C', b'L', b'D');
     pub const NEXT: Symbol = cc('N', 'X');
 
+    pub const PACKAGE: Symbol = canon(b'P', b'K', b'G');
+    pub const TASK: Symbol = canon(b'T', b'S', b'K');
+    pub const LAUNCH_REQUEST: Symbol = canon(b'L', b'R', b'Q');
+    pub const CAN_EDIT: Symbol = canon(b'C', b'E', b'D');
+    pub const DRIVES: Symbol = canon(b'D', b'R', b'V');
+    pub const ABOVE: Symbol = canon(b'A', b'B', b'V');
+    pub const ACTIVE_WINDOW: Symbol = canon(b'A', b'C', b'W');
+    pub const FOR_DOCUMENT: Symbol = canon(b'F', b'D', b'C');
+    pub const HANDLED_BY: Symbol = canon(b'H', b'D', b'B');
+    pub const REQUESTS: Symbol = canon(b'R', b'Q', b'S');
+    pub const SAVE_EVENT: Symbol = canon(b'S', b'A', b'V');
+    pub const APPLIES_TO: Symbol = canon(b'A', b'P', b'L');
+
     // Document & Editor symbols
     pub const DOCUMENT: Symbol = canon(b'D', b'O', b'C');
     pub const VIEW: Symbol = canon(b'V', b'I', b'W');

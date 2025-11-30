@@ -125,8 +125,30 @@ pub extern "C" fn start_user_task() {
     });
     info!("next_user_module returned {:?}", module.name);
 
-    runtime::assign_current_bundle(module.bundle);
-    grant_initial_capabilities(&module);
+    // Create a Task node for this running instance
+    let mut labels = Vec::new();
+    if module.bundle_type == BundleType::Driver {
+        labels.push(canon::DRIVER);
+    }
+    let task_id = graph::create_task(module.bundle, module.name, labels);
+
+    if module.bundle_type == BundleType::Driver {
+        if let Some((device_id, _)) = driver_caps_for_name(module.name) {
+            graph::that_for_bundle(
+                task_id,
+                graph::GraphThatRequest {
+                    src: task_id.0,
+                    pred: canon::DRIVES.into(),
+                    dst: device_id,
+                    revision_hint: 0,
+                    props: alloc::collections::BTreeMap::new(),
+                },
+            );
+        }
+    }
+
+    runtime::assign_current_bundle(task_id);
+    grant_initial_capabilities(&module, task_id);
 
     let module_bytes = get_module(module.name).unwrap_or_else(|| {
         panic!("Module '{}' not found", module.name);
@@ -178,10 +200,10 @@ fn next_user_module() -> Option<UserModule> {
 }
 
 fn create_user_module(name: &'static str, bundle_type: BundleType) -> UserModule {
-    let bundle = graph::create_bundle(name, bundle_type, None);
+    let bundle = graph::create_package(name, bundle_type, None);
 
     info!(
-        "Created bundle for '{}' with type {:?}, id={}",
+        "Created package for '{}' with type {:?}, id={}",
         name, bundle_type, bundle
     );
 
@@ -229,11 +251,11 @@ fn driver_caps_for_name(name: &str) -> Option<(uuid::Uuid, &'static [canon::Symb
     }
 }
 
-fn grant_initial_capabilities(module: &UserModule) {
+fn grant_initial_capabilities(module: &UserModule, task_id: BundleId) {
     match module.bundle_type {
         BundleType::Driver => {
             if let Some((device, caps)) = driver_caps_for_name(module.name) {
-                grant_caps(module.bundle, device, caps);
+                grant_caps(task_id, device, caps);
             } else {
                 info!("No initial capabilities mapped for driver {}", module.name);
             }
@@ -241,7 +263,7 @@ fn grant_initial_capabilities(module: &UserModule) {
         BundleType::Compositor => {
             let fb_id = framebuffer_node_id();
             grant_caps(
-                module.bundle,
+                task_id,
                 fb_id,
                 &[canon::CAN_WRITE, canon::CAN_READ, canon::CAN_MMIO],
             );

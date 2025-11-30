@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+use userland::canon;
 use userland::prelude::*;
 
 pub fn app_main() -> ! {
@@ -30,18 +31,48 @@ pub fn app_main() -> ! {
     userland::println!("Spawning graph_viewer...");
     userland::sys::spawn("graph_viewer");
 
-    // Spawn text_editor
-    userland::println!("Spawning text_editor...");
-    userland::sys::spawn("text_editor");
+    // Create LaunchRequest for text_editor
+    userland::println!("Creating LaunchRequest for text_editor...");
+    let req_id = userland::simple_uuid(b"LaunchTextEditor");
+    let mut fields = userland::map();
+    fields.insert(canon::PACKAGE, Value::Text("text_editor".into()));
+    fields.insert(canon::NAME, Value::Text("Launch Text Editor".into()));
+    userland::fiat(Some(req_id), canon::LAUNCH_REQUEST, fields);
 
     userland::println!("Init sequence complete. Entering idle loop.");
 
+    let mut watch_manager = WatchManager::new();
+    let init_app_id = watch_manager.register_app();
+    let _watch_id = watch_manager.register_graph(
+        init_app_id,
+        userland::ThingFilter {
+            kind: Some(canon::LAUNCH_REQUEST),
+            id: None,
+        },
+    );
+
     loop {
-        // TODO: Wait for children or handle signals
-        // For now, just spin/sleep
-        // We don't have a sleep syscall yet, so we'll just busy wait or yield if available
-        // On host, we can sleep? No, this is no_std lib.
-        // But userland might have sleep?
-        // userland::sys::yield_now()?
+        watch_manager.process_graph(&[init_app_id]);
+        for ev in watch_manager.drain_inbox(init_app_id) {
+            if let AppEvent::Thing { thing, .. } = ev {
+                if thing.kind == canon::LAUNCH_REQUEST {
+                    // Check if status is INIT (to avoid re-processing if we update it)
+                    let status = thing.fields.get(&canon::STATUS).and_then(|v| v.as_symbol());
+                    if status == Some(canon::DONE) {
+                        continue;
+                    }
+
+                    if let Some(pkg) = thing.fields.get(&canon::PACKAGE).and_then(|v| v.as_text()) {
+                        userland::println!("Handling LaunchRequest for {}", pkg);
+                        userland::sys::spawn(pkg);
+
+                        // Mark as DONE
+                        let mut updates = userland::map();
+                        updates.insert(canon::STATUS, Value::Symbol(canon::DONE));
+                        userland::fiat(Some(thing.id), canon::LAUNCH_REQUEST, updates);
+                    }
+                }
+            }
+        }
     }
 }

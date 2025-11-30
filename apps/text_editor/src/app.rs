@@ -1,12 +1,20 @@
+use alloc::format;
 use alloc::string::{String, ToString};
 use core::convert::TryFrom;
+use core::sync::atomic::{AtomicU64, Ordering};
 use userland::prelude::*;
 use userland::{canon, graph, simple_uuid, AppEvent, ThingFilter};
 use uuid::Uuid;
 
+static EVENT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 const DOCUMENT_NAME: &str = "Advent_Notes";
 const LINE_HEIGHT: i32 = 16;
 const HEADER_LINES: i32 = 2;
+const CHAR_WIDTH: i32 = 8;
+const CURSOR_FOCUS_NUDGE: i32 = 4;
+const CURSOR_VERTICAL_NUDGE: i32 = 4;
+const CURSOR_BLINK_PERIOD_TICKS: u64 = 24;
 
 pub struct TextEditor {
     window: WindowHandle,
@@ -20,6 +28,8 @@ pub struct TextEditor {
     watch_id: WatchId,
     ctrl_down: bool,
     cursor_hint_dirty: bool,
+    cursor_visible: bool,
+    cursor_blink_ticks: u64,
 }
 
 struct Document {
@@ -38,6 +48,9 @@ impl userland::Thingable for Document {
 
 impl App for TextEditor {
     fn init(ctx: &mut AppContext<'_>) -> Self {
+        // 0. Get Self
+        let self_id = userland::sys::get_self();
+
         // 1. Find or Create Document
         let doc_uuid = simple_uuid(DOCUMENT_NAME.as_bytes());
         let existing_doc = graph::load_thing::<Document>(doc_uuid);
@@ -50,6 +63,9 @@ impl App for TextEditor {
             fields.insert(canon::DIRTY, Value::Bool(false));
             fields.insert(canon::LENGTH, Value::U64(14)); // "Hello, ThingOS!\n".len()
             graph::fiat(Some(doc_uuid), canon::DOCUMENT, fields);
+
+            // Grant CAN_EDIT to self
+            graph::grant_capability(self_id, doc_uuid, canon::CAN_EDIT);
         }
 
         // 2. Create View
@@ -84,6 +100,8 @@ impl App for TextEditor {
             watch_id,
             ctrl_down: false,
             cursor_hint_dirty: true,
+            cursor_visible: true,
+            cursor_blink_ticks: 0,
         };
 
         editor.flush_cursor_hint();
@@ -118,6 +136,7 @@ impl App for TextEditor {
                         // Check for Ctrl+S
                         if self.ctrl_down && (text == "s" || text == "S") {
                             self.mark_dirty(false);
+                            self.create_save_event();
                         } else {
                             self.handle_input(text);
                         }
@@ -128,6 +147,14 @@ impl App for TextEditor {
     }
 
     fn tick(&mut self, ctx: &mut AppContext<'_>, _tick: u64) {
+        // Reassert the cursor focus rect every frame so compositor scrollbars keep following
+        // the caret, even if the user scrolls manually for a moment.
+        self.cursor_hint_dirty = true;
+        self.cursor_blink_ticks = self.cursor_blink_ticks.saturating_add(1);
+        if self.cursor_blink_ticks >= CURSOR_BLINK_PERIOD_TICKS {
+            self.cursor_visible = !self.cursor_visible;
+            self.cursor_blink_ticks = 0;
+        }
         ctx.clear_window(&self.window);
 
         // Header
@@ -142,9 +169,26 @@ impl App for TextEditor {
         let (head, tail) = self.content.split_at(self.cursor_index);
         let mut display = String::with_capacity(self.content.len() + 1);
         display.push_str(head);
-        display.push('|');
+        if self.cursor_visible {
+            display.push('|');
+        }
         display.push_str(tail);
         ctx.draw_text(&self.window, format_args!("{}", display));
+
+        let (line, column) = self.cursor_line_col();
+        ctx.draw_text(
+            &self.window,
+            format_args!(
+                "\n\nCursor: line {} column {} — {}\n",
+                line + 1,
+                column + 1,
+                if self.cursor_visible {
+                    "visible"
+                } else {
+                    "hidden (blinking)"
+                }
+            ),
+        );
 
         self.flush_cursor_hint();
     }
@@ -164,6 +208,19 @@ impl TextEditor {
             }
             _ => {}
         }
+    }
+
+    fn create_save_event(&self) {
+        let counter = EVENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let event_id = Uuid::new_v5(
+            &Uuid::NAMESPACE_OID,
+            format!("save-event-{}", counter).as_bytes(),
+        );
+        let mut fields = graph::map();
+        fields.insert(canon::NAME, Value::Text("Save Event".into()));
+        graph::fiat(Some(event_id), canon::SAVE_EVENT, fields);
+
+        graph::that(event_id, canon::APPLIES_TO, self.document_id, 0);
     }
 
     fn mark_dirty(&mut self, dirty: bool) {
@@ -207,6 +264,7 @@ impl TextEditor {
 
     fn on_content_changed(&mut self) {
         self.cursor_hint_dirty = true;
+        self.reset_cursor_blink();
         self.mark_dirty(true);
     }
 
@@ -226,22 +284,37 @@ impl TextEditor {
         (line, column)
     }
 
-    fn cursor_rect(&self) -> (i32, i32) {
-        let (line, _) = self.cursor_line_col();
+    fn cursor_rect(&self) -> (i32, i32, i32, i32) {
+        let (line, column) = self.cursor_line_col();
         let line_offset = i32::try_from(line).unwrap_or(i32::MAX);
+        let column_offset = i32::try_from(column).unwrap_or(i32::MAX);
         let y = HEADER_LINES
             .saturating_add(line_offset)
-            .saturating_mul(LINE_HEIGHT);
-        (y, LINE_HEIGHT)
+            .saturating_mul(LINE_HEIGHT)
+            .saturating_sub(CURSOR_VERTICAL_NUDGE)
+            .max(0);
+        let mut x = column_offset
+            .saturating_mul(CHAR_WIDTH)
+            .saturating_sub(CURSOR_FOCUS_NUDGE);
+        if x < 0 {
+            x = 0;
+        }
+        let width = CHAR_WIDTH
+            .saturating_add(CURSOR_FOCUS_NUDGE * 2)
+            .max(CHAR_WIDTH);
+        let height = LINE_HEIGHT.saturating_add(CURSOR_VERTICAL_NUDGE);
+        (x, y, width, height)
     }
 
     fn flush_cursor_hint(&mut self) {
         if !self.cursor_hint_dirty {
             return;
         }
-        let (y, height) = self.cursor_rect();
+        let (x, y, width, height) = self.cursor_rect();
         let mut rect = graph::map();
+        rect.insert(canon::X, Value::I64(x as i64));
         rect.insert(canon::Y, Value::I64(y as i64));
+        rect.insert(canon::WIDTH, Value::I64(width as i64));
         rect.insert(canon::HEIGHT, Value::I64(height as i64));
         let mut props = graph::map();
         props.insert(canon::WINDOW_RECT, Value::Map(rect));
@@ -250,5 +323,10 @@ impl TextEditor {
             props,
         });
         self.cursor_hint_dirty = false;
+    }
+
+    fn reset_cursor_blink(&mut self) {
+        self.cursor_visible = true;
+        self.cursor_blink_ticks = 0;
     }
 }

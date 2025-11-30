@@ -3,9 +3,13 @@ use crate::graph::canon::Symbol;
 use crate::graph::types::{BundleId, GraphFiatRequest, KERNEL_BUNDLE_ID};
 use crate::graph::{fiat_for_bundle, grant_capability};
 use alloc::collections::BTreeMap;
-use alloc::vec;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+use core::sync::atomic::{AtomicU64, Ordering};
 use thing_abi::Value;
 use uuid::Uuid;
+
+static TASK_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Bundle type classification for the bundle lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,16 +51,15 @@ impl BundleType {
     }
 }
 
-/// Create a new bundle node with proper type information and return its ID.
-/// This is the primary entry point for creating bundles with the full lifecycle.
-pub fn create_bundle(name: &str, bundle_type: BundleType, version: Option<&str>) -> BundleId {
+/// Create a new package node with proper type information and return its ID.
+/// This is the primary entry point for creating packages (code modules).
+pub fn create_package(name: &str, bundle_type: BundleType, version: Option<&str>) -> BundleId {
     let bundle_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
-    create_bundle_with_id(BundleId(bundle_id), name, bundle_type, version)
+    create_package_with_id(BundleId(bundle_id), name, bundle_type, version)
 }
 
-/// Create a bundle node with an explicit ID.
-/// Useful when the BundleId has already been determined externally.
-pub fn create_bundle_with_id(
+/// Create a package node with an explicit ID.
+pub fn create_package_with_id(
     bundle_id: BundleId,
     name: &str,
     bundle_type: BundleType,
@@ -73,14 +76,53 @@ pub fn create_bundle_with_id(
 
     let req = GraphFiatRequest {
         id: Some(bundle_id.0),
-        kind: canon::BUNDLE,
-        labels: vec![canon::BUNDLE],
+        kind: canon::PACKAGE,
+        labels: vec![canon::PACKAGE],
         fields,
     };
 
-    // Use the bundle itself as owner (bundles own themselves)
+    // Use the package itself as owner (packages own themselves)
     fiat_for_bundle(bundle_id, req);
     bundle_id
+}
+
+/// Create a new task node (running instance) from a package.
+pub fn create_task(package_id: BundleId, name: &str, extra_labels: Vec<Symbol>) -> BundleId {
+    let counter = TASK_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let unique_name = format!("{}-{}", name, counter);
+    let task_id = BundleId(Uuid::new_v5(&package_id.0, unique_name.as_bytes()));
+    let mut fields = BTreeMap::new();
+    fields.insert(canon::ID, Value::Uuid(task_id.0));
+    fields.insert(canon::NAME, Value::Text(name.into()));
+    fields.insert(canon::STATUS, Value::Symbol(canon::INIT));
+
+    let mut labels = vec![canon::TASK];
+    labels.extend(extra_labels);
+
+    // Create the Task node
+    let req = GraphFiatRequest {
+        id: Some(task_id.0),
+        kind: canon::TASK,
+        labels,
+        fields,
+    };
+
+    // The task owns itself
+    fiat_for_bundle(task_id, req);
+
+    // Link Task -> Package
+    crate::graph::that_for_bundle(
+        task_id,
+        crate::graph::types::GraphThatRequest {
+            src: task_id.0,
+            pred: canon::PACKAGE.into(),
+            dst: package_id.0,
+            revision_hint: 0,
+            props: BTreeMap::new(),
+        },
+    );
+
+    task_id
 }
 
 /// Look up an existing bundle by name, returning its BundleId if it exists.
@@ -88,7 +130,7 @@ pub fn lookup_bundle(name: &str) -> Option<BundleId> {
     let expected_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
     crate::graph::with_store(|store| {
         store.latest(&expected_id).map(|thing| {
-            if thing.kind == canon::BUNDLE {
+            if thing.kind == canon::PACKAGE {
                 Some(BundleId(thing.id))
             } else {
                 None
@@ -108,7 +150,7 @@ pub fn get_or_create_bundle(name: &str) -> BundleId {
         return id;
     }
     let bundle_type = BundleType::from_name(name);
-    create_bundle(name, bundle_type, None)
+    create_package(name, bundle_type, None)
 }
 
 /// Grant initial capabilities to a bundle for a target node.

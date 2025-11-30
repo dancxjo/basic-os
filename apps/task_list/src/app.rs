@@ -22,7 +22,7 @@ impl App for TaskListApp {
         let window = ctx.create_window("Task List");
 
         let watch_id = ctx.watch_graph(ThingFilter {
-            kind: Some(canon::BUNDLE),
+            kind: Some(canon::TASK),
             id: None,
         });
 

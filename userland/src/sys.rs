@@ -72,7 +72,17 @@ pub const SYSCALL_DEV_READ: u64 = 0x21;
 pub const SYSCALL_DEV_WRITE: u64 = 0x22;
 pub const SYSCALL_DEV_MAP: u64 = 0x23;
 pub const SYSCALL_SPAWN: u64 = 0x30;
+pub const SYSCALL_GET_SELF: u64 = 0x40;
 pub const SYSCALL_LOG: u64 = 0x99;
+
+pub fn get_self() -> Uuid {
+    let mut buf = [0u8; 16];
+    #[cfg(target_os = "none")]
+    unsafe {
+        syscall(SYSCALL_GET_SELF, buf.as_mut_ptr() as u64, 0, 0, 0)
+    };
+    Uuid::from_bytes(buf)
+}
 
 pub fn spawn(name: &str) -> u64 {
     #[cfg(target_os = "none")]

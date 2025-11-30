@@ -119,6 +119,11 @@ pub const TS: Symbol = canon(b'T', b'S', b' ');
 pub const DOWN: Symbol = canon(b'D', b'W', b'N');
 pub const BUTTON: Symbol = canon(b'B', b'T', b'#');
 
+pub const MODE: Symbol = canon(b'M', b'O', b'D');
+pub const PACKAGE: Symbol = canon(b'P', b'K', b'G');
+pub const TASK: Symbol = canon(b'T', b'S', b'K');
+pub const DRIVES: Symbol = canon(b'D', b'R', b'V');
+
 pub fn from_str(s: &str) -> Option<Symbol> {
     const TBL: &[(Symbol, &str)] = &[
         (JOURNAL, "journal"),

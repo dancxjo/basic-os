@@ -34,7 +34,9 @@ pub fn read_keyboard(buf: &mut [u8]) -> usize {
 pub fn init() {
     let mut fields = BTreeMap::new();
     fields.insert(canon::IRQ_LINE, Value::U64(1));
-    let node = device::create_device_node(canon::KEYBOARD_DEVICE, KEYBOARD_DEVICE_NAME, fields);
+    fields.insert(canon::KIND, Value::Text("keyboard".into()));
+    fields.insert(canon::MODE, Value::Text("native".into()));
+    let node = device::create_device_node(canon::DEVICE, KEYBOARD_DEVICE_NAME, fields);
     device::register_device(
         DeviceKind::Keyboard,
         Some(read_keyboard),

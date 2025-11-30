@@ -36,7 +36,9 @@ pub fn init() -> Result<(), &'static str> {
     enable_irq();
     let mut fields = BTreeMap::new();
     fields.insert(canon::IRQ_LINE, Value::U64(12));
-    let node = device::create_device_node(canon::MOUSE_DEVICE, MOUSE_DEVICE_NAME, fields);
+    fields.insert(canon::KIND, Value::Text("mouse".into()));
+    fields.insert(canon::MODE, Value::Text("native".into()));
+    let node = device::create_device_node(canon::DEVICE, MOUSE_DEVICE_NAME, fields);
     device::register_device(DeviceKind::Mouse, Some(read_mouse), None, None, Some(node));
     Ok(())
 }

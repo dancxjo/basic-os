@@ -683,6 +683,7 @@ pub struct Compositor<F, R> {
     background: Arc<Bitmap>,
     drag_state: Option<DragState>,
     alt_down: bool,
+    state_node: Uuid,
 }
 
 impl<F, R> Compositor<F, R>
@@ -696,6 +697,11 @@ where
         let background = load_background();
         let theme = THEME;
         let cursor_sprites = build_cursor_sprites();
+
+        let state_node = userland::simple_uuid(b"CompositorState");
+        let mut fields = userland::map();
+        fields.insert(canon::NAME, Value::Text("CompositorState".into()));
+        userland::fiat(Some(state_node), canon::COMPOSITOR, fields);
 
         Self {
             frame_no: 0,
@@ -718,6 +724,7 @@ where
             background,
             drag_state: None,
             alt_down: false,
+            state_node,
         }
     }
 
@@ -748,6 +755,26 @@ where
     pub fn resize(&mut self, width: usize, height: usize) {
         self.cursor.x = clamp_i32(self.cursor.x, 0, width.saturating_sub(1) as i32);
         self.cursor.y = clamp_i32(self.cursor.y, 0, height.saturating_sub(1) as i32);
+    }
+
+    fn update_graph_state(&self) {
+        let mut fields = userland::map();
+
+        // Window order (front to back)
+        let mut order_ids = Vec::new();
+        for id in self.window_order.iter().rev() {
+            order_ids.push(Value::Uuid(*id));
+        }
+        fields.insert(canon::ABOVE, Value::List(order_ids));
+
+        // Active window
+        if let Some(active) = self.active_window {
+            fields.insert(canon::ACTIVE_WINDOW, Value::Uuid(active));
+        } else {
+            fields.insert(canon::ACTIVE_WINDOW, Value::Null);
+        }
+
+        userland::fiat(Some(self.state_node), canon::COMPOSITOR, fields);
     }
 
     pub fn init_with_watches(
@@ -1519,8 +1546,11 @@ where
             props.insert(canon::ACTIVE, Value::Bool(true));
             props.insert(canon::Z, Value::I64(new_z));
             self.update_window_props(id, props);
-            self.bump_window(id);
             self.active_window = Some(id);
+            self.bump_window(id);
+        } else {
+            self.active_window = None;
+            self.update_graph_state();
         }
     }
 
@@ -1546,7 +1576,7 @@ where
         if let Some(id) = self.ordered_window_ids().into_iter().last() {
             self.set_active_window(Some(id));
         } else {
-            self.active_window = None;
+            self.set_active_window(None);
         }
     }
 
@@ -1659,10 +1689,9 @@ where
             .map(|w| w.window.active)
             .unwrap_or(false);
         if is_active {
-            self.active_window = Some(window_id);
-            self.bump_window(window_id);
+            self.set_active_window(Some(window_id));
         } else if self.active_window == Some(window_id) {
-            self.active_window = None;
+            self.set_active_window(None);
         } else if is_new {
             self.bump_window(window_id);
         }
@@ -1675,6 +1704,7 @@ where
             self.window_order.remove(pos);
         }
         self.window_order.push(window_id);
+        self.update_graph_state();
     }
 
     fn draw_background(&self, scene: &mut Scene, width: usize, height: usize) {
