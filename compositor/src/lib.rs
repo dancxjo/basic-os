@@ -24,19 +24,25 @@ mod framebuffer_backend;
 pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
 
 const FONT_HEIGHT: usize = 16;
-const TITLE_BAR_HEIGHT: usize = 20;
-const BORDER_THICKNESS: i32 = 6;
-const RESIZE_MARGIN: i32 = BORDER_THICKNESS;
+const TITLE_BAR_HEIGHT: usize = 24;
+const BORDER_OUTER_THICKNESS: i32 = 1;
+const BORDER_3D_THICKNESS: i32 = 1;
+const BORDER_THICKNESS: i32 = BORDER_OUTER_THICKNESS + BORDER_3D_THICKNESS;
+const RESIZE_MARGIN: i32 = 6;
 const RESIZE_CORNER_SIZE: i32 = 8;
-const CORNER_RADIUS: i32 = 6;
+const CORNER_RADIUS: i32 = 4;
 const MIN_WINDOW_WIDTH: i32 = 140;
 const MIN_WINDOW_HEIGHT: i32 = 100;
 const CLOSE_BUTTON_SIZE: i32 = 12;
-const CLOSE_BUTTON_PADDING: i32 = 6;
+const CLOSE_BUTTON_MARGIN_LEFT: i32 = 6;
+const CLOSE_BUTTON_MARGIN_TOP: i32 = 5;
+const TITLE_TEXT_LEFT_PAD: i32 = CLOSE_BUTTON_MARGIN_LEFT + CLOSE_BUTTON_SIZE + 6;
+const TITLE_TEXT_TOP_OFFSET: i32 = 5;
 
 #[derive(Clone, Copy)]
 pub struct Theme {
     pub frame_outer: Rgba,
+    pub frame_light: Rgba,
     pub frame_hilight: Rgba,
     pub frame_shadow: Rgba,
     pub title_active: Rgba,
@@ -47,21 +53,21 @@ pub struct Theme {
 }
 
 const THEME: Theme = Theme {
-    frame_outer: Rgba::new(0xff, 0x28, 0x42, 0x5F),
+    frame_outer: Rgba::new(0xff, 0x5A, 0x6A, 0x8A),
+    frame_light: Rgba::new(0xff, 0xE6, 0xED, 0xF7),
     frame_hilight: Rgba::new(0xff, 0xFF, 0xFF, 0xFF),
-    frame_shadow: Rgba::new(0xff, 0x7C, 0x9B, 0xCB),
-    title_active: Rgba::new(0xff, 0xC1, 0xD6, 0xFF),
-    title_inactive: Rgba::new(0xff, 0xE9, 0xF0, 0xFF),
-    title_text_active: Rgba::new(0xff, 0x28, 0x42, 0x5F),
-    title_text_inactive: Rgba::new(0xff, 0x6A, 0x7A, 0x90),
+    frame_shadow: Rgba::new(0xff, 0x9A, 0xA7, 0xC5),
+    title_active: Rgba::new(0xff, 0xC6, 0xD8, 0xFF),
+    title_inactive: Rgba::new(0xff, 0xE3, 0xEA, 0xF8),
+    title_text_active: Rgba::new(0xff, 0x24, 0x33, 0x4F),
+    title_text_inactive: Rgba::new(0xff, 0x6A, 0x74, 0x8A),
     client_bg: Rgba::new(0xff, 0xFD, 0xFB, 0xF7),
 };
 
 // Buttons
-const BTN_FACE: Rgba = Rgba::new(0xff, 0xE5, 0xEC, 0xFB);
-const BTN_SHADOW: Rgba = Rgba::new(0xff, 0x7C, 0x9B, 0xCB);
-const BTN_HILIGHT: Rgba = Rgba::new(0xff, 0xFF, 0xFF, 0xFF);
-const BTN_CLOSE_DOT: Rgba = Rgba::new(0xff, 0xC9, 0x5C, 0x5C);
+const BTN_FACE: Rgba = Rgba::new(0xff, 0xE6, 0xED, 0xF7);
+const BTN_BORDER: Rgba = Rgba::new(0xff, 0x5A, 0x6A, 0x8A);
+const BTN_GLYPH: Rgba = Rgba::new(0xff, 0xB8, 0x51, 0x51);
 
 const COLOR_TEXT: Rgba = THEME.title_text_active;
 const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
@@ -162,8 +168,8 @@ fn point_in_rect(x: i32, y: i32, rect: (i32, i32, i32, i32)) -> bool {
 }
 
 fn close_button_rect(layout: &WindowLayout) -> (i32, i32, i32, i32) {
-    let x = layout.title_x + layout.title_w - CLOSE_BUTTON_PADDING - CLOSE_BUTTON_SIZE;
-    let y = layout.title_y + (layout.title_h - CLOSE_BUTTON_SIZE) / 2;
+    let x = layout.title_x + CLOSE_BUTTON_MARGIN_LEFT;
+    let y = layout.title_y + CLOSE_BUTTON_MARGIN_TOP;
     (x, y, CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE)
 }
 
@@ -1227,49 +1233,66 @@ where
         let Some(layout) = compute_window_layout(x as i32, y as i32, w as i32, h as i32) else {
             return;
         };
+        let x0 = x as i32;
+        let y0 = y as i32;
+        let w_i = w as i32;
+        let h_i = h as i32;
+        let inner_x0 = x0 + BORDER_OUTER_THICKNESS;
+        let inner_y0 = y0 + BORDER_OUTER_THICKNESS;
+        let inner_w = w_i - BORDER_OUTER_THICKNESS * 2;
+        let inner_h = h_i - BORDER_OUTER_THICKNESS * 2;
+        let content_x0 = inner_x0 + BORDER_3D_THICKNESS;
+        let content_y0 = inner_y0 + BORDER_3D_THICKNESS;
+        let content_w = inner_w - BORDER_3D_THICKNESS * 2;
+        let content_h = inner_h - BORDER_3D_THICKNESS * 2;
 
         // 1. Outer Border
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+            rect: Rect::new(x0, y0, w as u32, h as u32),
             color: self.theme.frame_outer,
         });
 
         // 2. Bevel lines to make the frame pop
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 1, y as i32 + 1, w.saturating_sub(2) as u32, 1),
-            color: self.theme.frame_hilight,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 1, y as i32 + 1, 1, h.saturating_sub(2) as u32),
+            rect: Rect::new(
+                inner_x0,
+                inner_y0,
+                inner_w as u32,
+                BORDER_3D_THICKNESS as u32,
+            ),
             color: self.theme.frame_hilight,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
-                x as i32 + w as i32 - 2,
-                y as i32 + 1,
-                1,
-                h.saturating_sub(2) as u32,
+                inner_x0,
+                inner_y0,
+                BORDER_3D_THICKNESS as u32,
+                inner_h as u32,
+            ),
+            color: self.theme.frame_hilight,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                inner_x0 + inner_w - BORDER_3D_THICKNESS,
+                inner_y0,
+                BORDER_3D_THICKNESS as u32,
+                inner_h as u32,
             ),
             color: self.theme.frame_shadow,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
-                x as i32 + 1,
-                y as i32 + h as i32 - 2,
-                w.saturating_sub(2) as u32,
-                1,
+                inner_x0,
+                inner_y0 + inner_h - BORDER_3D_THICKNESS,
+                inner_w as u32,
+                BORDER_3D_THICKNESS as u32,
             ),
             color: self.theme.frame_shadow,
         });
 
         // 3. Inner Frame (Background / focus ring)
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                x as i32 + BORDER_THICKNESS,
-                y as i32 + BORDER_THICKNESS,
-                w.saturating_sub((BORDER_THICKNESS * 2) as usize) as u32,
-                h.saturating_sub((BORDER_THICKNESS * 2) as usize) as u32,
-            ),
+            rect: Rect::new(content_x0, content_y0, content_w as u32, content_h as u32),
             color: frame_fill,
         });
 
@@ -1284,24 +1307,11 @@ where
             color: title_color,
         });
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(layout.title_x, layout.title_y, layout.title_w as u32, 1),
-            color: self.theme.frame_hilight,
-        });
-        scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 layout.title_x,
                 layout.title_y + layout.title_h - 1,
                 layout.title_w as u32,
                 1,
-            ),
-            color: self.theme.frame_shadow,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                layout.title_x + layout.title_w - 1,
-                layout.title_y,
-                1,
-                layout.title_h as u32,
             ),
             color: self.theme.frame_shadow,
         });
@@ -1311,7 +1321,7 @@ where
 
         scene.push(SceneItem::FillRect {
             rect: Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32),
-            color: BTN_SHADOW,
+            color: BTN_BORDER,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -1322,56 +1332,34 @@ where
             ),
             color: BTN_FACE,
         });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x + 1, btn_y + 1, btn_w.saturating_sub(2) as u32, 1),
-            color: BTN_HILIGHT,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x + 1, btn_y + 1, 1, btn_h.saturating_sub(2) as u32),
-            color: BTN_HILIGHT,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                btn_x + btn_w - 2,
-                btn_y + 1,
-                1,
-                btn_h.saturating_sub(2) as u32,
-            ),
-            color: self.theme.frame_shadow,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                btn_x + 1,
-                btn_y + btn_h - 2,
-                btn_w.saturating_sub(2) as u32,
-                1,
-            ),
-            color: self.theme.frame_shadow,
-        });
 
         // Close button dot
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x + btn_w / 2 - 1, btn_y + btn_h / 2 - 1, 2, 2),
-            color: BTN_CLOSE_DOT,
+            rect: Rect::new(btn_x + btn_w / 2 - 3, btn_y + btn_h / 2 - 3, 6, 6),
+            color: BTN_GLYPH,
         });
 
         // 5. Title Text
-        let title_max_w =
-            (layout.title_w - CLOSE_BUTTON_PADDING * 2 - CLOSE_BUTTON_SIZE).max(0) as u32;
+        let title_max_w = (layout.title_w - TITLE_TEXT_LEFT_PAD - 4).max(0) as u32;
         scene.push(SceneItem::DrawText {
-            origin: (layout.title_x + 8, layout.title_y + 3),
+            origin: (
+                layout.title_x + TITLE_TEXT_LEFT_PAD,
+                layout.title_y + TITLE_TEXT_TOP_OFFSET,
+            ),
             text: surface.window.title.clone(),
             color: title_text,
             max_width: Some(title_max_w),
         });
 
         // 7. Client Area
+        let client_y = layout.client_y + 1;
+        let client_h = (layout.client_h - 1).max(0);
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 layout.client_x,
-                layout.client_y,
+                client_y,
                 layout.client_w as u32,
-                layout.client_h as u32,
+                client_h as u32,
             ),
             color: self.theme.client_bg,
         });
@@ -1380,9 +1368,9 @@ where
             scene.push(SceneItem::BlitImage {
                 rect: Rect::new(
                     layout.client_x,
-                    layout.client_y,
+                    client_y,
                     layout.client_w as u32,
-                    layout.client_h as u32,
+                    client_h as u32,
                 ),
                 image: bmp.clone(),
                 repeat: true,
@@ -1393,9 +1381,9 @@ where
         scene.push(SceneItem::DrawTextBlock {
             rect: Rect::new(
                 layout.client_x,
-                layout.client_y,
+                client_y,
                 layout.client_w as u32,
-                layout.client_h as u32,
+                client_h as u32,
             ),
             text: surface.text.clone(),
             color: COLOR_TEXT,
@@ -1841,7 +1829,7 @@ mod tests {
     #[cfg(feature = "host")]
     #[test]
     fn color_layout_matches_old_values() {
-        assert_eq!(THEME.title_active.to_u32(), 0xffc1d6ff);
+        assert_eq!(THEME.title_active.to_u32(), 0xffc6d8ff);
         assert_eq!(CLEAR_COLOR.to_u32(), 0xff000000);
     }
 }
