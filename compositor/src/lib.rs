@@ -25,8 +25,12 @@ pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
 
 const FONT_HEIGHT: usize = 16;
 const TITLE_BAR_HEIGHT: usize = 22;
-const _BORDER_THICKNESS: usize = 1;
-const _WINDOW_PADDING: usize = 0;
+const BORDER_THICKNESS: i32 = 6;
+const RESIZE_MARGIN: i32 = BORDER_THICKNESS;
+const MIN_WINDOW_WIDTH: i32 = 140;
+const MIN_WINDOW_HEIGHT: i32 = 100;
+const CLOSE_BUTTON_SIZE: i32 = 12;
+const CLOSE_BUTTON_PADDING: i32 = 6;
 
 // Sky / accent blues
 const _SKY_BLUE: Rgba = Rgba::new(0xff, 0x57, 0xA8, 0xFF);
@@ -59,8 +63,126 @@ const CLEAR_COLOR: Rgba = Rgba::new(0xff, 0x00, 0x00, 0x00);
 
 struct DragState {
     window_id: Uuid,
-    offset_x: i32,
-    offset_y: i32,
+    kind: DragKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ResizeEdges {
+    left: bool,
+    right: bool,
+    top: bool,
+    bottom: bool,
+}
+
+enum DragKind {
+    Move {
+        offset_x: i32,
+        offset_y: i32,
+    },
+    Resize {
+        edges: ResizeEdges,
+        start_cursor_x: i32,
+        start_cursor_y: i32,
+        start_x: i32,
+        start_y: i32,
+        start_w: i32,
+        start_h: i32,
+    },
+}
+
+struct WindowLayout {
+    title_x: i32,
+    title_y: i32,
+    title_w: i32,
+    title_h: i32,
+    client_x: i32,
+    client_y: i32,
+    client_w: i32,
+    client_h: i32,
+}
+
+fn compute_window_layout(win_x: i32, win_y: i32, win_w: i32, win_h: i32) -> Option<WindowLayout> {
+    let border = BORDER_THICKNESS;
+    let inner_w = win_w - border * 2;
+    let inner_h = win_h - border * 2;
+    if inner_w <= 0 || inner_h <= TITLE_BAR_HEIGHT as i32 {
+        return None;
+    }
+
+    let title_x = win_x + border;
+    let title_y = win_y + border;
+    let title_w = inner_w;
+    let title_h = TITLE_BAR_HEIGHT as i32;
+
+    let client_x = title_x;
+    let client_y = title_y + title_h;
+    let client_w = inner_w;
+    let client_h = inner_h - title_h;
+
+    if client_w <= 0 || client_h <= 0 {
+        return None;
+    }
+
+    Some(WindowLayout {
+        title_x,
+        title_y,
+        title_w,
+        title_h,
+        client_x,
+        client_y,
+        client_w,
+        client_h,
+    })
+}
+
+fn point_in_rect(x: i32, y: i32, rect: (i32, i32, i32, i32)) -> bool {
+    let (rx, ry, rw, rh) = rect;
+    x >= rx && x < rx + rw && y >= ry && y < ry + rh
+}
+
+fn close_button_rect(layout: &WindowLayout) -> (i32, i32, i32, i32) {
+    let x = layout.title_x + layout.title_w - CLOSE_BUTTON_PADDING - CLOSE_BUTTON_SIZE;
+    let y = layout.title_y + (layout.title_h - CLOSE_BUTTON_SIZE) / 2;
+    (x, y, CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE)
+}
+
+fn hit_test_resize(
+    win_x: i32,
+    win_y: i32,
+    win_w: i32,
+    win_h: i32,
+    cursor_x: i32,
+    cursor_y: i32,
+) -> Option<ResizeEdges> {
+    let left_dist = cursor_x - win_x;
+    let right_dist = win_x + win_w - cursor_x;
+    let top_dist = cursor_y - win_y;
+    let bottom_dist = win_y + win_h - cursor_y;
+
+    let mut edges = ResizeEdges {
+        left: false,
+        right: false,
+        top: false,
+        bottom: false,
+    };
+
+    if left_dist <= RESIZE_MARGIN && left_dist <= right_dist {
+        edges.left = true;
+    } else if right_dist <= RESIZE_MARGIN {
+        edges.right = true;
+    }
+
+    if top_dist <= RESIZE_MARGIN && top_dist <= bottom_dist {
+        edges.top = true;
+    } else if bottom_dist <= RESIZE_MARGIN {
+        edges.bottom = true;
+    }
+
+    if edges.left || edges.right || edges.top || edges.bottom {
+        Some(edges)
+    } else {
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -559,33 +681,100 @@ where
                 let left_down = (buttons & 1) != 0;
                 if left_down {
                     if let Some(drag) = &self.drag_state {
-                        let new_x = max(0, self.cursor.x - drag.offset_x);
-                        let new_y = max(0, self.cursor.y - drag.offset_y);
+                        match &drag.kind {
+                            DragKind::Move { offset_x, offset_y } => {
+                                let new_x = max(0, self.cursor.x - offset_x);
+                                let new_y = max(0, self.cursor.y - offset_y);
 
-                        let mut props = BTreeMap::new();
-                        props.insert(canon::X, Value::U64(new_x as u64));
-                        props.insert(canon::Y, Value::U64(new_y as u64));
+                                let mut props = BTreeMap::new();
+                                props.insert(canon::X, Value::U64(new_x as u64));
+                                props.insert(canon::Y, Value::U64(new_y as u64));
 
-                        let req = AbiRequest::PropsSet {
-                            request: GraphPropsRequest {
-                                node: drag.window_id,
-                                props,
-                            },
+                                let req = AbiRequest::PropsSet {
+                                    request: GraphPropsRequest {
+                                        node: drag.window_id,
+                                        props,
+                                    },
+                                };
+                                let _ = userland::runtime().call(req);
+                            }
+                            DragKind::Resize {
+                                edges,
+                                start_cursor_x,
+                                start_cursor_y,
+                                start_x,
+                                start_y,
+                                start_w,
+                                start_h,
+                            } => {
+                                let dx = self.cursor.x - start_cursor_x;
+                                let dy = self.cursor.y - start_cursor_y;
+
+                                let mut new_x = *start_x;
+                                let mut new_y = *start_y;
+                                let mut new_w = *start_w;
+                                let mut new_h = *start_h;
+
+                                if edges.left {
+                                    let proposed_w = start_w - dx;
+                                    let clamped_w = max(MIN_WINDOW_WIDTH, proposed_w);
+                                    let delta = start_w - clamped_w;
+                                    new_x = start_x + delta;
+                                    new_w = clamped_w;
+                                } else if edges.right {
+                                    new_w = max(MIN_WINDOW_WIDTH, start_w + dx);
+                                }
+
+                                if edges.top {
+                                    let proposed_h = start_h - dy;
+                                    let clamped_h = max(MIN_WINDOW_HEIGHT, proposed_h);
+                                    let delta = start_h - clamped_h;
+                                    new_y = start_y + delta;
+                                    new_h = clamped_h;
+                                } else if edges.bottom {
+                                    new_h = max(MIN_WINDOW_HEIGHT, start_h + dy);
+                                }
+
+                                if new_x < 0 {
+                                    let overshoot = -new_x;
+                                    new_x = 0;
+                                    new_w = max(new_w + overshoot, MIN_WINDOW_WIDTH);
+                                }
+                                if new_y < 0 {
+                                    let overshoot = -new_y;
+                                    new_y = 0;
+                                    new_h = max(new_h + overshoot, MIN_WINDOW_HEIGHT);
+                                }
+
+                                let mut props = BTreeMap::new();
+                                props.insert(canon::X, Value::U64(new_x as u64));
+                                props.insert(canon::Y, Value::U64(new_y as u64));
+                                props.insert(canon::WIDTH, Value::U64(new_w as u64));
+                                props.insert(canon::HEIGHT, Value::U64(new_h as u64));
+
+                                let req = AbiRequest::PropsSet {
+                                    request: GraphPropsRequest {
+                                        node: drag.window_id,
+                                        props,
+                                    },
+                                };
+                                let _ = userland::runtime().call(req);
+                            }
+                        }
+                    } else if let Some((win_id, win_x, win_y)) =
+                        self.find_window_at(self.cursor.x, self.cursor.y)
+                    {
+                        let Some(surface) = self.windows.get(&win_id) else {
+                            return;
                         };
-                        let _ = userland::runtime().call(req);
-                    } else {
-                        if let Some((win_id, win_x, win_y)) =
-                            self.find_window_at(self.cursor.x, self.cursor.y)
-                        {
-                            let win_width = self.windows.get(&win_id).unwrap().window.width as i32;
-                            let btn_x = win_x + win_width - 18;
-                            let btn_y = win_y + 8;
+                        let win_width = surface.window.width as i32;
+                        let win_height = surface.window.height as i32;
 
-                            if self.cursor.x >= btn_x
-                                && self.cursor.x < btn_x + 10
-                                && self.cursor.y >= btn_y
-                                && self.cursor.y < btn_y + 10
-                            {
+                        let layout = compute_window_layout(win_x, win_y, win_width, win_height);
+
+                        if let Some(layout) = &layout {
+                            let close_rect = close_button_rect(layout);
+                            if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
                                 println!("Close button clicked for window {}", win_id);
                                 let mut props = BTreeMap::new();
                                 props.insert(canon::VISIBLE, Value::Bool(false));
@@ -596,13 +785,41 @@ where
                                     },
                                 };
                                 let _ = userland::runtime().call(req);
-                            } else if self.cursor.y >= win_y
-                                && self.cursor.y < win_y + TITLE_BAR_HEIGHT as i32
+                                return;
+                            }
+                        }
+
+                        if let Some(edges) = hit_test_resize(
+                            win_x,
+                            win_y,
+                            win_width,
+                            win_height,
+                            self.cursor.x,
+                            self.cursor.y,
+                        ) {
+                            self.drag_state = Some(DragState {
+                                window_id: win_id,
+                                kind: DragKind::Resize {
+                                    edges,
+                                    start_cursor_x: self.cursor.x,
+                                    start_cursor_y: self.cursor.y,
+                                    start_x: win_x,
+                                    start_y: win_y,
+                                    start_w: win_width,
+                                    start_h: win_height,
+                                },
+                            });
+                            self.bump_window(win_id);
+                        } else if let Some(layout) = layout {
+                            if self.cursor.y >= layout.title_y
+                                && self.cursor.y < layout.title_y + layout.title_h
                             {
                                 self.drag_state = Some(DragState {
                                     window_id: win_id,
-                                    offset_x: self.cursor.x - win_x,
-                                    offset_y: self.cursor.y - win_y,
+                                    kind: DragKind::Move {
+                                        offset_x: self.cursor.x - win_x,
+                                        offset_y: self.cursor.y - win_y,
+                                    },
                                 });
                                 self.bump_window(win_id);
                             }
@@ -753,187 +970,134 @@ where
             color: shadow_color_3,
         });
 
-        // Helper to draw rounded rect
-        let push_rounded_rect = |scene: &mut Scene, r: Rect, c: Rgba| {
-            // Middle band
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x, r.y + 6, r.width, r.height.saturating_sub(12)),
-                color: c,
-            });
-            // Top band
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + 6, r.y, r.width.saturating_sub(12), 6),
-                color: c,
-            });
-            // Bottom band
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(
-                    r.x + 6,
-                    r.y + r.height as i32 - 6,
-                    r.width.saturating_sub(12),
-                    6,
-                ),
-                color: c,
-            });
-
-            // Corners (simple 2-rect approx for 6px radius)
-            // Top-Left
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + 2, r.y + 1, 4, 1),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + 1, r.y + 2, 1, 4),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + 2, r.y + 2, 4, 4),
-                color: c,
-            });
-
-            // Top-Right
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + r.width as i32 - 6, r.y + 1, 4, 1),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + r.width as i32 - 2, r.y + 2, 1, 4),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + r.width as i32 - 6, r.y + 2, 4, 4),
-                color: c,
-            });
-
-            // Bottom-Left
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + 2, r.y + r.height as i32 - 2, 4, 1),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + 1, r.y + r.height as i32 - 6, 1, 4),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + 2, r.y + r.height as i32 - 6, 4, 4),
-                color: c,
-            });
-
-            // Bottom-Right
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + r.width as i32 - 6, r.y + r.height as i32 - 2, 4, 1),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + r.width as i32 - 2, r.y + r.height as i32 - 6, 1, 4),
-                color: c,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(r.x + r.width as i32 - 6, r.y + r.height as i32 - 6, 4, 4),
-                color: c,
-            });
+        let Some(layout) = compute_window_layout(x as i32, y as i32, w as i32, h as i32) else {
+            return;
         };
 
         // 1. Outer Border
-        push_rounded_rect(
-            scene,
-            Rect::new(x as i32, y as i32, w as u32, h as u32),
-            NAVY_LINE,
-        );
-
-        // 2. Inner Frame (Background)
-        // Inset by 1px
-        push_rounded_rect(
-            scene,
-            Rect::new(x as i32 + 1, y as i32 + 1, w as u32 - 2, h as u32 - 2),
-            FRAME_LIGHT,
-        );
-
-        // 3. 3D Ridge (Simple lines on straight edges)
-        // Top & Left: FRAME_HILIGHT
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 6, y as i32 + 1, w as u32 - 12, 1),
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+            color: NAVY_LINE,
+        });
+
+        // 2. Bevel lines to make the frame pop
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32 + 1, y as i32 + 1, w.saturating_sub(2) as u32, 1),
             color: FRAME_HILIGHT,
         });
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 1, y as i32 + 6, 1, h as u32 - 12),
+            rect: Rect::new(x as i32 + 1, y as i32 + 1, 1, h.saturating_sub(2) as u32),
             color: FRAME_HILIGHT,
-        });
-        // Bottom & Right: FRAME_SHADOW
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 6, y as i32 + h as i32 - 2, w as u32 - 12, 1),
-            color: FRAME_SHADOW,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + w as i32 - 2, y as i32 + 6, 1, h as u32 - 12),
-            color: FRAME_SHADOW,
-        });
-
-        // 4. Titlebar
-        let title_y = y + 2;
-        let title_h = TITLE_BAR_HEIGHT;
-        let title_w = w - 4;
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32 + 2, title_y as i32, title_w as u32, title_h as u32),
-            color: FRAME_MEDIUM,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
-                x as i32 + 2,
-                (title_y + title_h - 1) as i32,
-                title_w as u32,
+                x as i32 + w as i32 - 2,
+                y as i32 + 1,
+                1,
+                h.saturating_sub(2) as u32,
+            ),
+            color: FRAME_SHADOW,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                x as i32 + 1,
+                y as i32 + h as i32 - 2,
+                w.saturating_sub(2) as u32,
                 1,
             ),
             color: FRAME_SHADOW,
         });
 
+        // 3. Inner Frame (Background)
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                x as i32 + BORDER_THICKNESS,
+                y as i32 + BORDER_THICKNESS,
+                w.saturating_sub((BORDER_THICKNESS * 2) as usize) as u32,
+                h.saturating_sub((BORDER_THICKNESS * 2) as usize) as u32,
+            ),
+            color: FRAME_LIGHT,
+        });
+
+        // 4. Titlebar
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                layout.title_x,
+                layout.title_y,
+                layout.title_w as u32,
+                layout.title_h as u32,
+            ),
+            color: FRAME_MEDIUM,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(layout.title_x, layout.title_y, layout.title_w as u32, 1),
+            color: FRAME_HILIGHT,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                layout.title_x,
+                layout.title_y + layout.title_h - 1,
+                layout.title_w as u32,
+                1,
+            ),
+            color: FRAME_SHADOW,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                layout.title_x + layout.title_w - 1,
+                layout.title_y,
+                1,
+                layout.title_h as u32,
+            ),
+            color: FRAME_SHADOW,
+        });
+
         // 6. Control Buttons
-        let btn_y = title_y + (title_h - 10) / 2;
-        let btn_x = x + w - 18;
+        let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(&layout);
 
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x as i32, btn_y as i32, 10, 10),
+            rect: Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32),
             color: BTN_SHADOW,
         });
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 8),
+            rect: Rect::new(
+                btn_x + 1,
+                btn_y + 1,
+                btn_w.saturating_sub(2) as u32,
+                btn_h.saturating_sub(2) as u32,
+            ),
             color: BTN_FACE,
         });
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 1),
+            rect: Rect::new(btn_x + 1, btn_y + 1, btn_w.saturating_sub(2) as u32, 1),
             color: BTN_HILIGHT,
         });
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 1, 8),
+            rect: Rect::new(btn_x + 1, btn_y + 1, 1, btn_h.saturating_sub(2) as u32),
             color: BTN_HILIGHT,
         });
 
         // Close button dot
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x as i32 + 4, btn_y as i32 + 4, 2, 2),
+            rect: Rect::new(btn_x + btn_w / 2 - 1, btn_y + btn_h / 2 - 1, 2, 2),
             color: BTN_CLOSE_DOT,
         });
 
         // 5. Title Text
         scene.push(SceneItem::DrawText {
-            origin: ((x + 8) as i32, (title_y + 4) as i32),
+            origin: (layout.title_x + 8, layout.title_y + 4),
             text: surface.window.title.clone(),
             color: COLOR_TITLE,
-            max_width: Some((w - 30) as u32),
+            max_width: Some((layout.title_w - 30) as u32),
         });
 
         // 7. Client Area
-        let client_x = x + 2;
-        let client_y = title_y + title_h;
-        let client_w = w - 4;
-        let client_h = h - (client_y - y) - 2;
-
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
-                client_x as i32,
-                client_y as i32,
-                client_w as u32,
-                client_h as u32,
+                layout.client_x,
+                layout.client_y,
+                layout.client_w as u32,
+                layout.client_h as u32,
             ),
             color: PAPER_BG,
         });
@@ -941,10 +1105,10 @@ where
         if let Some(bmp) = &surface.bitmap {
             scene.push(SceneItem::BlitImage {
                 rect: Rect::new(
-                    client_x as i32,
-                    client_y as i32,
-                    client_w as u32,
-                    client_h as u32,
+                    layout.client_x,
+                    layout.client_y,
+                    layout.client_w as u32,
+                    layout.client_h as u32,
                 ),
                 image: bmp.clone(),
                 repeat: true,
@@ -954,10 +1118,10 @@ where
 
         scene.push(SceneItem::DrawTextBlock {
             rect: Rect::new(
-                client_x as i32,
-                client_y as i32,
-                client_w as u32,
-                client_h as u32,
+                layout.client_x,
+                layout.client_y,
+                layout.client_w as u32,
+                layout.client_h as u32,
             ),
             text: surface.text.clone(),
             color: COLOR_TEXT,

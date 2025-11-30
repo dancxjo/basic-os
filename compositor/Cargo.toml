@@ -13,6 +13,7 @@ uuid = { version = "=1.10", default-features = false, features = [
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 init = { path = "../apps/init", optional = true }
 demo_app = { path = "../apps/demo_app", optional = true }
+task_list = { path = "../apps/task_list", optional = true }
 app-mouse-driver = { path = "../drivers/mouse_driver", optional = true }
 app-keyboard-driver = { path = "../drivers/keyboard_driver", optional = true }
 app-framebuffer-driver = { path = "../drivers/framebuffer_driver", optional = true }
@@ -35,6 +36,7 @@ host = [
   "std",
   "init/std",
   "demo_app/std",
+  "task_list/std",
   "app-mouse-driver/std",
   "app-keyboard-driver/std",
   "app-framebuffer-driver/std",

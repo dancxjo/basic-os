@@ -123,6 +123,9 @@ pub mod canon {
     pub const CURRENT_FRAME: Symbol = canon(b'C', b'U', b'R');
     pub const SEQ: Symbol = canon(b'S', b'E', b'Q');
     pub const APP: Symbol = canon(b'A', b'P', b'P');
+    pub const BUNDLE: Symbol = canon(b'B', b'N', b'D');
+    pub const TYPE: Symbol = canon(b'T', b'Y', b'P');
+    pub const VERSION: Symbol = canon(b'V', b'E', b'R');
     pub const OWNER: Symbol = canon(b'O', b'W', b'N');
     pub const OWNS: Symbol = canon(b'O', b'W', b'S');
     pub const HAS_CONTENT: Symbol = canon(b'H', b'C', b'T');

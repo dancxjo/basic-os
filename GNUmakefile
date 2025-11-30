@@ -275,6 +275,7 @@ ifeq ($(MODE),native)
 else ifeq ($(MODE),hosted)
 	cargo build -p compositor --bin compositor --features host --target x86_64-unknown-linux-gnu
 	cargo build -p demo_app --bin demo_app --features host --target x86_64-unknown-linux-gnu
+	cargo build -p task_list --bin task_list --features host --target x86_64-unknown-linux-gnu
 	cargo build -p thing_host --bin thing_host --target x86_64-unknown-linux-gnu
 endif
 
