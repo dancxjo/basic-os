@@ -1,10 +1,36 @@
 #![cfg(feature = "host")]
 
 use compositor::{Compositor, CompositorBackend, CompositorExport, SvgBackend};
+use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use thing_host::HostRuntime;
-use tiny_http::{Header, Response, Server};
+use tiny_http::{Header, Method, Response, Server};
+
+#[derive(Deserialize, Debug)]
+#[serde(tag = "kind")]
+enum InputEvent {
+    #[serde(rename = "mouse_move")]
+    MouseMove { x: f32, y: f32, buttons: u8 },
+    #[serde(rename = "mouse_down")]
+    MouseDown {
+        x: f32,
+        y: f32,
+        buttons: u8,
+        button: u8,
+    },
+    #[serde(rename = "mouse_up")]
+    MouseUp {
+        x: f32,
+        y: f32,
+        buttons: u8,
+        button: u8,
+    },
+    #[serde(rename = "key_down")]
+    KeyDown { key: String, code: String },
+    #[serde(rename = "key_up")]
+    KeyUp { key: String, code: String },
+}
 
 fn main() {
     let runtime = Box::leak(Box::new(HostRuntime::new()));
@@ -27,7 +53,7 @@ fn main() {
     let server = Server::http("0.0.0.0:8080").expect("failed to bind HTTP server");
     println!("Host compositor: http://127.0.0.1:8080/");
 
-    for request in server.incoming_requests() {
+    for mut request in server.incoming_requests() {
         let url = request.url().to_string();
         match url.as_str() {
             "/" => {
@@ -66,6 +92,27 @@ fn main() {
                         .parse::<Header>()
                         .unwrap(),
                 );
+                let _ = request.respond(response);
+            }
+            "/input" if request.method() == &Method::Post => {
+                let mut content = String::new();
+                request.as_reader().read_to_string(&mut content).unwrap();
+                if let Ok(event) = serde_json::from_str::<InputEvent>(&content) {
+                    let mut comp = compositor.lock().expect("compositor mutex poisoned");
+                    match event {
+                        InputEvent::MouseMove { x, y, buttons } => {
+                            comp.set_cursor(x as i32, y as i32, buttons);
+                        }
+                        InputEvent::MouseDown { x, y, buttons, .. } => {
+                            comp.set_cursor(x as i32, y as i32, buttons);
+                        }
+                        InputEvent::MouseUp { x, y, buttons, .. } => {
+                            comp.set_cursor(x as i32, y as i32, buttons);
+                        }
+                        _ => {}
+                    }
+                }
+                let response = Response::from_string("OK");
                 let _ = request.respond(response);
             }
             _ => {

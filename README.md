@@ -132,6 +132,16 @@ Contributors/agents: please keep these pillars in mind when adding drivers or se
 - **Compositor Crash Resolved**: Fixed a User Mode Page Fault in `compositor`. The crash was due to a combination of silent allocation failures and the `fb_info` bug.
 - **Allocation Error Handling**: Added `#[alloc_error_handler]` to userland to ensure Out-Of-Memory (OOM) conditions cause an explicit panic instead of silent failure.
 
+### Running the Host Compositor
+
+The host compositor allows you to run the compositor logic on your host machine (Linux) for development and testing purposes. It serves a web interface to visualize the compositor output.
+
+```bash
+cargo run -p compositor --bin host_compositor --features host --target x86_64-unknown-linux-gnu
+```
+
+This will start a web server at `http://127.0.0.1:8080/`.
+
 ## License
 
 MIT

@@ -687,6 +687,12 @@ impl<B: CompositorBackend> Compositor<B> {
             pressed: self.cursor.buttons & 0x1 != 0,
         });
     }
+
+    pub fn set_cursor(&mut self, x: i32, y: i32, buttons: u8) {
+        self.cursor.x = x;
+        self.cursor.y = y;
+        self.cursor.buttons = buttons;
+    }
 }
 
 fn default_window(id: Uuid) -> Window {

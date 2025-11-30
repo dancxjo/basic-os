@@ -32,9 +32,75 @@ impl CompositorBackend for SvgBackend {
         self.xml.clear();
         writeln!(
             &mut self.xml,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" onload="init(evt)">"#,
             w = scene.width,
             h = scene.height,
+        )
+        .unwrap();
+
+        writeln!(
+            &mut self.xml,
+            r#"<script type="application/ecmascript"><![CDATA[
+    function init(evt) {{
+      const svg = evt.target;
+      const doc = svg.ownerDocument;
+
+      doc.addEventListener('mousemove', function(e) {{
+        sendInput({{
+          kind: 'mouse_move',
+          x: e.clientX,
+          y: e.clientY,
+          buttons: e.buttons
+        }});
+      }});
+
+      doc.addEventListener('mousedown', function(e) {{
+        sendInput({{
+          kind: 'mouse_down',
+          x: e.clientX,
+          y: e.clientY,
+          buttons: e.buttons,
+          button: e.button
+        }});
+      }});
+
+      doc.addEventListener('mouseup', function(e) {{
+        sendInput({{
+          kind: 'mouse_up',
+          x: e.clientX,
+          y: e.clientY,
+          buttons: e.buttons,
+          button: e.button
+        }});
+      }});
+
+      doc.addEventListener('keydown', function(e) {{
+        e.preventDefault();
+        sendInput({{
+          kind: 'key_down',
+          key: e.key,
+          code: e.code
+        }});
+      }});
+
+      doc.addEventListener('keyup', function(e) {{
+        e.preventDefault();
+        sendInput({{
+          kind: 'key_up',
+          key: e.key,
+          code: e.code
+        }});
+      }});
+    }}
+
+    function sendInput(event) {{
+      fetch('/input', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify(event)
+      }}).catch(_ => {{}});
+    }}
+  ]]></script>"#
         )
         .unwrap();
 

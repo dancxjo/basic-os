@@ -15,6 +15,8 @@ unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 tiny_http = { version = "0.12", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [build-dependencies]
 flate2 = "1.0"
