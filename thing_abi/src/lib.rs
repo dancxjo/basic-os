@@ -28,6 +28,32 @@ impl Symbol {
     }
 }
 
+impl From<Symbol> for String {
+    fn from(s: Symbol) -> Self {
+        let val = s.0;
+        let c1 = ((val >> 16) & 0xFF) as u8;
+        let c2 = ((val >> 8) & 0xFF) as u8;
+        let c3 = (val & 0xFF) as u8;
+
+        let mut bytes = Vec::new();
+        if c1 != 0 {
+            bytes.push(c1);
+        }
+        if c2 != 0 {
+            bytes.push(c2);
+        }
+        if c3 != 0 {
+            bytes.push(c3);
+        }
+
+        if let Ok(s) = core::str::from_utf8(&bytes) {
+            String::from(s)
+        } else {
+            alloc::format!("{:x}", val)
+        }
+    }
+}
+
 pub const fn cc(a: char, b: char) -> Symbol {
     Symbol(((a as u32) << 16) | ((b as u32) << 8))
 }
@@ -424,6 +450,25 @@ pub enum AbiRequest {
     GrantCapability {
         request: GrantCapabilityRequest,
     },
+    DevOpen {
+        kind: u32,
+        index: usize,
+    },
+    DevRead {
+        handle: u64,
+        len: usize,
+    },
+    DevWrite {
+        handle: u64,
+        data: Vec<u8>,
+    },
+    IrqBind {
+        device: Uuid,
+        line: u8,
+    },
+    IrqAck {
+        handle: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -457,6 +502,19 @@ pub enum AbiResponse {
     CapabilityGranted {
         granted: bool,
     },
+    DevOpened {
+        handle: Option<u64>,
+    },
+    DevRead {
+        data: Vec<u8>,
+    },
+    DevWritten {
+        len: usize,
+    },
+    IrqBound {
+        handle: Option<u64>,
+    },
+    IrqAcked,
     Error {
         message: String,
     },

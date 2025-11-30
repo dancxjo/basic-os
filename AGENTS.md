@@ -29,6 +29,8 @@ Important: When running `make run`, prefer to run it with a timeout so QEMU exit
 The kernel only exposes **raw hardware streams and memory regions** through
 generic device syscalls.
 
+See [docs/INPUT_AND_DEVICE_MODEL.md](docs/INPUT_AND_DEVICE_MODEL.md) for details on the Native vs Hosted input model.
+
 - Kernel code may:
   - Handle interrupts
   - Buffer raw bytes

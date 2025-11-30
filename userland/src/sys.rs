@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 /// Raw syscall entry point (rax, rdi, rsi, rdx, r10).
 #[inline(always)]
+#[cfg(target_os = "none")]
 pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     let ret: u64;
     core::arch::asm!(
@@ -41,6 +42,11 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     ret
 }
 
+#[cfg(not(target_os = "none"))]
+pub unsafe fn syscall(_rax: u64, _rdi: u64, _rsi: u64, _rdx: u64, _r10: u64) -> u64 {
+    panic!("syscall not supported on host");
+}
+
 pub const SYSCALL_GRAPH_FIAT: u64 = 0x01;
 pub const SYSCALL_GRAPH_LINK: u64 = 0x02;
 // pub const SYSCALL_GRAPH_QUERY: u64 = 0x03;
@@ -65,7 +71,12 @@ pub const SYSCALL_DEV_OPEN: u64 = 0x20;
 pub const SYSCALL_DEV_READ: u64 = 0x21;
 pub const SYSCALL_DEV_WRITE: u64 = 0x22;
 pub const SYSCALL_DEV_MAP: u64 = 0x23;
+pub const SYSCALL_SPAWN: u64 = 0x30;
 pub const SYSCALL_LOG: u64 = 0x99;
+
+pub fn spawn(name: &str) -> u64 {
+    unsafe { syscall(SYSCALL_SPAWN, name.as_ptr() as u64, name.len() as u64, 0, 0) }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct IrqBindRequest {
@@ -256,21 +267,46 @@ fn serialize_request<T: Serialize>(req: &T) -> Option<Vec<u8>> {
 }
 
 pub fn irq_bind(request: IrqBindRequest) -> Option<u64> {
-    let payload = serialize_request(&request)?;
-    let handle = unsafe {
-        syscall(
-            SYSCALL_IRQ_BIND,
-            payload.as_ptr() as u64,
-            payload.len() as u64,
-            0,
-            0,
-        )
-    };
-    (handle != !0).then_some(handle)
+    #[cfg(target_os = "none")]
+    {
+        let payload = serialize_request(&request)?;
+        let handle = unsafe {
+            syscall(
+                SYSCALL_IRQ_BIND,
+                payload.as_ptr() as u64,
+                payload.len() as u64,
+                0,
+                0,
+            )
+        };
+        (handle != !0).then_some(handle)
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req = thing_abi::AbiRequest::IrqBind {
+            device: request.device,
+            line: request.irq_line,
+        };
+        match crate::runtime().call(req) {
+            thing_abi::AbiResponse::IrqBound { handle } => handle,
+            _ => None,
+        }
+    }
 }
 
 pub fn irq_ack(handle: u64) -> bool {
-    unsafe { syscall(SYSCALL_IRQ_ACK, handle, 0, 0, 0) == 0 }
+    #[cfg(target_os = "none")]
+    {
+        unsafe { syscall(SYSCALL_IRQ_ACK, handle, 0, 0, 0) == 0 }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req = thing_abi::AbiRequest::IrqAck { handle };
+        match crate::runtime().call(req) {
+            thing_abi::AbiResponse::IrqAcked => true,
+            _ => false,
+        }
+    }
 }
 
 pub fn dma_map(request: DmaMapRequest) -> Option<u64> {
@@ -326,35 +362,78 @@ pub const DEVICE_KIND_FRAMEBUFFER: u32 = 3;
 pub const DEVICE_KIND_SERIAL: u32 = 4;
 
 pub fn dev_open(kind: u32, index: usize) -> Option<u64> {
-    let ret = unsafe { syscall(SYSCALL_DEV_OPEN, kind as u64, index as u64, 0, 0) };
-    if ret == !0 {
-        None
-    } else {
-        Some(ret)
+    #[cfg(target_os = "none")]
+    {
+        let ret = unsafe { syscall(SYSCALL_DEV_OPEN, kind as u64, index as u64, 0, 0) };
+        if ret == !0 {
+            None
+        } else {
+            Some(ret)
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req = thing_abi::AbiRequest::DevOpen { kind, index };
+        match crate::runtime().call(req) {
+            thing_abi::AbiResponse::DevOpened { handle } => handle,
+            _ => None,
+        }
     }
 }
 
 pub fn dev_read(handle: u64, buf: &mut [u8]) -> usize {
-    unsafe {
-        syscall(
-            SYSCALL_DEV_READ,
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_DEV_READ,
+                handle,
+                buf.as_mut_ptr() as u64,
+                buf.len() as u64,
+                0,
+            ) as usize
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req = thing_abi::AbiRequest::DevRead {
             handle,
-            buf.as_mut_ptr() as u64,
-            buf.len() as u64,
-            0,
-        ) as usize
+            len: buf.len(),
+        };
+        match crate::runtime().call(req) {
+            thing_abi::AbiResponse::DevRead { data } => {
+                let len = core::cmp::min(buf.len(), data.len());
+                buf[..len].copy_from_slice(&data[..len]);
+                len
+            }
+            _ => 0,
+        }
     }
 }
 
 pub fn dev_write(handle: u64, buf: &[u8]) -> usize {
-    unsafe {
-        syscall(
-            SYSCALL_DEV_WRITE,
+    #[cfg(target_os = "none")]
+    {
+        unsafe {
+            syscall(
+                SYSCALL_DEV_WRITE,
+                handle,
+                buf.as_ptr() as u64,
+                buf.len() as u64,
+                0,
+            ) as usize
+        }
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        let req = thing_abi::AbiRequest::DevWrite {
             handle,
-            buf.as_ptr() as u64,
-            buf.len() as u64,
-            0,
-        ) as usize
+            data: buf.to_vec(),
+        };
+        match crate::runtime().call(req) {
+            thing_abi::AbiResponse::DevWritten { len } => len,
+            _ => 0,
+        }
     }
 }
 

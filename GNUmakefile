@@ -5,6 +5,8 @@ MAKEFLAGS += -rR
 # Convenience macro to reliably declare user overridable variables.
 override USER_VARIABLE = $(if $(filter $(origin $(1)),default undefined),$(eval override $(1) := $(2)))
 
+$(call USER_VARIABLE,MODE,native)
+
 # Target architecture to build for. Default to x86_64.
 $(call USER_VARIABLE,KARCH,x86_64)
 
@@ -262,11 +264,48 @@ third_party:
 
 .PHONY: userland
 userland:
-		cd compositor && RUSTFLAGS="-C link-arg=-T$(CURDIR)/compositor/link.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target $(RUST_TARGET)
-		cd apps/clouds && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
-		cd drivers/keyboard_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
-		cd drivers/mouse_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
-		cd drivers/framebuffer_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+ifeq ($(MODE),native)
+	cd compositor && RUSTFLAGS="-C link-arg=-T$(CURDIR)/compositor/link.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target $(RUST_TARGET)
+	cd apps/demo_app && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/init && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd drivers/keyboard_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd drivers/mouse_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd drivers/framebuffer_driver && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+else ifeq ($(MODE),hosted)
+	cargo build -p compositor --bin compositor --features host --target x86_64-unknown-linux-gnu
+	cargo build -p demo_app --bin demo_app --features host --target x86_64-unknown-linux-gnu
+	cargo build -p thing_host --bin thing_host --target x86_64-unknown-linux-gnu
+endif
+
+.PHONY: compositor
+compositor:
+ifeq ($(MODE),native)
+	$(MAKE) all
+	$(MAKE) run
+else ifeq ($(MODE),hosted)
+	$(MAKE) userland
+	cargo run -p thing_host --bin thing_host --features "$(HOST_FEATURES)" --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/compositor
+endif
+
+.PHONY: demo_app
+demo_app:
+ifeq ($(MODE),native)
+	$(MAKE) all
+	$(MAKE) run
+else ifeq ($(MODE),hosted)
+	$(MAKE) userland
+	cargo run -p thing_host --bin thing_host --features "$(HOST_FEATURES)" --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/demo_app
+endif
+
+.PHONY: run-hosted
+run-hosted:
+	docker compose -f docker-compose.neo4j.yml up -d
+	GRAPH_BACKEND=neo4j \
+	NEO4J_URI=$(HOST_NEO4J_URI) \
+	NEO4J_USER=$(HOST_NEO4J_USER) \
+	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
+	cargo run -p thing_host --bin thing_host --features neo4j --target x86_64-unknown-linux-gnu
+
 
 .PHONY: kernel
 kernel: third_party
@@ -278,7 +317,8 @@ $(IMAGE_NAME).iso: limine/limine kernel userland
 	cp -v clouds.bmp iso_root/
 	cp -v kernel/kernel iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/compositor iso_root/boot/
-	cp -v target/$(RUST_TARGET)/release/clouds iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/init iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/demo_app iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/keyboard_driver iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/mouse_driver iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/framebuffer_driver iso_root/boot/
@@ -348,28 +388,14 @@ ifeq ($(KARCH),loongarch64)
 	mcopy -i $(IMAGE_NAME).hdd@@1M limine/BOOTLOONGARCH64.EFI ::/EFI/BOOT
 endif
 
-.PHONY: host-clouds-neo4j
-host-clouds-neo4j:
-	@set -e; \
-	docker compose -f docker-compose.neo4j.yml up -d; \
-	echo "Starting host compositor with Neo4j backend..."; \
+.PHONY: host-demo-neo4j
+host-demo-neo4j:
+	docker compose -f docker-compose.neo4j.yml up -d
 	GRAPH_BACKEND=neo4j \
 	NEO4J_URI=$(HOST_NEO4J_URI) \
 	NEO4J_USER=$(HOST_NEO4J_USER) \
 	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
-	cargo run -p compositor --bin host_compositor --features "host thing_host/neo4j" --target x86_64-unknown-linux-gnu & \
-	COMP_PID=$$!; \
-	trap "kill $$COMP_PID 2>/dev/null || true" INT TERM EXIT; \
-	sleep 3; \
-	echo "Launching Clouds app against Neo4j..."; \
-	GRAPH_BACKEND=neo4j \
-	NEO4J_URI=$(HOST_NEO4J_URI) \
-	NEO4J_USER=$(HOST_NEO4J_USER) \
-	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
-	cargo run -p app-clouds --bin clouds_host --features host-neo4j --target x86_64-unknown-linux-gnu; \
-	kill $$COMP_PID 2>/dev/null || true; \
-	wait $$COMP_PID 2>/dev/null || true; \
-	trap - INT TERM EXIT
+	MODE=hosted HOST_FEATURES=neo4j $(MAKE) demo_app
 
 .PHONY: clean
 clean:

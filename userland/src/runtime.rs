@@ -216,6 +216,13 @@ impl ThingRuntime for KernelRuntime {
                 },
                 Err(_) => AbiResponse::CapabilityGranted { granted: false },
             },
+            AbiRequest::DevOpen { .. }
+            | AbiRequest::DevRead { .. }
+            | AbiRequest::DevWrite { .. }
+            | AbiRequest::IrqBind { .. }
+            | AbiRequest::IrqAck { .. } => AbiResponse::Error {
+                message: "device ops not supported via runtime on kernel".into(),
+            },
         }
     }
 }
@@ -246,8 +253,23 @@ fn fetch_thing(id: Uuid) -> Option<GraphThing> {
 
 static KERNEL_RUNTIME: KernelRuntime = KernelRuntime;
 
+#[cfg(feature = "std")]
+static HOSTED_RUNTIME: std::sync::OnceLock<thing_host::HostRuntime> = std::sync::OnceLock::new();
+
+#[cfg(feature = "std")]
+pub fn host_runtime() -> &'static thing_host::HostRuntime {
+    HOSTED_RUNTIME.get().expect("runtime not initialized")
+}
+
 pub fn ensure_kernel_runtime() {
+    #[cfg(not(feature = "std"))]
     let _ = abi_set_runtime(&KERNEL_RUNTIME);
+
+    #[cfg(feature = "std")]
+    {
+        let runtime = HOSTED_RUNTIME.get_or_init(|| thing_host::HostRuntime::new());
+        let _ = abi_set_runtime(runtime);
+    }
 }
 
 pub fn runtime() -> &'static dyn ThingRuntime {

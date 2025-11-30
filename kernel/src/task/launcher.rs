@@ -30,77 +30,86 @@ static USER_MODULES: SpinMutex<Option<Vec<UserModule>>> = SpinMutex::new(None);
 static NEXT_USER_MODULE: AtomicUsize = AtomicUsize::new(0);
 
 pub fn init_user_modules() {
-    let mut drivers = Vec::new();
-    let mut compositors = Vec::new();
-    let mut selected_app: Option<&'static str> = None;
-    let mut preferred_apps = Vec::new();
+    let mut entries = Vec::new();
+    let mut init_found = false;
 
     for (name, data) in list_modules().into_iter() {
-        if !data.starts_with(b"\x7FELF") {
-            info!("Skipping non-ELF module '{}'", name);
-            continue;
+        if name.contains("init") && data.starts_with(b"\x7FELF") {
+            info!("Found init module '{}'", name);
+            entries.push(create_user_module(name, BundleType::App));
+            init_found = true;
+            break;
         }
+    }
 
-        let bundle_type = BundleType::from_name(name);
-        match bundle_type {
-            BundleType::Driver => {
-                info!("Queueing user module '{}'", name);
-                drivers.push(name);
+    if !init_found {
+        warn!("Init module not found! Falling back to legacy discovery.");
+        let mut drivers = Vec::new();
+        let mut compositors = Vec::new();
+        let mut selected_app: Option<&'static str> = None;
+
+        for (name, data) in list_modules().into_iter() {
+            if !data.starts_with(b"\x7FELF") {
+                continue;
             }
-            BundleType::Compositor => {
-                info!("Queueing user module '{}'", name);
-                compositors.push(name);
-            }
-            BundleType::App => {
-                if preferred_app(name) {
-                    preferred_apps.push(name);
-                    if selected_app.is_none() {
-                        info!("Queueing preferred app module '{}'", name);
+            let bundle_type = BundleType::from_name(name);
+            match bundle_type {
+                BundleType::Driver => drivers.push(name),
+                BundleType::Compositor => compositors.push(name),
+                BundleType::App => {
+                    if preferred_app(name) && selected_app.is_none() {
                         selected_app = Some(name);
-                    } else {
-                        info!("Skipping extra preferred app module '{}' for now", name);
                     }
-                } else {
-                    info!("Skipping non-preferred app module '{}' for now", name);
                 }
             }
         }
-    }
 
-    if compositors.len() > 1 {
-        warn!(
-            "Multiple compositor modules detected ({}): {:?}; launching in discovery order",
-            compositors.len(),
-            compositors
-        );
-    } else if compositors.is_empty() {
-        warn!("No compositor module discovered; userland will run without a compositor");
-    }
-
-    if preferred_apps.is_empty() {
-        warn!(
-            "No preferred app (clouds/input_tester) discovered; userland will start without an app"
-        );
-    }
-
-    if drivers.is_empty() {
-        info!("No user-space drivers discovered; continuing without driver bundles");
-    }
-
-    let mut entries = Vec::new();
-    // Launch drivers first, then compositor, then a single preferred app.
-    for name in drivers.into_iter() {
-        entries.push(create_user_module(name, BundleType::Driver));
-    }
-    for name in compositors.into_iter() {
-        entries.push(create_user_module(name, BundleType::Compositor));
-    }
-    if let Some(app_name) = selected_app {
-        entries.push(create_user_module(app_name, BundleType::App));
+        for name in drivers {
+            entries.push(create_user_module(name, BundleType::Driver));
+        }
+        for name in compositors {
+            entries.push(create_user_module(name, BundleType::Compositor));
+        }
+        if let Some(app) = selected_app {
+            entries.push(create_user_module(app, BundleType::App));
+        }
     }
 
     *USER_MODULES.lock() = Some(entries);
     NEXT_USER_MODULE.store(0, Ordering::Release);
+}
+
+pub fn spawn_module(name: &str) -> bool {
+    let mut static_name: Option<&'static str> = None;
+    for (m_name, _) in list_modules().into_iter() {
+        if m_name.contains(name) {
+            static_name = Some(m_name);
+            break;
+        }
+    }
+
+    let static_name = match static_name {
+        Some(s) => s,
+        None => {
+            warn!("Module '{}' not found in boot modules", name);
+            return false;
+        }
+    };
+
+    let bundle_type = BundleType::from_name(static_name);
+    let module = create_user_module(static_name, bundle_type);
+
+    {
+        let mut guard = USER_MODULES.lock();
+        if let Some(list) = guard.as_mut() {
+            list.push(module);
+        } else {
+            return false;
+        }
+    }
+
+    runtime::spawn_kernel(start_user_task);
+    true
 }
 
 pub fn user_module_count() -> usize {
@@ -182,7 +191,7 @@ fn create_user_module(name: &'static str, bundle_type: BundleType) -> UserModule
 }
 
 fn preferred_app(name: &str) -> bool {
-    name.contains("clouds") || name.contains("input_tester")
+    name.contains("demo_app") || name.contains("input_tester")
 }
 
 fn framebuffer_node_id() -> uuid::Uuid {

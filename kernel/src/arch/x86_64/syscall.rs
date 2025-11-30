@@ -40,6 +40,7 @@ pub extern "C" fn syscall_entry(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64
         SYSCALL_DEV_READ => dev_read(rdi, rsi, rdx),
         SYSCALL_DEV_WRITE => dev_write(rdi, rsi, rdx),
         SYSCALL_DEV_MAP => dev_map(rdi),
+        SYSCALL_SPAWN => spawn(rdi, rsi),
         SYSCALL_LOG => sys_log(rdi, rsi),
         _ => {
             serial_println!("Unknown syscall: {:#x}", rax);
@@ -73,6 +74,7 @@ const SYSCALL_DEV_OPEN: u64 = 0x20;
 const SYSCALL_DEV_READ: u64 = 0x21;
 const SYSCALL_DEV_WRITE: u64 = 0x22;
 const SYSCALL_DEV_MAP: u64 = 0x23;
+const SYSCALL_SPAWN: u64 = 0x30;
 const SYSCALL_LOG: u64 = 0x99;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -442,6 +444,27 @@ fn dev_map(handle: u64) -> u64 {
     match crate::drivers::device::dev_map(handle) {
         Some((addr, _len)) => addr,
         None => 0,
+    }
+}
+
+fn spawn(ptr: u64, len: u64) -> u64 {
+    if ptr == 0 || len == 0 || len > 128 {
+        return !0;
+    }
+    if ptr >= 0x0000_8000_0000_0000 || ptr + len >= 0x0000_8000_0000_0000 {
+        return !0;
+    }
+
+    let slice = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    let name = match core::str::from_utf8(slice) {
+        Ok(s) => s,
+        Err(_) => return !0,
+    };
+
+    if crate::task::launcher::spawn_module(name) {
+        0
+    } else {
+        !0
     }
 }
 

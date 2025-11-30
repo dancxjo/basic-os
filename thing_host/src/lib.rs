@@ -1,5 +1,5 @@
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -16,6 +16,15 @@ pub struct HostRuntime {
     rt: tokio::runtime::Runtime,
     watchers: Mutex<HashMap<WatchId, WatchState>>,
     next_watch: AtomicU64,
+    keyboard_fifo: Mutex<VecDeque<u8>>,
+    mouse_fifo: Mutex<VecDeque<u8>>,
+    open_devices: Mutex<HashMap<u64, DeviceState>>,
+    next_handle: AtomicU64,
+}
+
+struct DeviceState {
+    kind: u32,
+    index: usize,
 }
 
 struct WatchState {
@@ -44,6 +53,21 @@ impl HostRuntime {
             rt,
             watchers: Mutex::new(HashMap::new()),
             next_watch: AtomicU64::new(1),
+            keyboard_fifo: Mutex::new(VecDeque::new()),
+            mouse_fifo: Mutex::new(VecDeque::new()),
+            open_devices: Mutex::new(HashMap::new()),
+            next_handle: AtomicU64::new(1),
+        }
+    }
+
+    pub fn push_scancode(&self, code: u8) {
+        self.keyboard_fifo.lock().push_back(code);
+    }
+
+    pub fn push_mouse_packet(&self, packet: &[u8]) {
+        let mut fifo = self.mouse_fifo.lock();
+        for &b in packet {
+            fifo.push_back(b);
         }
     }
 
@@ -251,6 +275,52 @@ impl ThingRuntime for HostRuntime {
                     },
                 }
             }
+            AbiRequest::DevOpen { kind, index } => {
+                let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
+                self.open_devices
+                    .lock()
+                    .insert(handle, DeviceState { kind, index });
+                AbiResponse::DevOpened {
+                    handle: Some(handle),
+                }
+            }
+            AbiRequest::DevRead { handle, len } => {
+                let mut data = Vec::new();
+                let devices = self.open_devices.lock();
+                if let Some(state) = devices.get(&handle) {
+                    if state.kind == 1 {
+                        // Keyboard
+                        let mut fifo = self.keyboard_fifo.lock();
+                        for _ in 0..len {
+                            if let Some(b) = fifo.pop_front() {
+                                data.push(b);
+                            } else {
+                                break;
+                            }
+                        }
+                    } else if state.kind == 2 {
+                        // Mouse
+                        let mut fifo = self.mouse_fifo.lock();
+                        for _ in 0..len {
+                            if let Some(b) = fifo.pop_front() {
+                                data.push(b);
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+                AbiResponse::DevRead { data }
+            }
+            AbiRequest::DevWrite { handle: _, data: _ } => {
+                // TODO: Implement serial output etc.
+                AbiResponse::DevWritten { len: 0 }
+            }
+            AbiRequest::IrqBind { device: _, line: _ } => {
+                // For now, just return a dummy handle
+                AbiResponse::IrqBound { handle: Some(1) }
+            }
+            AbiRequest::IrqAck { handle: _ } => AbiResponse::IrqAcked,
             AbiRequest::GrantCapability { request: _ } => {
                 AbiResponse::CapabilityGranted { granted: true }
             }

@@ -1,5 +1,5 @@
 [package]
-name = "app-graph-smoke"
+name = "demo_app"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,9 +10,14 @@ uuid = { version = "=1.10", default-features = false, features = [
     "serde",
 ] }
 
+[features]
+default = []
+std = ["userland/std"]
+host = ["std"]
+
 [[bin]]
-name = "graph-smoke"
-path = "src/lib.rs"
+name = "demo_app"
+path = "src/main.rs"
 
 [profile.release]
 panic = "abort"

@@ -6,7 +6,7 @@ use uuid::Uuid;
 const SMOKE_KIND: Symbol = canon::canon(b'G', b'S', b'M');
 const NODE_NAME: &str = "graph-smoke-node";
 
-pub struct CloudsApp {
+pub struct DemoApp {
     window: WindowHandle,
     bmp_data: &'static [u8],
     key_count: usize,
@@ -17,7 +17,7 @@ pub struct CloudsApp {
     smoke_seen_events: bool,
 }
 
-impl App for CloudsApp {
+impl App for DemoApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
         let window = ctx.create_window("Clouds");
 
@@ -57,7 +57,7 @@ impl App for CloudsApp {
             id: None,
         });
 
-        CloudsApp {
+        DemoApp {
             window,
             bmp_data,
             key_count: 0,

@@ -12,9 +12,10 @@ uuid = { version = "=1.10", default-features = false, features = [
 ] }
 linked_list_allocator = "0.10"
 thing_abi = { path = "../thing_abi" }
+thing_host = { path = "../thing_host", optional = true }
 
 [features]
-std = []
+std = ["serde/std", "thing_host"]
 
 [profile.release]
 panic = "abort"

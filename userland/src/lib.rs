@@ -13,6 +13,8 @@ pub mod watch;
 
 pub use heap::init_heap;
 pub use runtime::{ensure_kernel_runtime, runtime, set_runtime};
+#[cfg(feature = "std")]
+pub use runtime::host_runtime;
 pub use thing_abi::{FramebufferGeometry, GrantCapabilityRequest, Map, Symbol, Value};
 pub use uuid;
 

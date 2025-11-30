@@ -19,6 +19,7 @@ An experimental Rust operating system plus a host-mode runtime for developing th
 | `README.md` | ✅ Accurate | Reflects the dual host/bare-metal reality and compositor/ABI model (this document). |
 | `docs/GRAPH_API.md` | ✅ Accurate | Updated to enumerate the actually implemented syscalls and host vs. kernel behavior. |
 | `docs/ABI_CONTRACT.md` | ✅ Accurate | New section spelling out the ABI guarantees and non-guarantees. |
+| `docs/INPUT_AND_DEVICE_MODEL.md` | ✅ Accurate | Details on the unified device ABI and Native vs Hosted input models. |
 | `docs/THINGOS_VISION.md` | ⚠️ Partially outdated | Still describes the aspirational state; keep as historical intent only. |
 
 ## Reality check: execution environments
@@ -28,8 +29,8 @@ ThingOS components only communicate through the ABI defined in `thing_abi/src/li
 | Mode | Command | Graphics backend | Input source | Graph backend | Status |
 | --- | --- | --- | --- | --- | --- |
 | Bare metal | `timeout 300 make run` | `BitmapRenderer` + Limine framebuffer (`compositor/src/main.rs`, `compositor/src/framebuffer_backend.rs`) | PS/2/HID bytes exposed as raw devices, decoded by userland drivers (`drivers/keyboard_driver`, `drivers/mouse_driver`) | Kernel `Store` + journal (`kernel/src/graph/store.rs`, `kernel/src/graph/journal.rs`) | ❌ Broken: compositor trips a page fault/double fault once it blits the mapped framebuffer. |
-| Host Linux | `cargo run -p compositor --bin host_compositor --features host` | `SvgRenderer` drawing into `HostFramebufferDevice` and served as `frame.svg` (`compositor/src/bin/host_compositor.rs`, `compositor/src/svg_backend.rs`) | Browser events posted back to `/input` (`host_compositor.rs`) | In-memory `GraphStore` inside `thing_host/src/store.rs` | ✅ Working development path. |
-| Host + Neo4j | `GRAPH_BACKEND=neo4j NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=secret cargo run -p compositor --bin host_compositor --features "host thing_host/neo4j"` | Same SVG renderer/device | Browser events via `/input` | `Neo4jGraphStore` (`thing_host/src/store.rs`) with `neo4rs` pool selected via env + `GRAPH_BACKEND`. | ✅ Graph ABI backed by Neo4j; host/runtime/apps can’t tell which store is active. |
+| Host Linux | `cargo run -p compositor --features host` | `SvgRenderer` drawing into `HostFramebufferDevice` and served as `frame.svg` (`compositor/src/svg_backend.rs`) | HTTP injection to `/input/key` -> virtual FIFO -> userland driver | In-memory `GraphStore` inside `thing_host/src/store.rs` | ✅ Working development path. |
+| Host + Neo4j | `GRAPH_BACKEND=neo4j ... cargo run ...` | Same SVG renderer/device | HTTP injection to `/input/key` | `Neo4jGraphStore` (`thing_host/src/store.rs`) with `neo4rs` pool selected via env + `GRAPH_BACKEND`. | ✅ Graph ABI backed by Neo4j; host/runtime/apps can’t tell which store is active. |
 
 The browser never talks to the compositor directly; it is treated as a framebuffer device that fetches SVG snapshots and posts input events. The kernel has no awareness of HTTP, DOM events, or the fact that the framebuffer is virtual.
 

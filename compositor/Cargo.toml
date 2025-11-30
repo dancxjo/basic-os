@@ -6,7 +6,6 @@ build = "build.rs"
 
 [dependencies]
 userland = { path = "../userland" }
-thing_host = { path = "../thing_host", optional = true }
 uuid = { version = "=1.10", default-features = false, features = [
   "v5",
   "serde",
@@ -24,16 +23,12 @@ flate2 = "1.0"
 [features]
 default = []
 demo-apps = []
-host = ["tiny_http", "thing_host", "userland/std"]
+std = ["userland/std"]
+host = ["tiny_http", "std"]
 
 [[bin]]
 name = "compositor"
 path = "src/main.rs"
-
-[[bin]]
-name = "host_compositor"
-path = "src/bin/host_compositor.rs"
-required-features = ["host"]
 
 [lib]
 path = "src/lib.rs"
