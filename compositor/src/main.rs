@@ -118,6 +118,7 @@ fn main() {
     use std::time::Duration;
     use userland::watch::WatchManager;
     use userland::FramebufferGeometry;
+    use userland::ThingRuntime;
 
     userland::ensure_kernel_runtime();
 
@@ -172,7 +173,10 @@ fn main() {
     );
 
     // Allocate backbuffer on heap and leak it to get 'static lifetime
-    let backbuffer_vec = vec![0u32; (fb_target.info.width * fb_target.info.height) as usize];
+    // Allocate for 4K resolution (3840x2160) to be safe
+    let max_width = 3840;
+    let max_height = 2160;
+    let backbuffer_vec = vec![0u32; max_width * max_height];
     let backbuffer = Box::leak(backbuffer_vec.into_boxed_slice());
 
     let renderer = BitmapRenderer::new(
@@ -194,7 +198,32 @@ fn main() {
         let compositor = compositor.clone();
         thread::spawn(move || {
             let mut watch_manager = watch_manager;
+            let mut current_width = fb_target.info.width as usize;
+            let mut current_height = fb_target.info.height as usize;
+
             loop {
+                // Check for resize
+                let (w, h) = userland::host_runtime().get_size();
+                if w != current_width || h != current_height {
+                    let mut comp = compositor.lock().expect("compositor mutex poisoned");
+
+                    // Update fb_device
+                    if let userland::AbiResponse::FbMapped { addr } =
+                        userland::host_runtime().call(userland::AbiRequest::FbMap)
+                    {
+                        comp.fb_device_mut().resize(w, h, w * 4, addr as *mut u32);
+                    }
+
+                    // Update renderer
+                    comp.renderer_mut().resize(w, h);
+
+                    // Update compositor cursor limits
+                    comp.resize(w, h);
+
+                    current_width = w;
+                    current_height = h;
+                }
+
                 watch_manager.process_graph(&[compositor_app_id]);
                 let events = watch_manager.drain_inbox(compositor_app_id);
                 {
@@ -223,7 +252,7 @@ fn main() {
 
 #[cfg(feature = "std")]
 fn handle_connection(mut stream: std::net::TcpStream) {
-    use std::io::{Read, Write};
+    use std::io::Write;
     use tungstenite::{accept, Message};
 
     let mut buf = [0u8; 1024];
@@ -258,6 +287,20 @@ const ctx = canvas.getContext('2d');
 
 const ws = new WebSocket('ws://' + location.host + '/ws');
 ws.binaryType = 'arraybuffer';
+
+function sendResize() {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const packet = new Uint8Array(9);
+    packet[0] = 0x52; // 'R'
+    new DataView(packet.buffer).setUint32(1, w, true);
+    new DataView(packet.buffer).setUint32(5, h, true);
+    ws.send(packet);
+}
+
+ws.onopen = sendResize;
+window.addEventListener('resize', sendResize);
 
 ws.onmessage = function(event) {
     const data = new Uint8Array(event.data);
@@ -369,8 +412,9 @@ function sendMouse(dx, dy, buttons) {
             loop {
                 // Send framebuffer
                 let bytes = userland::host_runtime().get_framebuffer_bytes();
-                let width = 1024u32; // TODO: Get from runtime
-                let height = 768u32;
+                let (w, h) = userland::host_runtime().get_size();
+                let width = w as u32;
+                let height = h as u32;
 
                 let mut msg = Vec::with_capacity(8 + bytes.len());
                 msg.extend_from_slice(&width.to_le_bytes());
@@ -424,5 +468,9 @@ fn handle_input(text: &str) {
 fn handle_binary_input(data: &[u8]) {
     if data.len() == 3 {
         userland::host_runtime().push_mouse_packet(data);
+    } else if data.len() == 9 && data[0] == b'R' {
+        let width = u32::from_le_bytes(data[1..5].try_into().unwrap()) as usize;
+        let height = u32::from_le_bytes(data[5..9].try_into().unwrap()) as usize;
+        userland::host_runtime().resize_framebuffer(width, height);
     }
 }

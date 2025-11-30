@@ -1,6 +1,6 @@
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use thing_abi::{
@@ -20,6 +20,8 @@ pub struct HostRuntime {
     keyboard_fifo: Mutex<VecDeque<u8>>,
     mouse_fifo: Mutex<VecDeque<u8>>,
     framebuffer: Mutex<Vec<u32>>,
+    width: AtomicUsize,
+    height: AtomicUsize,
     open_devices: Mutex<HashMap<u64, DeviceState>>,
     next_handle: AtomicU64,
 }
@@ -58,9 +60,25 @@ impl HostRuntime {
             keyboard_fifo: Mutex::new(VecDeque::new()),
             mouse_fifo: Mutex::new(VecDeque::new()),
             framebuffer: Mutex::new(vec![0; 1024 * 768]),
+            width: AtomicUsize::new(1024),
+            height: AtomicUsize::new(768),
             open_devices: Mutex::new(HashMap::new()),
             next_handle: AtomicU64::new(1),
         }
+    }
+
+    pub fn resize_framebuffer(&self, width: usize, height: usize) {
+        self.width.store(width, Ordering::SeqCst);
+        self.height.store(height, Ordering::SeqCst);
+        let mut fb = self.framebuffer.lock();
+        fb.resize(width * height, 0);
+    }
+
+    pub fn get_size(&self) -> (usize, usize) {
+        (
+            self.width.load(Ordering::SeqCst),
+            self.height.load(Ordering::SeqCst),
+        )
     }
 
     pub fn get_framebuffer_bytes(&self) -> Vec<u8> {
@@ -343,9 +361,9 @@ impl ThingRuntime for HostRuntime {
             AbiRequest::IrqAck { handle: _ } => AbiResponse::IrqAcked,
             AbiRequest::FbInfo => AbiResponse::FbInfo {
                 info: FramebufferGeometry {
-                    width: 1024,
-                    height: 768,
-                    pitch: 1024 * 4,
+                    width: self.width.load(Ordering::SeqCst) as u32,
+                    height: self.height.load(Ordering::SeqCst) as u32,
+                    pitch: (self.width.load(Ordering::SeqCst) * 4) as u32,
                     bpp: 32,
                 },
             },

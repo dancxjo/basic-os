@@ -15,7 +15,10 @@ pub use heap::init_heap;
 #[cfg(feature = "std")]
 pub use runtime::host_runtime;
 pub use runtime::{ensure_kernel_runtime, runtime, set_runtime};
-pub use thing_abi::{FramebufferGeometry, GrantCapabilityRequest, Map, Symbol, Value};
+pub use thing_abi::{
+    AbiRequest, AbiResponse, FramebufferGeometry, GrantCapabilityRequest, Map, Symbol,
+    ThingRuntime, Value,
+};
 pub use uuid;
 
 #[macro_export]

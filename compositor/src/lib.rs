@@ -322,6 +322,11 @@ where
         &mut self.renderer
     }
 
+    pub fn resize(&mut self, width: usize, height: usize) {
+        self.cursor.x = clamp_i32(self.cursor.x, 0, width.saturating_sub(1) as i32);
+        self.cursor.y = clamp_i32(self.cursor.y, 0, height.saturating_sub(1) as i32);
+    }
+
     pub fn init_with_watches(
         watch_manager: &mut WatchManager,
         app_id: usize,

@@ -8,7 +8,7 @@ use unifont::get_glyph;
 pub struct BitmapRenderer<'a> {
     width: usize,
     height: usize,
-    backbuffer: &'a mut [u32],
+    storage: &'a mut [u32],
 }
 
 pub struct BitmapFramebufferDevice {
@@ -22,19 +22,26 @@ unsafe impl Send for BitmapFramebufferDevice {}
 unsafe impl Sync for BitmapFramebufferDevice {}
 
 impl<'a> BitmapRenderer<'a> {
-    pub fn new(width: usize, height: usize, backbuffer_storage: &'a mut [u32]) -> Self {
-        let needed = width.saturating_mul(height).min(backbuffer_storage.len());
-        let backbuffer = &mut backbuffer_storage[..needed];
-
+    pub fn new(width: usize, height: usize, storage: &'a mut [u32]) -> Self {
         Self {
             width,
             height,
-            backbuffer,
+            storage,
+        }
+    }
+
+    pub fn resize(&mut self, width: usize, height: usize) {
+        if width.saturating_mul(height) <= self.storage.len() {
+            self.width = width;
+            self.height = height;
         }
     }
 
     fn clear(&mut self, color: Rgba) {
-        self.backbuffer.fill(color.to_u32());
+        let needed = self.width * self.height;
+        if needed <= self.storage.len() {
+            self.storage[..needed].fill(color.to_u32());
+        }
     }
 }
 
@@ -81,7 +88,12 @@ impl<'a> RendererBackend for BitmapRenderer<'a> {
                 }
             }
         }
-        self.backbuffer
+        let needed = self.width * self.height;
+        if needed <= self.storage.len() {
+            &self.storage[..needed]
+        } else {
+            &self.storage[..]
+        }
     }
 }
 
@@ -105,6 +117,13 @@ impl BitmapFramebufferDevice {
             pitch: fb_info.pitch as usize,
             addr,
         }
+    }
+
+    pub fn resize(&mut self, width: usize, height: usize, pitch: usize, addr: *mut u32) {
+        self.width = width;
+        self.height = height;
+        self.pitch = pitch;
+        self.addr = addr;
     }
 }
 
@@ -166,7 +185,7 @@ fn raster_fill_rect(backend: &mut BitmapRenderer, rect: &Rect, color: Rgba) {
     for yy in y0..y1 {
         let row = yy * backend.width;
         for xx in x0..x1 {
-            backend.backbuffer[row + xx] = color_u32;
+            backend.storage[row + xx] = color_u32;
         }
     }
 }
@@ -191,7 +210,7 @@ fn raster_blit_image(backend: &mut BitmapRenderer, rect: &Rect, bmp: &Bitmap, re
             } else {
                 continue;
             };
-            backend.backbuffer[row + xx] = color;
+            backend.storage[row + xx] = color;
         }
     }
 }
@@ -282,7 +301,7 @@ fn raster_draw_glyph(
             }
             if glyph.get_pixel(col, row) {
                 let idx = dst_y * backend.width + dst_x;
-                backend.backbuffer[idx] = color;
+                backend.storage[idx] = color;
             }
         }
     }
@@ -323,11 +342,11 @@ fn raster_draw_cursor(
 
             if draw_shadow && x + 1 < backend.width && y + 1 < backend.height {
                 let shadow_idx = (y + 1) * backend.width + (x + 1);
-                backend.backbuffer[shadow_idx] = shadow_color;
+                backend.storage[shadow_idx] = shadow_color;
             }
 
             let idx = y * backend.width + x;
-            backend.backbuffer[idx] = primary_color;
+            backend.storage[idx] = primary_color;
         }
     }
 }
@@ -356,6 +375,6 @@ mod tests {
 
         raster_blit_image(&mut backend, &Rect::new(0, 0, 3, 3), &bmp, false);
 
-        assert_eq!(backend.backbuffer, &[1, 2, 0, 3, 4, 0, 0, 0, 0]);
+        assert_eq!(backend.storage, &[1, 2, 0, 3, 4, 0, 0, 0, 0]);
     }
 }
