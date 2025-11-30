@@ -1,24 +1,164 @@
+use crate::{canon, prelude::*, NodePattern, Symbol, Value, AbiRequest};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use uuid::Uuid;
 
-pub fn find_root() -> Option<Uuid> {
-    // This is a simplified search. In a real system we might have a well-known ID or a singleton.
-    // For now, we search for a node with KIND=DIRECTORY and NAME="/"
-    // But we don't have a direct "find one" API that is easy to use without async or complex query.
-    // AbiRequest::FindByKind might work if we filter results.
-
-    // Actually, let's just assume we can find it by name if we had a "FindByName" or similar.
-    // Or we can use a fixed UUID for root if we change rootfs to use one.
-
-    // Let's try to use a fixed UUID for root in rootfs, so we can easily find it here.
-    // I'll update rootfs to use a fixed UUID for root.
-    Some(crate::simple_uuid(b"/"))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsKind {
+    Dir,
+    File,
+    CharDevice,
+    Unknown,
 }
 
-pub fn resolve(path: &str) -> Option<Uuid> {
+#[derive(Debug, Clone)]
+pub struct FsNode {
+    pub id: Uuid,      // or Uuid, whichever you use
+    pub name: String,     // basename, not full path
+    pub kind: FsKind,
+    // Optional metadata for future use:
+    pub mode: Option<u32>,
+    pub owner_bundle: Option<Uuid>,
+
+    // For executable files:
+    pub bundle_id: Option<Uuid>,   // when this is a "bundle-backed" file
+
+    // For char devices:
+    pub device_driver: Option<String>, // e.g. "console"
+    pub device_id: Option<String>,     // e.g. "tty0"
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsError {
+    NotFound,
+    NotADirectory,
+    IOError,
+}
+
+pub fn find_root() -> Result<Uuid, FsError> {
+    // Root has a deterministic ID based on name "/"
+    Ok(crate::simple_uuid(b"/"))
+}
+
+pub fn lookup_path(path: &str) -> Result<FsNode, FsError> {
+    let root_id = find_root()?;
+    
     if path == "/" {
-        return find_root();
+        return get_node_by_id(root_id);
+    }
+    
+    let mut current_id = root_id;
+    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    
+    for (i, part) in parts.iter().enumerate() {
+        // Find child with name == part and parent == current_id
+        let mut props = crate::map();
+        props.insert(canon::PARENT, Value::Uuid(current_id));
+        props.insert(canon::NAME, Value::Text((*part).into()));
+        
+        let pattern = NodePattern {
+            labels: Vec::new(),
+            props,
+        };
+        
+        let things = crate::graph::get_nodes(pattern);
+        if let Some(thing) = things.first() {
+            current_id = thing.id;
+            if i == parts.len() - 1 {
+                return thing_to_fs_node(thing);
+            }
+        } else {
+            return Err(FsError::NotFound);
+        }
+    }
+    
+    // Should be unreachable if path is not empty and not "/"
+    // But if path was empty string?
+    if parts.is_empty() {
+         return get_node_by_id(root_id);
     }
 
-    // TODO: Implement path traversal
-    None
+    Err(FsError::NotFound)
+}
+
+pub fn read_dir(path: &str) -> Result<Vec<FsNode>, FsError> {
+    let dir_node = lookup_path(path)?;
+    if dir_node.kind != FsKind::Dir {
+        return Err(FsError::NotADirectory);
+    }
+    
+    let mut props = crate::map();
+    props.insert(canon::PARENT, Value::Uuid(dir_node.id));
+    
+    let pattern = NodePattern {
+        labels: Vec::new(),
+        props,
+    };
+    
+    let things = crate::graph::get_nodes(pattern);
+    let mut nodes = Vec::new();
+    for thing in things {
+        if let Ok(node) = thing_to_fs_node(&thing) {
+            nodes.push(node);
+        }
+    }
+    
+    // Sort by name
+    nodes.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    Ok(nodes)
+}
+
+fn get_node_by_id(id: Uuid) -> Result<FsNode, FsError> {
+    let req = AbiRequest::Get { id };
+    match crate::runtime().call(req) {
+        crate::AbiResponse::Get { thing } => {
+            if let Some(t) = thing {
+                thing_to_fs_node(&t)
+            } else {
+                Err(FsError::NotFound)
+            }
+        }
+        _ => Err(FsError::IOError),
+    }
+}
+
+fn thing_to_fs_node(thing: &crate::GraphThing) -> Result<FsNode, FsError> {
+    let name = thing.fields.get(&canon::NAME)
+        .and_then(|v| extract_text(v))
+        .unwrap_or_else(|| "unknown".to_string());
+        
+    let kind_sym = thing.fields.get(&canon::KIND)
+        .and_then(|v| v.as_symbol())
+        .unwrap_or(Symbol(0));
+        
+    let kind = if kind_sym == canon::DIRECTORY {
+        FsKind::Dir
+    } else if kind_sym == canon::FILE {
+        FsKind::File
+    } else if kind_sym == canon::DEVICE {
+        FsKind::CharDevice
+    } else {
+        FsKind::Unknown
+    };
+    
+    let bundle_id = thing.fields.get(&canon::BUNDLE_ID)
+        .and_then(|v| v.as_uuid());
+        
+    let device_driver = thing.fields.get(&canon::DEVICE_DRIVER)
+        .and_then(|v| extract_text(v));
+        
+    let device_id = thing.fields.get(&canon::DEVICE_ID)
+        .and_then(|v| extract_text(v));
+
+    Ok(FsNode {
+        id: thing.id,
+        name,
+        kind,
+        mode: None,
+        owner_bundle: Some(thing.owner),
+        bundle_id,
+        device_driver,
+        device_id,
+    })
 }

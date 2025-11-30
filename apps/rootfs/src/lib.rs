@@ -9,9 +9,9 @@ use userland::uuid::Uuid;
 use userland::{AbiRequest, Symbol};
 
 // Define symbols locally for now
-const DIRECTORY: Symbol = canon::canon(b'D', b'I', b'R');
-const FILE: Symbol = canon::canon(b'F', b'I', b'L');
-const DEVICE: Symbol = canon::canon(b'D', b'E', b'V');
+// const DIRECTORY: Symbol = canon::canon(b'D', b'I', b'R');
+// const FILE: Symbol = canon::canon(b'F', b'I', b'L');
+// const DEVICE: Symbol = canon::canon(b'D', b'E', b'V');
 
 pub fn app_main() -> ! {
     userland::println!("RootFS service started.");
@@ -58,21 +58,16 @@ pub fn app_main() -> ! {
 }
 
 fn create_directory(name: &str, parent: Option<Uuid>) -> Uuid {
-    let id = userland::simple_uuid(name.as_bytes()); // Deterministic ID based on name? Maybe not ideal if multiple dirs have same name.
-                                                     // For root, name is "/", ID is fixed.
-                                                     // For others, maybe combine parent ID + name?
-                                                     // For now, let's just use random UUIDs or deterministic ones if we want persistence across reboots (though graph is transient currently?)
-                                                     // The prompt says "Owns a graph-backed directory tree".
-
-    // Let's use a deterministic ID for root, but maybe random for others?
-    // Actually, simple_uuid is fine for unique names. But "bin" is common.
-    // Let's just let fiat generate one if we don't care, or generate one ourselves.
-
+    let id = userland::simple_uuid(name.as_bytes()); 
+    
     let mut fields = userland::map();
     fields.insert(canon::NAME, Value::Text(name.into()));
-    fields.insert(canon::KIND, Value::Symbol(DIRECTORY));
+    fields.insert(canon::KIND, Value::Symbol(canon::DIRECTORY));
+    if let Some(p) = parent {
+        fields.insert(canon::PARENT, Value::Uuid(p));
+    }
 
-    let dir_id = userland::fiat(Some(id), DIRECTORY, fields);
+    let dir_id = userland::fiat(Some(id), canon::DIRECTORY, fields);
 
     if let Some(parent_id) = parent {
         link(parent_id, "contains", dir_id);
@@ -85,11 +80,17 @@ fn create_directory(name: &str, parent: Option<Uuid>) -> Uuid {
 fn create_file(name: &str, parent: Uuid) {
     let mut fields = userland::map();
     fields.insert(canon::NAME, Value::Text(name.into()));
-    fields.insert(canon::KIND, Value::Symbol(FILE));
+    fields.insert(canon::KIND, Value::Symbol(canon::FILE));
+    fields.insert(canon::PARENT, Value::Uuid(parent));
+    
+    // Bundle ID (using simple_uuid of name as placeholder)
+    let bundle_id = userland::simple_uuid(name.as_bytes());
+    fields.insert(canon::BUNDLE_ID, Value::Uuid(bundle_id));
+
     // Maybe add executable info
     fields.insert(canon::canon(b'E', b'X', b'E'), Value::Text(name.into()));
 
-    let file_id = userland::fiat(None, FILE, fields);
+    let file_id = userland::fiat(None, canon::FILE, fields);
 
     link(parent, "contains", file_id);
     link(file_id, "parent", parent);
@@ -98,9 +99,15 @@ fn create_file(name: &str, parent: Uuid) {
 fn create_device(name: &str, parent: Uuid) {
     let mut fields = userland::map();
     fields.insert(canon::NAME, Value::Text(name.into()));
-    fields.insert(canon::KIND, Value::Symbol(DEVICE));
+    fields.insert(canon::KIND, Value::Symbol(canon::DEVICE));
+    fields.insert(canon::PARENT, Value::Uuid(parent));
+    
+    if name == "tty0" {
+        fields.insert(canon::DEVICE_DRIVER, Value::Text("console".into()));
+        fields.insert(canon::DEVICE_ID, Value::Text("tty0".into()));
+    }
 
-    let dev_id = userland::fiat(None, DEVICE, fields);
+    let dev_id = userland::fiat(None, canon::DEVICE, fields);
 
     link(parent, "contains", dev_id);
     link(dev_id, "parent", parent);

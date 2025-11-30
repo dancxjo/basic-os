@@ -99,8 +99,14 @@ pub mod canon {
     pub const PITCH: Symbol = canon(b'P', b'T', b'H');
     pub const BPP: Symbol = canon(b'B', b'P', b'P');
     pub const ADDR: Symbol = canon(b'A', b'D', b'R');
-    pub const EMITS: Symbol = canon(b'E', b'M', b'T');
+    pub const PARENT: Symbol = canon(b'P', b'A', b'R');
+    pub const BUNDLE_ID: Symbol = canon(b'B', b'I', b'D');
+    pub const DEVICE_DRIVER: Symbol = canon(b'D', b'D', b'R');
+    pub const DEVICE_ID: Symbol = canon(b'D', b'I', b'D');
+    pub const DIRECTORY: Symbol = canon(b'D', b'I', b'R');
+    pub const FILE: Symbol = canon(b'F', b'I', b'L');
     pub const DEVICE: Symbol = canon(b'D', b'E', b'V');
+    pub const EMITS: Symbol = canon(b'E', b'M', b'T');
     pub const FRAMEBUFFER_DEVICE: Symbol = canon(b'F', b'B', b'D');
     pub const KEYBOARD_DEVICE: Symbol = canon(b'K', b'B', b'D');
     pub const MOUSE_DEVICE: Symbol = canon(b'M', b'D', b'V');
@@ -115,7 +121,6 @@ pub mod canon {
     pub const INPUT_DEVICE_MOUSE: Symbol = canon(b'I', b'D', b'M');
     pub const INPUT_EVENT: Symbol = canon(b'I', b'E', b'V');
     pub const MOVE: Symbol = canon(b'M', b'O', b'V');
-    pub const DEVICE_ID: Symbol = canon(b'D', b'I', b'D');
     pub const TS: Symbol = canon(b'T', b'S', b' ');
     pub const DOWN: Symbol = canon(b'D', b'W', b'N');
     pub const BUTTON: Symbol = canon(b'B', b'T', b'#');
