@@ -1,189 +1,22 @@
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::{canon, sys, Symbol};
-use serde::{Deserialize, Serialize};
+use crate::{canon, sys, Symbol, Value};
+use thing_abi::{
+    GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphGetRequest,
+    GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, Map, WatchQuery,
+};
 use uuid::Uuid;
 
-#[cfg(test)]
-extern crate std;
-
-pub type Map = BTreeMap<Symbol, Value>;
+pub use thing_abi::{GraphChange, GraphEdge, GraphFindResultHeader, GraphThing, NodePattern};
 
 // Snapshot buffers are small; guard against bogus sizes coming from the kernel.
 // const MAX_SNAPSHOT_BYTES: usize = 1 << 20; // 1 MiB upper bound
 
 pub fn map() -> Map {
-    BTreeMap::new()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum Value {
-    Null,
-    Bool(bool),
-    U64(u64),
-    I64(i64),
-    Bytes(Vec<u8>),
-    Symbol(Symbol),
-    Uuid(Uuid),
-    Text(String),
-    Map(Map),
-    List(Vec<Value>),
-}
-
-impl Value {
-    pub fn text(s: impl Into<String>) -> Self {
-        Value::Text(s.into())
-    }
-
-    pub fn symbol(sym: Symbol) -> Self {
-        Value::Symbol(sym)
-    }
-
-    pub fn uuid(id: Uuid) -> Self {
-        Value::Uuid(id)
-    }
-
-    pub fn map(map: Map) -> Self {
-        Value::Map(map)
-    }
-
-    pub fn as_uuid(&self) -> Option<Uuid> {
-        match self {
-            Value::Uuid(id) => Some(*id),
-            _ => None,
-        }
-    }
-
-    pub fn as_symbol(&self) -> Option<Symbol> {
-        match self {
-            Value::Symbol(s) => Some(*s),
-            _ => None,
-        }
-    }
-
-    pub fn as_u64(&self) -> Option<u64> {
-        match self {
-            Value::U64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_map(&self) -> Option<&Map> {
-        match self {
-            Value::Map(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            Value::Text(s) => Some(s.as_str()),
-            _ => None,
-        }
-    }
-
-    pub fn as_i64(&self) -> Option<i64> {
-        match self {
-            Value::I64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_bool(&self) -> Option<bool> {
-        match self {
-            Value::Bool(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    pub timestamp: u64,
-    pub kind: Symbol,
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphFiatRequest {
-    pub id: Option<Uuid>,
-    pub kind: Symbol,
-    pub fields: Map,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphThatRequest {
-    pub src: Uuid,
-    pub pred: Symbol,
-    pub dst: Uuid,
-    pub revision_hint: u64,
-    #[serde(default)]
-    pub props: Map,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WatchQuery {
-    pub kind: Option<Symbol>,
-    pub src: Option<Uuid>,
-    pub dst: Option<Uuid>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NodePattern {
-    pub labels: Vec<Symbol>,
-    #[serde(default)]
-    pub props: Map,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum GraphGetRequest {
-    Thing(Uuid),
-    Pattern(NodePattern),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphNodeRequest {
-    pub id: Option<Uuid>,
-    pub labels: Vec<Symbol>,
-    pub props: Map,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphLinkRequest {
-    pub id: Option<Uuid>,
-    pub kind: Symbol,
-    pub from: Uuid,
-    pub to: Uuid,
-    #[serde(default)]
-    pub props: Map,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphPropsRequest {
-    pub node: Uuid,
-    pub props: Map,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphPropsGetRequest {
-    pub node: Uuid,
-    pub keys: Vec<Symbol>,
-}
-
-/// Request to grant a capability from one bundle to another.
-/// The granting bundle must own the target node or have the capability itself.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GrantCapabilityRequest {
-    /// The bundle receiving the capability
-    pub grantee: Uuid,
-    /// The target node the capability applies to
-    pub target: Uuid,
-    /// The capability being granted (e.g., CAN_READ, CAN_WRITE, CAN_LINK)
-    pub capability: Symbol,
+    Map::new()
 }
 
 pub struct WatchHandle {
@@ -252,49 +85,13 @@ pub fn grant_capability(grantee: Uuid, target: Uuid, capability: Symbol) -> bool
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphThing {
-    pub id: Uuid,
-    pub kind: Symbol,
-    pub labels: BTreeSet<Symbol>,
-    pub fields: Map,
-    pub owner: Uuid,
-    pub revision: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphEdge {
-    pub id: Uuid,
-    pub src: Uuid,
-    pub pred: Symbol,
-    pub dst: Uuid,
-    pub props: Map,
-    pub owner: Uuid,
-    pub revision: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum GraphChange {
-    Thing(GraphThing),
-    Edge(GraphEdge),
-}
-
-impl GraphChange {
-    pub fn revision(&self) -> u64 {
-        match self {
-            GraphChange::Thing(t) => t.revision,
-            GraphChange::Edge(e) => e.revision,
-        }
-    }
-}
-
 pub fn find_by_kind(kind: &str) -> Vec<GraphThing> {
     let mut results = Vec::new();
     let mut cursor = 0;
     let mut buf = vec![0u8; 64 * 1024]; // 64KB buffer
 
     loop {
-        let req = sys::GraphFindByKind {
+        let req = GraphFindByKind {
             kind_ptr: kind.as_ptr() as u64,
             kind_len: kind.len() as u64,
             cursor,
@@ -306,7 +103,7 @@ pub fn find_by_kind(kind: &str) -> Vec<GraphThing> {
         }
 
         let slice = &buf[..bytes_written as usize];
-        if let Ok((header, rest)) = postcard::take_from_bytes::<sys::GraphFindResultHeader>(slice) {
+        if let Ok((header, rest)) = postcard::take_from_bytes::<GraphFindResultHeader>(slice) {
             let mut remaining = rest;
             for _ in 0..header.count {
                 if let Ok((thing, next)) = postcard::take_from_bytes::<GraphThing>(remaining) {

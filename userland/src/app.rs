@@ -35,8 +35,9 @@ use alloc::vec::Vec;
 use core::fmt::{self, Write};
 
 use crate::canon;
-use crate::graph::{self, load_thing, update_thing, Value, Window};
+use crate::graph::{self, load_thing, update_thing, Window};
 use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
+use crate::Value;
 use uuid::Uuid;
 
 pub trait App {
@@ -137,9 +138,9 @@ impl<'a> AppContext<'a> {
         window.target = Some(pixmap);
 
         let mut fields = window.to_fields();
-        fields.insert(canon::NAME, graph::Value::Text(title.clone()));
-        fields.insert(canon::TARGET, graph::Value::Uuid(pixmap));
-        fields.insert(canon::STATUS, graph::Value::Symbol(canon::INIT));
+        fields.insert(canon::NAME, Value::Text(title.clone()));
+        fields.insert(canon::TARGET, Value::Uuid(pixmap));
+        fields.insert(canon::STATUS, Value::Symbol(canon::INIT));
         graph::fiat(Some(window_id), canon::WINDOW, fields);
         graph::that(window_id, canon::COMPOSED_BY, self.state.compositor, 0);
 
