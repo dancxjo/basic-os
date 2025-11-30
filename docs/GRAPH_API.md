@@ -96,7 +96,11 @@ Implement `Thingable` to decode strongly typed structs:
 use userland::{canon, graph::{Thingable, GraphThing}};
 
 #[derive(Clone)]
-pub struct Window { pub title: String, pub width: u64 }
+pub struct Window {
+    pub title: String,
+    pub width: u64,
+    pub window_rect: Option<WindowRect>,
+}
 
 impl Thingable for Window {
     fn kind() -> &'static str { "window" }
@@ -105,12 +109,15 @@ impl Thingable for Window {
         Some(Window {
             title: thing.fields.get(&canon::TITLE)?.as_text()?.into(),
             width: thing.fields.get(&canon::WIDTH)?.as_u64()?,
+            window_rect: thing.fields
+                .get(&canon::WINDOW_RECT)
+                .and_then(WindowRect::from_value),
         })
     }
 }
 ```
 
-`load_things_of_kind::<Window>()` will call `find_by_kind("window")` and decode each entry. Note that `userland::graph::fiat_thing` is still a placeholder (it always returns `Uuid::nil()`), so typed creation helpers are not ready yet.
+`load_things_of_kind::<Window>()` will call `find_by_kind("window")` and decode each entry. Applications can use the optional `WINDOW_RECT` field as a semantic hint: setting it (via `GraphPropsRequest`) tells the compositor which portion of the surface should stay visible, letting caret-style cursors keep focus as the user types. Note that `userland::graph::fiat_thing` is still a placeholder (it always returns `Uuid::nil()`), so typed creation helpers are not ready yet.
 
 ## Syscalls used by the graph layer
 
