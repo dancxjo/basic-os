@@ -23,9 +23,9 @@ pub fn app_main() -> ! {
     userland::println!("Spawning demo_app...");
     userland::sys::spawn("demo_app");
 
-    // Spawn task list
-    userland::println!("Spawning task_list...");
-    userland::sys::spawn("task_list");
+    // Spawn self_editing_demo
+    userland::println!("Spawning self_editing_demo...");
+    userland::sys::spawn("self_editing_demo");
 
     // Spawn graph_viewer
     userland::println!("Spawning graph_viewer...");

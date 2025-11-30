@@ -215,9 +215,9 @@ dependencies = [
  "flate2",
  "graph_viewer",
  "init",
+ "self_editing_demo",
  "serde",
  "serde_json",
- "task_list",
  "text_editor",
  "tiny_http",
  "tungstenite",
@@ -1327,6 +1327,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "self_editing_demo"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "thing_host",
+ "thingos_bundle_std",
+ "thingos_kernel_std",
+ "userland",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1523,14 +1534,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "task_list"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
 name = "text_editor"
 version = "0.1.0"
 dependencies = [
@@ -1563,6 +1566,19 @@ dependencies = [
  "serde_json",
  "thing_abi",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "thingos_bundle_std"
+version = "0.1.0"
+dependencies = [
+ "linked_list_allocator",
+ "postcard",
+ "serde",
+ "thing_abi",
+ "thingos_kernel_std",
+ "userland",
  "uuid",
 ]
 

@@ -13,6 +13,12 @@ struct TaskInfo {
     state: String,
 }
 
+struct BundleInfo {
+    name: String,
+    kind: String,
+    version: String,
+}
+
 struct DocumentInfo {
     name: String,
     dirty: bool,
@@ -36,6 +42,28 @@ impl App for GraphViewerApp {
             &self.window,
             format_args!("Graph Inspector (read-only)\n\n"),
         );
+
+        // Bundles
+        let bundles = self.list_bundles_from_graph();
+        ctx.draw_text(&self.window, format_args!("Bundles:\n"));
+        ctx.draw_text(
+            &self.window,
+            format_args!("{:<20} {:<10} {:<10}\n", "Name", "Type", "Version"),
+        );
+        ctx.draw_text(
+            &self.window,
+            format_args!("----------------------------------------\n"),
+        );
+        for bundle in bundles {
+            ctx.draw_text(
+                &self.window,
+                format_args!(
+                    "{:<20} {:<10} {:<10}\n",
+                    bundle.name, bundle.kind, bundle.version
+                ),
+            );
+        }
+        ctx.draw_text(&self.window, format_args!("\n"));
 
         // Tasks
         let tasks = self.list_tasks_from_graph();
@@ -79,6 +107,36 @@ impl App for GraphViewerApp {
 }
 
 impl GraphViewerApp {
+    fn list_bundles_from_graph(&self) -> Vec<BundleInfo> {
+        let mut pattern = NodePattern::default();
+        pattern.labels.push(canon::PACKAGE);
+        let things = userland::graph::get_nodes(pattern);
+        things
+            .into_iter()
+            .map(|t| {
+                let name = t
+                    .fields
+                    .get(&canon::NAME)
+                    .and_then(|v| v.as_text())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                let kind = t
+                    .fields
+                    .get(&canon::TYPE)
+                    .and_then(|v| v.as_symbol())
+                    .map(|s| String::from(s))
+                    .unwrap_or_else(|| "Unknown".to_string());
+                let version = t
+                    .fields
+                    .get(&canon::VERSION)
+                    .and_then(|v| v.as_text())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                BundleInfo { name, kind, version }
+            })
+            .collect()
+    }
+
     fn list_tasks_from_graph(&self) -> Vec<TaskInfo> {
         let mut pattern = NodePattern::default();
         pattern.labels.push(canon::TASK);

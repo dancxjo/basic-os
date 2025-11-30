@@ -1,0 +1,16 @@
+[package]
+name = "self_editing_demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thingos_bundle_std = { path = "../../crates/bundle_std" }
+thingos_kernel_std = { path = "../../crates/kernel_std" }
+thing_abi = { path = "../../thing_abi" }
+userland = { path = "../../userland" }
+thing_host = { path = "../../thing_host", optional = true }
+
+[features]
+default = []
+host = ["thingos_bundle_std/host", "userland/std", "std", "thing_host/neo4j"]
+std = []

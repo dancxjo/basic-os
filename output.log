@@ -1,0 +1,6 @@
+Graph backend: InMemory
+ThingHost listening on /tmp/thingos.sock
+Launching app: target/x86_64-unknown-linux-gnu/debug/self_editing_demo
+App target/x86_64-unknown-linux-gnu/debug/self_editing_demo started
+Graph backend: InMemory
+Self-editing bundle launched 1 times; first=2025-11-30T00:00:01Z, last=2025-11-30T00:00:01Z
