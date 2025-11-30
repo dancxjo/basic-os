@@ -1,10 +1,10 @@
 #![cfg(feature = "host")]
 
-use compositor::{Compositor, CompositorExport, SvgBackend};
+use compositor::{Compositor, CompositorBackend, CompositorExport, SvgBackend};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use thing_host::HostRuntime;
-use tiny_http::{Response, Server};
+use tiny_http::{Header, Response, Server};
 
 fn main() {
     let runtime = Box::leak(Box::new(HostRuntime::new()));
@@ -46,8 +46,11 @@ fn main() {
   </body>
 </html>
 "#;
-                let response = Response::from_string(html)
-                    .with_header("Content-Type: text/html; charset=utf-8".parse().unwrap());
+                let response = Response::from_string(html).with_header(
+                    "Content-Type: text/html; charset=utf-8"
+                        .parse::<Header>()
+                        .unwrap(),
+                );
                 let _ = request.respond(response);
             }
             path if path.starts_with("/frame.svg") => {
@@ -60,7 +63,7 @@ fn main() {
                 };
                 let response = Response::from_string(xml).with_header(
                     "Content-Type: image/svg+xml; charset=utf-8"
-                        .parse()
+                        .parse::<Header>()
                         .unwrap(),
                 );
                 let _ = request.respond(response);

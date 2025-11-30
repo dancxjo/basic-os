@@ -13,5 +13,8 @@ uuid = { version = "=1.10", default-features = false, features = [
 linked_list_allocator = "0.10"
 thing_abi = { path = "../thing_abi" }
 
+[features]
+std = []
+
 [profile.release]
 panic = "abort"

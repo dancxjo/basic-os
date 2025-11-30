@@ -1,17 +1,17 @@
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 use core::alloc::{GlobalAlloc, Layout};
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 use linked_list_allocator::LockedHeap;
 
 #[cfg(test)]
 extern crate std;
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 struct SafeHeap {
     inner: LockedHeap,
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 impl SafeHeap {
     pub const fn new() -> Self {
         Self {
@@ -20,7 +20,7 @@ impl SafeHeap {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 unsafe impl GlobalAlloc for SafeHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut heap = self.inner.lock();
@@ -35,7 +35,7 @@ unsafe impl GlobalAlloc for SafeHeap {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 #[global_allocator]
 static ALLOCATOR: SafeHeap = SafeHeap::new();
 
@@ -43,14 +43,14 @@ static ALLOCATOR: SafeHeap = SafeHeap::new();
 #[global_allocator]
 static ALLOCATOR: std::alloc::System = std::alloc::System;
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 #[repr(C, align(4096))]
 struct HeapBuffer([u8; 32 * 1024 * 1024]);
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 static mut HEAP_SPACE: HeapBuffer = HeapBuffer([0; 32 * 1024 * 1024]);
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 pub fn init_heap() {
     unsafe {
         let start = HEAP_SPACE.0.as_mut_ptr();
@@ -60,10 +60,10 @@ pub fn init_heap() {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "std"))]
 pub fn init_heap() {}
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "std")))]
 #[alloc_error_handler]
 fn alloc_error_handler(layout: Layout) -> ! {
     crate::println!("ALLOCATION FAILED: layout={:?}", layout);

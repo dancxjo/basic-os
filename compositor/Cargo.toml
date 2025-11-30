@@ -20,7 +20,7 @@ flate2 = "1.0"
 [features]
 default = []
 demo-apps = []
-host = ["tiny_http", "thing_host"]
+host = ["tiny_http", "thing_host", "userland/std"]
 
 [[bin]]
 name = "compositor"
