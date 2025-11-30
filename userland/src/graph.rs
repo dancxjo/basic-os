@@ -332,6 +332,7 @@ pub struct Window {
     pub z: i64,
     pub visible: bool,
     pub target: Option<Uuid>,
+    pub active: bool,
 }
 
 impl Thingable for Window {
@@ -378,6 +379,11 @@ impl Thingable for Window {
             .get(&canon::VISIBLE)
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let active = thing
+            .fields
+            .get(&canon::ACTIVE)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let target = thing.fields.get(&canon::TARGET).and_then(|v| v.as_uuid());
         Some(Window {
             id: thing.id,
@@ -389,6 +395,7 @@ impl Thingable for Window {
             z,
             visible,
             target,
+            active,
         })
     }
 }
@@ -403,6 +410,7 @@ impl Window {
         map.insert(canon::Y, Value::U64(self.y));
         map.insert(canon::Z, Value::I64(self.z));
         map.insert(canon::VISIBLE, Value::Bool(self.visible));
+        map.insert(canon::ACTIVE, Value::Bool(self.active));
         if let Some(target) = self.target {
             map.insert(canon::TARGET, Value::Uuid(target));
         }

@@ -132,6 +132,7 @@ pub mod canon {
     pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
     pub const COLOR: Symbol = canon(b'C', b'L', b'R');
     pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
+    pub const ACTIVE: Symbol = canon(b'A', b'C', b'T');
     pub const BITMAP: Symbol = canon(b'B', b'M', b'P');
     pub const DIRTY: Symbol = canon(b'D', b'R', b'T');
     pub const HAS_SURFACE: Symbol = canon(b'H', b'S', b'F');

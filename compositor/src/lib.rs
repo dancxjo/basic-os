@@ -24,41 +24,48 @@ mod framebuffer_backend;
 pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
 
 const FONT_HEIGHT: usize = 16;
-const TITLE_BAR_HEIGHT: usize = 22;
+const TITLE_BAR_HEIGHT: usize = 20;
 const BORDER_THICKNESS: i32 = 6;
 const RESIZE_MARGIN: i32 = BORDER_THICKNESS;
+const RESIZE_CORNER_SIZE: i32 = 8;
+const CORNER_RADIUS: i32 = 6;
 const MIN_WINDOW_WIDTH: i32 = 140;
 const MIN_WINDOW_HEIGHT: i32 = 100;
 const CLOSE_BUTTON_SIZE: i32 = 12;
 const CLOSE_BUTTON_PADDING: i32 = 6;
 
-// Sky / accent blues
-const _SKY_BLUE: Rgba = Rgba::new(0xff, 0x57, 0xA8, 0xFF);
-const NAVY_LINE: Rgba = Rgba::new(0xff, 0x28, 0x42, 0x5F);
+#[derive(Clone, Copy)]
+pub struct Theme {
+    pub frame_outer: Rgba,
+    pub frame_hilight: Rgba,
+    pub frame_shadow: Rgba,
+    pub title_active: Rgba,
+    pub title_inactive: Rgba,
+    pub title_text_active: Rgba,
+    pub title_text_inactive: Rgba,
+    pub client_bg: Rgba,
+}
 
-// Window frames & titlebar
-const FRAME_LIGHT: Rgba = Rgba::new(0xff, 0xE9, 0xF0, 0xFF);
-const FRAME_MEDIUM: Rgba = Rgba::new(0xff, 0xC1, 0xD6, 0xFF);
-const FRAME_SHADOW: Rgba = Rgba::new(0xff, 0x7C, 0x9B, 0xCB);
-const FRAME_HILIGHT: Rgba = Rgba::new(0xff, 0xFF, 0xFF, 0xFF);
-
-// Client areas
-const PAPER_BG: Rgba = Rgba::new(0xff, 0xFD, 0xFB, 0xF7);
+const THEME: Theme = Theme {
+    frame_outer: Rgba::new(0xff, 0x28, 0x42, 0x5F),
+    frame_hilight: Rgba::new(0xff, 0xFF, 0xFF, 0xFF),
+    frame_shadow: Rgba::new(0xff, 0x7C, 0x9B, 0xCB),
+    title_active: Rgba::new(0xff, 0xC1, 0xD6, 0xFF),
+    title_inactive: Rgba::new(0xff, 0xE9, 0xF0, 0xFF),
+    title_text_active: Rgba::new(0xff, 0x28, 0x42, 0x5F),
+    title_text_inactive: Rgba::new(0xff, 0x6A, 0x7A, 0x90),
+    client_bg: Rgba::new(0xff, 0xFD, 0xFB, 0xF7),
+};
 
 // Buttons
-const BTN_FACE: Rgba = Rgba::new(0xff, 0xE0, 0xE5, 0xF7);
-const BTN_SHADOW: Rgba = Rgba::new(0xff, 0x8A, 0x9B, 0xC0);
+const BTN_FACE: Rgba = Rgba::new(0xff, 0xE5, 0xEC, 0xFB);
+const BTN_SHADOW: Rgba = Rgba::new(0xff, 0x7C, 0x9B, 0xCB);
 const BTN_HILIGHT: Rgba = Rgba::new(0xff, 0xFF, 0xFF, 0xFF);
 const BTN_CLOSE_DOT: Rgba = Rgba::new(0xff, 0xC9, 0x5C, 0x5C);
 
-const COLOR_TITLE_BAR: Rgba = FRAME_MEDIUM;
-const COLOR_TITLE: Rgba = NAVY_LINE;
-const _COLOR_WINDOW_BG: Rgba = FRAME_LIGHT;
-const _COLOR_BORDER: Rgba = NAVY_LINE;
-const COLOR_TEXT: Rgba = NAVY_LINE;
+const COLOR_TEXT: Rgba = THEME.title_text_active;
 const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
 const COLOR_CURSOR_SHADOW: Rgba = Rgba::new(0x40, 0x00, 0x00, 0x00);
-const _COLOR_SHADOW: Rgba = FRAME_SHADOW;
 const CLEAR_COLOR: Rgba = Rgba::new(0xff, 0x00, 0x00, 0x00);
 
 struct DragState {
@@ -72,6 +79,20 @@ struct ResizeEdges {
     right: bool,
     top: bool,
     bottom: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorKind {
+    Arrow,
+    Move,
+    ResizeN,
+    ResizeS,
+    ResizeE,
+    ResizeW,
+    ResizeNE,
+    ResizeNW,
+    ResizeSE,
+    ResizeSW,
 }
 
 enum DragKind {
@@ -166,23 +187,42 @@ fn hit_test_resize(
         bottom: false,
     };
 
-    if left_dist <= RESIZE_MARGIN && left_dist <= right_dist {
+    let near_left = left_dist >= 0 && left_dist <= RESIZE_MARGIN;
+    let near_right = right_dist >= 0 && right_dist <= RESIZE_MARGIN;
+    let near_top = top_dist >= 0 && top_dist <= RESIZE_MARGIN;
+    let near_bottom = bottom_dist >= 0 && bottom_dist <= RESIZE_MARGIN;
+
+    let corner_hit = |dist_a: i32, dist_b: i32| {
+        dist_a >= 0 && dist_b >= 0 && dist_a <= RESIZE_CORNER_SIZE && dist_b <= RESIZE_CORNER_SIZE
+    };
+
+    if near_left && corner_hit(left_dist, top_dist) {
         edges.left = true;
-    } else if right_dist <= RESIZE_MARGIN {
-        edges.right = true;
-    }
-
-    if top_dist <= RESIZE_MARGIN && top_dist <= bottom_dist {
         edges.top = true;
-    } else if bottom_dist <= RESIZE_MARGIN {
+    } else if near_right && corner_hit(right_dist, top_dist) {
+        edges.right = true;
+        edges.top = true;
+    } else if near_left && corner_hit(left_dist, bottom_dist) {
+        edges.left = true;
         edges.bottom = true;
+    } else if near_right && corner_hit(right_dist, bottom_dist) {
+        edges.right = true;
+        edges.bottom = true;
+    } else {
+        if near_left {
+            edges.left = true;
+        } else if near_right {
+            edges.right = true;
+        }
+
+        if near_top {
+            edges.top = true;
+        } else if near_bottom {
+            edges.bottom = true;
+        }
     }
 
-    if edges.left || edges.right || edges.top || edges.bottom {
-        Some(edges)
-    } else {
-        None
-    }
+    (edges.left || edges.right || edges.top || edges.bottom).then_some(edges)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,9 +294,8 @@ pub enum SceneItem {
     },
     DrawCursor {
         origin: (i32, i32),
-        primary: Rgba,
-        shadow: Rgba,
-        pressed: bool,
+        sprite: Arc<Bitmap>,
+        hotspot: (i32, i32),
     },
 }
 
@@ -350,11 +389,40 @@ struct WindowSurface {
     bitmap: Option<Arc<Bitmap>>,
 }
 
+#[derive(Clone)]
+struct CursorIcon {
+    bitmap: Arc<Bitmap>,
+    hotspot: (i32, i32),
+}
+
+struct CursorSprites {
+    arrow: CursorIcon,
+    move_icon: CursorIcon,
+    resize_ns: CursorIcon,
+    resize_ew: CursorIcon,
+    resize_ne_sw: CursorIcon,
+    resize_nw_se: CursorIcon,
+}
+
+impl CursorSprites {
+    fn for_kind(&self, kind: CursorKind) -> &CursorIcon {
+        match kind {
+            CursorKind::Arrow => &self.arrow,
+            CursorKind::Move => &self.move_icon,
+            CursorKind::ResizeN | CursorKind::ResizeS => &self.resize_ns,
+            CursorKind::ResizeE | CursorKind::ResizeW => &self.resize_ew,
+            CursorKind::ResizeNE | CursorKind::ResizeSW => &self.resize_ne_sw,
+            CursorKind::ResizeNW | CursorKind::ResizeSE => &self.resize_nw_se,
+        }
+    }
+}
+
 struct CursorState {
     x: i32,
     y: i32,
     buttons: u8,
     visible: bool,
+    kind: CursorKind,
 }
 
 impl CursorState {
@@ -364,6 +432,7 @@ impl CursorState {
             y: (height / 2) as i32,
             buttons: 0,
             visible: true,
+            kind: CursorKind::Arrow,
         }
     }
 
@@ -391,6 +460,10 @@ impl CursorState {
             self.visible = vis;
         }
     }
+
+    fn set_kind(&mut self, kind: CursorKind) {
+        self.kind = kind;
+    }
 }
 
 pub struct Compositor<F, R> {
@@ -407,6 +480,9 @@ pub struct Compositor<F, R> {
     fb_id: Option<Uuid>,
     fb_dirty: bool,
     cursor: CursorState,
+    cursor_sprites: CursorSprites,
+    active_window: Option<Uuid>,
+    theme: Theme,
     background: Arc<Bitmap>,
     drag_state: Option<DragState>,
 }
@@ -420,6 +496,8 @@ where
         let geo = fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
         let background = load_background();
+        let theme = THEME;
+        let cursor_sprites = build_cursor_sprites();
 
         Self {
             frame_no: 0,
@@ -435,6 +513,9 @@ where
             fb_id: None,
             fb_dirty: false,
             cursor: CursorState::new(width, height),
+            cursor_sprites,
+            active_window: None,
+            theme,
             background,
             drag_state: None,
         }
@@ -562,6 +643,9 @@ where
             return;
         }
 
+        self.ensure_active_window();
+        self.update_cursor_kind();
+
         let mut scene = Scene::new(width as u32, height as u32);
         scene.push(SceneItem::Clear { color: CLEAR_COLOR });
         self.draw_background(&mut scene, width, height);
@@ -593,19 +677,18 @@ where
     }
 
     fn find_window_at(&self, x: i32, y: i32) -> Option<(Uuid, i32, i32)> {
-        for win_id in self.window_order.iter().rev() {
-            if let Some(surface) = self.windows.get(win_id) {
-                if !surface.window.visible {
-                    continue;
-                }
-                let wx = surface.window.x as i32;
-                let wy = surface.window.y as i32;
-                let w = surface.window.width as i32;
-                let h = surface.window.height as i32;
+        for win_id in self.ordered_window_ids().into_iter().rev() {
+            let surface = self.windows.get(&win_id)?;
+            if !surface.window.visible {
+                continue;
+            }
+            let wx = surface.window.x as i32;
+            let wy = surface.window.y as i32;
+            let w = surface.window.width as i32;
+            let h = surface.window.height as i32;
 
-                if x >= wx && x < wx + w && y >= wy && y < wy + h {
-                    return Some((*win_id, wx, wy));
-                }
+            if x >= wx && x < wx + w && y >= wy && y < wy + h {
+                return Some((win_id, wx, wy));
             }
         }
         None
@@ -645,6 +728,41 @@ where
         self.bump_window(window_id);
     }
 
+    fn ordered_window_ids(&self) -> Vec<Uuid> {
+        let mut ordered: Vec<Uuid> = self
+            .windows
+            .iter()
+            .filter_map(|(id, surface)| surface.window.visible.then_some(*id))
+            .collect();
+
+        ordered.sort_by(|a, b| {
+            use core::cmp::Ordering;
+            let a_surface = self
+                .windows
+                .get(a)
+                .expect("ordered window missing from compositor state");
+            let b_surface = self
+                .windows
+                .get(b)
+                .expect("ordered window missing from compositor state");
+
+            let z_cmp = a_surface.window.z.cmp(&b_surface.window.z);
+            if z_cmp != Ordering::Equal {
+                return z_cmp;
+            }
+
+            let idx = |id: &Uuid| {
+                self.window_order
+                    .iter()
+                    .position(|w| w == id)
+                    .unwrap_or(usize::MAX)
+            };
+            idx(a).cmp(&idx(b))
+        });
+
+        ordered
+    }
+
     fn ingest_input_event(&mut self, thing: &userland::GraphThing) {
         if let Some(kind) = thing.fields.get(&canon::KIND).and_then(|v| v.as_symbol()) {
             if kind == canon::MOVE {
@@ -666,170 +784,310 @@ where
 
                 let geo = self.fb_device.geometry();
                 let (width, height) = (geo.width as usize, geo.height as usize);
+                let prev_buttons = self.cursor.buttons;
                 self.cursor.update(dx, dy, buttons as u8, width, height);
 
-                // Focus follows mouse
-                if self.drag_state.is_none() {
-                    if let Some((win_id, _, _)) = self.find_window_at(self.cursor.x, self.cursor.y)
-                    {
-                        if self.window_order.last() != Some(&win_id) {
-                            self.bump_window(win_id);
-                        }
-                    }
+                let left_down = (buttons & 1) != 0;
+                let left_was_down = (prev_buttons & 1) != 0;
+                let left_pressed = left_down && !left_was_down;
+                let left_released = !left_down && left_was_down;
+
+                if left_pressed {
+                    self.on_pointer_down();
                 }
 
-                let left_down = (buttons & 1) != 0;
                 if left_down {
-                    if let Some(drag) = &self.drag_state {
-                        match &drag.kind {
-                            DragKind::Move { offset_x, offset_y } => {
-                                let new_x = max(0, self.cursor.x - offset_x);
-                                let new_y = max(0, self.cursor.y - offset_y);
-
-                                let mut props = BTreeMap::new();
-                                props.insert(canon::X, Value::U64(new_x as u64));
-                                props.insert(canon::Y, Value::U64(new_y as u64));
-
-                                let req = AbiRequest::PropsSet {
-                                    request: GraphPropsRequest {
-                                        node: drag.window_id,
-                                        props,
-                                    },
-                                };
-                                let _ = userland::runtime().call(req);
-                            }
-                            DragKind::Resize {
-                                edges,
-                                start_cursor_x,
-                                start_cursor_y,
-                                start_x,
-                                start_y,
-                                start_w,
-                                start_h,
-                            } => {
-                                let dx = self.cursor.x - start_cursor_x;
-                                let dy = self.cursor.y - start_cursor_y;
-
-                                let mut new_x = *start_x;
-                                let mut new_y = *start_y;
-                                let mut new_w = *start_w;
-                                let mut new_h = *start_h;
-
-                                if edges.left {
-                                    let proposed_w = start_w - dx;
-                                    let clamped_w = max(MIN_WINDOW_WIDTH, proposed_w);
-                                    let delta = start_w - clamped_w;
-                                    new_x = start_x + delta;
-                                    new_w = clamped_w;
-                                } else if edges.right {
-                                    new_w = max(MIN_WINDOW_WIDTH, start_w + dx);
-                                }
-
-                                if edges.top {
-                                    let proposed_h = start_h - dy;
-                                    let clamped_h = max(MIN_WINDOW_HEIGHT, proposed_h);
-                                    let delta = start_h - clamped_h;
-                                    new_y = start_y + delta;
-                                    new_h = clamped_h;
-                                } else if edges.bottom {
-                                    new_h = max(MIN_WINDOW_HEIGHT, start_h + dy);
-                                }
-
-                                if new_x < 0 {
-                                    let overshoot = -new_x;
-                                    new_x = 0;
-                                    new_w = max(new_w + overshoot, MIN_WINDOW_WIDTH);
-                                }
-                                if new_y < 0 {
-                                    let overshoot = -new_y;
-                                    new_y = 0;
-                                    new_h = max(new_h + overshoot, MIN_WINDOW_HEIGHT);
-                                }
-
-                                let mut props = BTreeMap::new();
-                                props.insert(canon::X, Value::U64(new_x as u64));
-                                props.insert(canon::Y, Value::U64(new_y as u64));
-                                props.insert(canon::WIDTH, Value::U64(new_w as u64));
-                                props.insert(canon::HEIGHT, Value::U64(new_h as u64));
-
-                                let req = AbiRequest::PropsSet {
-                                    request: GraphPropsRequest {
-                                        node: drag.window_id,
-                                        props,
-                                    },
-                                };
-                                let _ = userland::runtime().call(req);
-                            }
-                        }
-                    } else if let Some((win_id, win_x, win_y)) =
-                        self.find_window_at(self.cursor.x, self.cursor.y)
-                    {
-                        let Some(surface) = self.windows.get(&win_id) else {
-                            return;
-                        };
-                        let win_width = surface.window.width as i32;
-                        let win_height = surface.window.height as i32;
-
-                        let layout = compute_window_layout(win_x, win_y, win_width, win_height);
-
-                        if let Some(layout) = &layout {
-                            let close_rect = close_button_rect(layout);
-                            if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
-                                println!("Close button clicked for window {}", win_id);
-                                let mut props = BTreeMap::new();
-                                props.insert(canon::VISIBLE, Value::Bool(false));
-                                let req = AbiRequest::PropsSet {
-                                    request: GraphPropsRequest {
-                                        node: win_id,
-                                        props,
-                                    },
-                                };
-                                let _ = userland::runtime().call(req);
-                                return;
-                            }
-                        }
-
-                        if let Some(edges) = hit_test_resize(
-                            win_x,
-                            win_y,
-                            win_width,
-                            win_height,
-                            self.cursor.x,
-                            self.cursor.y,
-                        ) {
-                            self.drag_state = Some(DragState {
-                                window_id: win_id,
-                                kind: DragKind::Resize {
-                                    edges,
-                                    start_cursor_x: self.cursor.x,
-                                    start_cursor_y: self.cursor.y,
-                                    start_x: win_x,
-                                    start_y: win_y,
-                                    start_w: win_width,
-                                    start_h: win_height,
-                                },
-                            });
-                            self.bump_window(win_id);
-                        } else if let Some(layout) = layout {
-                            if self.cursor.y >= layout.title_y
-                                && self.cursor.y < layout.title_y + layout.title_h
-                            {
-                                self.drag_state = Some(DragState {
-                                    window_id: win_id,
-                                    kind: DragKind::Move {
-                                        offset_x: self.cursor.x - win_x,
-                                        offset_y: self.cursor.y - win_y,
-                                    },
-                                });
-                                self.bump_window(win_id);
-                            }
-                        }
-                    }
+                    self.continue_drag();
+                } else if left_released {
+                    self.drag_state = None;
                 } else {
                     self.drag_state = None;
                 }
+
+                self.update_cursor_kind();
             }
         }
+    }
+
+    fn on_pointer_down(&mut self) {
+        if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
+            self.set_active_window(Some(win_id));
+
+            let Some(surface) = self.windows.get(&win_id) else {
+                return;
+            };
+            let win_width = surface.window.width as i32;
+            let win_height = surface.window.height as i32;
+            let layout = compute_window_layout(win_x, win_y, win_width, win_height);
+
+            if let Some(layout) = &layout {
+                let close_rect = close_button_rect(layout);
+                if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
+                    println!("Close button clicked for window {}", win_id);
+                    let mut props = BTreeMap::new();
+                    props.insert(canon::VISIBLE, Value::Bool(false));
+                    self.update_window_props(win_id, props);
+                    return;
+                }
+            }
+
+            if let Some(edges) = hit_test_resize(
+                win_x,
+                win_y,
+                win_width,
+                win_height,
+                self.cursor.x,
+                self.cursor.y,
+            ) {
+                self.drag_state = Some(DragState {
+                    window_id: win_id,
+                    kind: DragKind::Resize {
+                        edges,
+                        start_cursor_x: self.cursor.x,
+                        start_cursor_y: self.cursor.y,
+                        start_x: win_x,
+                        start_y: win_y,
+                        start_w: win_width,
+                        start_h: win_height,
+                    },
+                });
+                return;
+            }
+
+            if let Some(layout) = layout {
+                if self.cursor.y >= layout.title_y
+                    && self.cursor.y < layout.title_y + layout.title_h
+                {
+                    self.drag_state = Some(DragState {
+                        window_id: win_id,
+                        kind: DragKind::Move {
+                            offset_x: self.cursor.x - win_x,
+                            offset_y: self.cursor.y - win_y,
+                        },
+                    });
+                }
+            }
+        } else {
+            self.set_active_window(None);
+        }
+    }
+
+    fn continue_drag(&mut self) {
+        let Some(drag) = &self.drag_state else {
+            return;
+        };
+
+        match &drag.kind {
+            DragKind::Move { offset_x, offset_y } => {
+                let new_x = max(0, self.cursor.x - offset_x);
+                let new_y = max(0, self.cursor.y - offset_y);
+
+                if let Some(entry) = self.windows.get_mut(&drag.window_id) {
+                    entry.window.x = new_x as u64;
+                    entry.window.y = new_y as u64;
+                }
+
+                let mut props = BTreeMap::new();
+                props.insert(canon::X, Value::U64(new_x as u64));
+                props.insert(canon::Y, Value::U64(new_y as u64));
+
+                self.update_window_props(drag.window_id, props);
+            }
+            DragKind::Resize {
+                edges,
+                start_cursor_x,
+                start_cursor_y,
+                start_x,
+                start_y,
+                start_w,
+                start_h,
+            } => {
+                let dx = self.cursor.x - start_cursor_x;
+                let dy = self.cursor.y - start_cursor_y;
+
+                let mut new_x = *start_x;
+                let mut new_y = *start_y;
+                let mut new_w = *start_w;
+                let mut new_h = *start_h;
+
+                if edges.left {
+                    let proposed_w = start_w - dx;
+                    let clamped_w = max(MIN_WINDOW_WIDTH, proposed_w);
+                    let delta = start_w - clamped_w;
+                    new_x = start_x + delta;
+                    new_w = clamped_w;
+                } else if edges.right {
+                    new_w = max(MIN_WINDOW_WIDTH, start_w + dx);
+                }
+
+                if edges.top {
+                    let proposed_h = start_h - dy;
+                    let clamped_h = max(MIN_WINDOW_HEIGHT, proposed_h);
+                    let delta = start_h - clamped_h;
+                    new_y = start_y + delta;
+                    new_h = clamped_h;
+                } else if edges.bottom {
+                    new_h = max(MIN_WINDOW_HEIGHT, start_h + dy);
+                }
+
+                if new_x < 0 {
+                    let overshoot = -new_x;
+                    new_x = 0;
+                    new_w = max(new_w + overshoot, MIN_WINDOW_WIDTH);
+                }
+                if new_y < 0 {
+                    let overshoot = -new_y;
+                    new_y = 0;
+                    new_h = max(new_h + overshoot, MIN_WINDOW_HEIGHT);
+                }
+
+                if let Some(entry) = self.windows.get_mut(&drag.window_id) {
+                    entry.window.x = new_x as u64;
+                    entry.window.y = new_y as u64;
+                    entry.window.width = new_w as u64;
+                    entry.window.height = new_h as u64;
+                }
+
+                let mut props = BTreeMap::new();
+                props.insert(canon::X, Value::U64(new_x as u64));
+                props.insert(canon::Y, Value::U64(new_y as u64));
+                props.insert(canon::WIDTH, Value::U64(new_w as u64));
+                props.insert(canon::HEIGHT, Value::U64(new_h as u64));
+
+                self.update_window_props(drag.window_id, props);
+            }
+        }
+    }
+
+    fn max_window_z(&self) -> i64 {
+        self.windows.values().map(|w| w.window.z).max().unwrap_or(0)
+    }
+
+    fn update_window_props(&self, window_id: Uuid, props: BTreeMap<canon::Symbol, Value>) {
+        if props.is_empty() {
+            return;
+        }
+        let req = AbiRequest::PropsSet {
+            request: GraphPropsRequest {
+                node: window_id,
+                props,
+            },
+        };
+        let _ = userland::runtime().call(req);
+    }
+
+    fn set_active_window(&mut self, window_id: Option<Uuid>) {
+        if self.active_window == window_id {
+            return;
+        }
+
+        if let Some(prev) = self.active_window.take() {
+            if let Some(entry) = self.windows.get_mut(&prev) {
+                entry.window.active = false;
+            }
+            let mut props = BTreeMap::new();
+            props.insert(canon::ACTIVE, Value::Bool(false));
+            self.update_window_props(prev, props);
+        }
+
+        if let Some(id) = window_id {
+            let new_z = self.max_window_z().saturating_add(1);
+            if let Some(entry) = self.windows.get_mut(&id) {
+                entry.window.active = true;
+                entry.window.z = new_z;
+            }
+
+            let mut props = BTreeMap::new();
+            props.insert(canon::ACTIVE, Value::Bool(true));
+            props.insert(canon::Z, Value::I64(new_z));
+            self.update_window_props(id, props);
+            self.bump_window(id);
+            self.active_window = Some(id);
+        }
+    }
+
+    fn ensure_active_window(&mut self) {
+        if let Some(active) = self.active_window {
+            if let Some(surface) = self.windows.get(&active) {
+                if surface.window.visible {
+                    return;
+                }
+            }
+        }
+
+        if let Some((id, _)) = self
+            .windows
+            .iter()
+            .filter(|(_, surface)| surface.window.active && surface.window.visible)
+            .max_by_key(|(_, surface)| surface.window.z)
+        {
+            self.active_window = Some(*id);
+            return;
+        }
+
+        if let Some(id) = self.ordered_window_ids().into_iter().last() {
+            self.set_active_window(Some(id));
+        } else {
+            self.active_window = None;
+        }
+    }
+
+    fn cursor_kind_for_edges(edges: &ResizeEdges) -> CursorKind {
+        match (edges.left, edges.right, edges.top, edges.bottom) {
+            (true, false, true, false) => CursorKind::ResizeNW,
+            (false, true, true, false) => CursorKind::ResizeNE,
+            (true, false, false, true) => CursorKind::ResizeSW,
+            (false, true, false, true) => CursorKind::ResizeSE,
+            (true, false, false, false) => CursorKind::ResizeW,
+            (false, true, false, false) => CursorKind::ResizeE,
+            (false, false, true, false) => CursorKind::ResizeN,
+            (false, false, false, true) => CursorKind::ResizeS,
+            _ => CursorKind::Arrow,
+        }
+    }
+
+    fn compute_cursor_kind(&self) -> CursorKind {
+        if let Some(drag) = &self.drag_state {
+            return match &drag.kind {
+                DragKind::Move { .. } => CursorKind::Move,
+                DragKind::Resize { edges, .. } => Self::cursor_kind_for_edges(edges),
+            };
+        }
+
+        if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
+            let Some(surface) = self.windows.get(&win_id) else {
+                return CursorKind::Arrow;
+            };
+
+            let win_width = surface.window.width as i32;
+            let win_height = surface.window.height as i32;
+
+            if let Some(edges) = hit_test_resize(
+                win_x,
+                win_y,
+                win_width,
+                win_height,
+                self.cursor.x,
+                self.cursor.y,
+            ) {
+                return Self::cursor_kind_for_edges(&edges);
+            }
+
+            if let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height) {
+                if self.cursor.y >= layout.title_y
+                    && self.cursor.y < layout.title_y + layout.title_h
+                {
+                    return CursorKind::Move;
+                }
+            }
+        }
+
+        CursorKind::Arrow
+    }
+
+    fn update_cursor_kind(&mut self) {
+        let kind = self.compute_cursor_kind();
+        self.cursor.set_kind(kind);
     }
 
     fn ingest_cursor(&mut self, thing: &userland::GraphThing) {
@@ -864,6 +1122,16 @@ where
                 entry.surface_id = Some(target);
             }
         }
+        let is_active = self
+            .windows
+            .get(&window_id)
+            .map(|w| w.window.active)
+            .unwrap_or(false);
+        if is_active {
+            self.active_window = Some(window_id);
+        } else if self.active_window == Some(window_id) {
+            self.active_window = None;
+        }
         self.bump_window(window_id);
     }
 
@@ -884,38 +1152,7 @@ where
     }
 
     fn draw_windows(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
-        let mut ordered: Vec<Uuid> = self
-            .windows
-            .iter()
-            .filter_map(|(id, surface)| surface.window.visible.then_some(*id))
-            .collect();
-
-        ordered.sort_by(|a, b| {
-            use core::cmp::Ordering;
-            let a_surface = self
-                .windows
-                .get(a)
-                .expect("ordered window missing from compositor state");
-            let b_surface = self
-                .windows
-                .get(b)
-                .expect("ordered window missing from compositor state");
-
-            let z_cmp = a_surface.window.z.cmp(&b_surface.window.z);
-            if z_cmp != Ordering::Equal {
-                return z_cmp;
-            }
-
-            let idx = |id: &Uuid| {
-                self.window_order
-                    .iter()
-                    .position(|w| w == id)
-                    .unwrap_or(usize::MAX)
-            };
-            idx(a).cmp(&idx(b))
-        });
-
-        for id in ordered {
+        for id in self.ordered_window_ids() {
             if let Some(surface) = self.windows.get(&id).cloned() {
                 self.draw_window(scene, &surface, fb_width, fb_height);
             }
@@ -937,6 +1174,23 @@ where
 
         let x = min(surface.window.x as usize, fb_width);
         let y = min(surface.window.y as usize, fb_height);
+        let is_active = surface.window.active || self.active_window == Some(surface.window.id);
+
+        let title_color = if is_active {
+            self.theme.title_active
+        } else {
+            self.theme.title_inactive
+        };
+        let title_text = if is_active {
+            self.theme.title_text_active
+        } else {
+            self.theme.title_text_inactive
+        };
+        let frame_fill = if is_active {
+            self.theme.title_active
+        } else {
+            self.theme.title_inactive
+        };
 
         // --- Shadow ---
         // Windows 2000-style offset with soft feather
@@ -977,17 +1231,17 @@ where
         // 1. Outer Border
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
-            color: NAVY_LINE,
+            color: self.theme.frame_outer,
         });
 
         // 2. Bevel lines to make the frame pop
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32 + 1, y as i32 + 1, w.saturating_sub(2) as u32, 1),
-            color: FRAME_HILIGHT,
+            color: self.theme.frame_hilight,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32 + 1, y as i32 + 1, 1, h.saturating_sub(2) as u32),
-            color: FRAME_HILIGHT,
+            color: self.theme.frame_hilight,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -996,7 +1250,7 @@ where
                 1,
                 h.saturating_sub(2) as u32,
             ),
-            color: FRAME_SHADOW,
+            color: self.theme.frame_shadow,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -1005,10 +1259,10 @@ where
                 w.saturating_sub(2) as u32,
                 1,
             ),
-            color: FRAME_SHADOW,
+            color: self.theme.frame_shadow,
         });
 
-        // 3. Inner Frame (Background)
+        // 3. Inner Frame (Background / focus ring)
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 x as i32 + BORDER_THICKNESS,
@@ -1016,7 +1270,7 @@ where
                 w.saturating_sub((BORDER_THICKNESS * 2) as usize) as u32,
                 h.saturating_sub((BORDER_THICKNESS * 2) as usize) as u32,
             ),
-            color: FRAME_LIGHT,
+            color: frame_fill,
         });
 
         // 4. Titlebar
@@ -1027,11 +1281,11 @@ where
                 layout.title_w as u32,
                 layout.title_h as u32,
             ),
-            color: FRAME_MEDIUM,
+            color: title_color,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(layout.title_x, layout.title_y, layout.title_w as u32, 1),
-            color: FRAME_HILIGHT,
+            color: self.theme.frame_hilight,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -1040,7 +1294,7 @@ where
                 layout.title_w as u32,
                 1,
             ),
-            color: FRAME_SHADOW,
+            color: self.theme.frame_shadow,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -1049,7 +1303,7 @@ where
                 1,
                 layout.title_h as u32,
             ),
-            color: FRAME_SHADOW,
+            color: self.theme.frame_shadow,
         });
 
         // 6. Control Buttons
@@ -1076,6 +1330,24 @@ where
             rect: Rect::new(btn_x + 1, btn_y + 1, 1, btn_h.saturating_sub(2) as u32),
             color: BTN_HILIGHT,
         });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                btn_x + btn_w - 2,
+                btn_y + 1,
+                1,
+                btn_h.saturating_sub(2) as u32,
+            ),
+            color: self.theme.frame_shadow,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                btn_x + 1,
+                btn_y + btn_h - 2,
+                btn_w.saturating_sub(2) as u32,
+                1,
+            ),
+            color: self.theme.frame_shadow,
+        });
 
         // Close button dot
         scene.push(SceneItem::FillRect {
@@ -1084,11 +1356,13 @@ where
         });
 
         // 5. Title Text
+        let title_max_w =
+            (layout.title_w - CLOSE_BUTTON_PADDING * 2 - CLOSE_BUTTON_SIZE).max(0) as u32;
         scene.push(SceneItem::DrawText {
-            origin: (layout.title_x + 8, layout.title_y + 4),
+            origin: (layout.title_x + 8, layout.title_y + 3),
             text: surface.window.title.clone(),
-            color: COLOR_TITLE,
-            max_width: Some((layout.title_w - 30) as u32),
+            color: title_text,
+            max_width: Some(title_max_w),
         });
 
         // 7. Client Area
@@ -1099,7 +1373,7 @@ where
                 layout.client_w as u32,
                 layout.client_h as u32,
             ),
-            color: PAPER_BG,
+            color: self.theme.client_bg,
         });
 
         if let Some(bmp) = &surface.bitmap {
@@ -1126,6 +1400,8 @@ where
             text: surface.text.clone(),
             color: COLOR_TEXT,
         });
+
+        self.mask_rounded_corners(scene, x as i32, y as i32, w as u32, h as u32);
     }
 
     fn draw_cursor(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
@@ -1134,17 +1410,35 @@ where
         }
         let base_x = clamp_i32(self.cursor.x, 0, fb_width.saturating_sub(1) as i32) as i32;
         let base_y = clamp_i32(self.cursor.y, 0, fb_height.saturating_sub(1) as i32) as i32;
+        let icon = self.cursor_sprites.for_kind(self.cursor.kind);
 
         scene.push(SceneItem::DrawCursor {
             origin: (base_x, base_y),
-            primary: if self.cursor.buttons & 0x1 != 0 {
-                COLOR_TITLE_BAR
-            } else {
-                COLOR_CURSOR_PRIMARY
-            },
-            shadow: COLOR_CURSOR_SHADOW,
-            pressed: self.cursor.buttons & 0x1 != 0,
+            sprite: icon.bitmap.clone(),
+            hotspot: icon.hotspot,
         });
+    }
+
+    fn mask_rounded_corners(&self, scene: &mut Scene, x: i32, y: i32, w: u32, h: u32) {
+        let r = CORNER_RADIUS as u32;
+        if r == 0 || w < r || h < r {
+            return;
+        }
+        let positions = [
+            (x, y),
+            (x + w as i32 - r as i32, y),
+            (x, y + h as i32 - r as i32),
+            (x + w as i32 - r as i32, y + h as i32 - r as i32),
+        ];
+
+        for (cx, cy) in positions {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(cx, cy, r, r),
+                image: self.background.clone(),
+                repeat: true,
+                offset: (cx, cy),
+            });
+        }
     }
 
     pub fn set_cursor(&mut self, x: i32, y: i32, buttons: u8) {
@@ -1165,11 +1459,237 @@ fn default_window(id: Uuid) -> Window {
         z: 0,
         visible: true,
         target: None,
+        active: false,
     }
 }
 
 fn clamp_i32(v: i32, min_v: i32, max_v: i32) -> i32 {
     max(min_v, min(v, max_v))
+}
+
+struct CursorMask {
+    width: usize,
+    height: usize,
+    hotspot: (i32, i32),
+    data: Vec<bool>,
+}
+
+impl CursorMask {
+    fn new(width: usize, height: usize, hotspot: (i32, i32)) -> Self {
+        Self {
+            width,
+            height,
+            hotspot,
+            data: vec![false; width * height],
+        }
+    }
+
+    fn set(&mut self, x: i32, y: i32) {
+        if x < 0 || y < 0 {
+            return;
+        }
+        let (ux, uy) = (x as usize, y as usize);
+        if ux < self.width && uy < self.height {
+            self.data[uy * self.width + ux] = true;
+        }
+    }
+
+    fn filled(&self, x: i32, y: i32) -> bool {
+        if x < 0 || y < 0 {
+            return false;
+        }
+        let (ux, uy) = (x as usize, y as usize);
+        if ux >= self.width || uy >= self.height {
+            return false;
+        }
+        self.data[uy * self.width + ux]
+    }
+}
+
+fn cursor_icon_from_mask(mask: CursorMask, fill: Rgba, outline: Rgba, shadow: Rgba) -> CursorIcon {
+    let mut pixels = vec![0u32; mask.width * mask.height];
+
+    // Shadow pass
+    for y in 0..mask.height {
+        for x in 0..mask.width {
+            if !mask.data[y * mask.width + x] {
+                continue;
+            }
+            let sx = x + 1;
+            let sy = y + 1;
+            if sx < mask.width && sy < mask.height {
+                pixels[sy * mask.width + sx] = shadow.to_u32();
+            }
+        }
+    }
+
+    // Outline + fill
+    for y in 0..mask.height {
+        for x in 0..mask.width {
+            if !mask.data[y * mask.width + x] {
+                continue;
+            }
+            let neighbors = [
+                (x as i32 - 1, y as i32),
+                (x as i32 + 1, y as i32),
+                (x as i32, y as i32 - 1),
+                (x as i32, y as i32 + 1),
+            ];
+            let is_edge = neighbors.iter().any(|(nx, ny)| !mask.filled(*nx, *ny));
+            let color = if is_edge { outline } else { fill };
+            pixels[y * mask.width + x] = color.to_u32();
+        }
+    }
+
+    CursorIcon {
+        bitmap: Arc::new(Bitmap::new(mask.width, mask.height, pixels)),
+        hotspot: mask.hotspot,
+    }
+}
+
+fn make_arrow_mask() -> CursorMask {
+    let width = 32;
+    let height = 32;
+    let mut mask = CursorMask::new(width, height, (0, 0));
+
+    // Broad triangle head
+    for y in 0..22 {
+        let max_x = core::cmp::min(2 * y + 4, width as i32 - 1);
+        for x in 0..=max_x {
+            mask.set(x, y);
+        }
+    }
+
+    // Fatter stem
+    for y in 14..height as i32 {
+        for x in 12..18 {
+            mask.set(x, y);
+        }
+    }
+
+    mask
+}
+
+fn make_move_mask() -> CursorMask {
+    let mut mask = CursorMask::new(28, 28, (14, 14));
+    let c = 14;
+    for y in 6..=22 {
+        for x in c - 3..=c + 3 {
+            mask.set(x, y);
+        }
+    }
+    for x in 6..=22 {
+        for y in c - 3..=c + 3 {
+            mask.set(x, y);
+        }
+    }
+    for i in 0..6 {
+        for dx in -i..=i {
+            mask.set(c + dx, 5 - i);
+            mask.set(c + dx, 22 + i);
+            mask.set(5 - i, c + dx);
+            mask.set(22 + i, c + dx);
+        }
+    }
+    mask
+}
+
+fn make_resize_ns_mask() -> CursorMask {
+    let mut mask = CursorMask::new(28, 28, (14, 14));
+    let c = 14;
+    for y in 7..=21 {
+        for x in c - 3..=c + 3 {
+            mask.set(x, y);
+        }
+    }
+    for i in 0..6 {
+        for dx in -i..=i {
+            mask.set(c + dx, 6 - i);
+            mask.set(c + dx, 21 + i);
+        }
+    }
+    mask
+}
+
+fn make_resize_ew_mask() -> CursorMask {
+    let mut mask = CursorMask::new(28, 28, (14, 14));
+    let c = 14;
+    for x in 7..=21 {
+        for y in c - 3..=c + 3 {
+            mask.set(x, y);
+        }
+    }
+    for i in 0..6 {
+        for dy in -i..=i {
+            mask.set(6 - i, c + dy);
+            mask.set(21 + i, c + dy);
+        }
+    }
+    mask
+}
+
+fn make_resize_nw_se_mask() -> CursorMask {
+    let mut mask = CursorMask::new(30, 30, (15, 15));
+    let c = 15;
+    for offset in -8..=8 {
+        let x = c + offset;
+        let y = c + offset;
+        for t in -2..=2 {
+            mask.set(x + t, y);
+        }
+    }
+    for i in 0..6 {
+        for dx in 0..=i {
+            mask.set(c - 9 - i, c - 2 + dx);
+            mask.set(c - 2 + dx, c - 9 - i);
+            mask.set(c + 9 + i, c + 2 - dx);
+            mask.set(c + 2 - dx, c + 9 + i);
+        }
+    }
+    mask
+}
+
+fn make_resize_ne_sw_mask() -> CursorMask {
+    let mut mask = CursorMask::new(30, 30, (15, 15));
+    let c = 15;
+    for offset in -8..=8 {
+        let x = c + offset;
+        let y = c - offset;
+        for t in -2..=2 {
+            mask.set(x + t, y);
+        }
+    }
+    for i in 0..6 {
+        for dx in 0..=i {
+            mask.set(c + 9 + i, c - 2 - dx);
+            mask.set(c + 2 + dx, c - 9 - i);
+            mask.set(c - 9 - i, c + 2 + dx);
+            mask.set(c - 2 - dx, c + 9 + i);
+        }
+    }
+    mask
+}
+
+fn build_cursor_sprites() -> CursorSprites {
+    let outline = THEME.frame_outer;
+    let fill = COLOR_CURSOR_PRIMARY;
+    let shadow = COLOR_CURSOR_SHADOW;
+
+    let arrow = cursor_icon_from_mask(make_arrow_mask(), fill, outline, shadow);
+    let move_icon = cursor_icon_from_mask(make_move_mask(), fill, outline, shadow);
+    let resize_ns = cursor_icon_from_mask(make_resize_ns_mask(), fill, outline, shadow);
+    let resize_ew = cursor_icon_from_mask(make_resize_ew_mask(), fill, outline, shadow);
+    let resize_nw_se = cursor_icon_from_mask(make_resize_nw_se_mask(), fill, outline, shadow);
+    let resize_ne_sw = cursor_icon_from_mask(make_resize_ne_sw_mask(), fill, outline, shadow);
+
+    CursorSprites {
+        arrow,
+        move_icon,
+        resize_ns,
+        resize_ew,
+        resize_ne_sw,
+        resize_nw_se,
+    }
 }
 
 fn sanitize_fb_info(info: FramebufferGeometry) -> FramebufferGeometry {
@@ -1287,6 +1807,7 @@ mod tests {
             rect: Rect::new(0, 0, 10, 10),
             image: bitmap,
             repeat: true,
+            offset: (0, 0),
         });
         assert_eq!(scene.items().len(), 2);
     }
@@ -1320,7 +1841,7 @@ mod tests {
     #[cfg(feature = "host")]
     #[test]
     fn color_layout_matches_old_values() {
-        assert_eq!(COLOR_TITLE_BAR.to_u32(), 0x003c4555);
+        assert_eq!(THEME.title_active.to_u32(), 0xffc1d6ff);
         assert_eq!(CLEAR_COLOR.to_u32(), 0xff000000);
     }
 }

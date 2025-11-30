@@ -2,6 +2,7 @@ use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
+use alloc::vec;
 use userland::prelude::*;
 use userland::{canon, graph, AppEvent, Symbol, ThingFilter};
 use uuid::Uuid;
@@ -172,41 +173,56 @@ impl DemoApp {
 }
 
 fn load_and_process_bitmap() -> alloc::vec::Vec<u8> {
-    let mut bmp = include_bytes!("../../../background.bmp").to_vec();
+    const TILE: u32 = 16;
+    const HEADER_SIZE: usize = 54;
+    let row_stride = (TILE as usize * 3 + 3) & !3;
+    let image_size = row_stride * TILE as usize;
+    let file_size = HEADER_SIZE + image_size;
 
-    // Assume 24bpp, 54 byte header.
-    let data_offset = 54;
-    let width = 64;
-    let height = 64;
-    let row_stride = (width * 3 + 3) & !3;
+    let mut bmp = vec![0u8; file_size];
 
-    // Apply desaturating gradient (white overlay)
-    // BMP is stored bottom-up (y=0 is bottom).
-    // We want top to be desaturated.
-    for y in 0..height {
-        // y=0 (bottom) -> alpha 0. y=63 (top) -> alpha ~200.
-        let alpha = (y as u32 * 200 / height as u32) as u8;
+    // BMP Header
+    bmp[0..2].copy_from_slice(b"BM");
+    bmp[2..6].copy_from_slice(&(file_size as u32).to_le_bytes());
+    bmp[10..14].copy_from_slice(&(HEADER_SIZE as u32).to_le_bytes());
+    bmp[14..18].copy_from_slice(&(40u32).to_le_bytes()); // DIB header size
+    bmp[18..22].copy_from_slice(&(TILE as i32).to_le_bytes());
+    bmp[22..26].copy_from_slice(&(TILE as i32).to_le_bytes());
+    bmp[26..28].copy_from_slice(&(1u16).to_le_bytes()); // planes
+    bmp[28..30].copy_from_slice(&(24u16).to_le_bytes()); // bpp
+    bmp[30..34].copy_from_slice(&(0u32).to_le_bytes()); // compression
+    bmp[34..38].copy_from_slice(&(image_size as u32).to_le_bytes());
 
-        for x in 0..width {
-            let offset = data_offset + y * row_stride + x * 3;
-            if offset + 2 >= bmp.len() {
-                continue;
-            }
-
-            let b = bmp[offset];
-            let g = bmp[offset + 1];
-            let r = bmp[offset + 2];
-
-            let bg_color = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
-            let overlay_color = ((alpha as u32) << 24) | 0x00FFFFFF;
-
-            let blended = userland::graphics::blend(overlay_color, bg_color);
-
-            bmp[offset] = (blended & 0xFF) as u8;
-            bmp[offset + 1] = ((blended >> 8) & 0xFF) as u8;
-            bmp[offset + 2] = ((blended >> 16) & 0xFF) as u8;
+    for y in 0..TILE as usize {
+        let dst_row = HEADER_SIZE + y * row_stride;
+        // BMP rows are bottom-up
+        let src_y = TILE as usize - 1 - y;
+        for x in 0..TILE as usize {
+            let (r, g, b) = demo_tile_color(x as u32, src_y as u32);
+            let idx = dst_row + x * 3;
+            bmp[idx] = b;
+            bmp[idx + 1] = g;
+            bmp[idx + 2] = r;
         }
     }
 
     bmp
+}
+
+fn demo_tile_color(x: u32, y: u32) -> (u8, u8, u8) {
+    const DEMO_PEACH: (u8, u8, u8) = (0xFF, 0xE4, 0xC4);
+    const DEMO_PEACH_DARK: (u8, u8, u8) = (0xF9, 0xC2, 0x9A);
+    const DEMO_LAVENDER: (u8, u8, u8) = (0xC9, 0xB8, 0xFF);
+    const DEMO_LAVENDER_D: (u8, u8, u8) = (0xA4, 0x8B, 0xE8);
+
+    let bx = (x / 4) % 2;
+    let by = (y / 4) % 2;
+
+    match (bx, by) {
+        (0, 0) => DEMO_PEACH,
+        (1, 0) => DEMO_PEACH_DARK,
+        (0, 1) => DEMO_LAVENDER,
+        (1, 1) => DEMO_LAVENDER_D,
+        _ => DEMO_PEACH,
+    }
 }

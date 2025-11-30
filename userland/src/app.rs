@@ -113,6 +113,7 @@ impl<'a> AppContext<'a> {
             z: 0,
             visible: true,
             target: None,
+            active: false,
         };
         self.create_window_with(window_fields)
     }
@@ -136,6 +137,7 @@ impl<'a> AppContext<'a> {
         let pixmap = crate::simple_uuid(pixmap_name.as_bytes());
 
         window.target = Some(pixmap);
+        window.active = false;
 
         let mut fields = window.to_fields();
         fields.insert(canon::NAME, Value::Text(title.clone()));
