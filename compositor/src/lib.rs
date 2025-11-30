@@ -23,9 +23,9 @@ mod framebuffer_backend;
 pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
 
 const FONT_HEIGHT: usize = 16;
-const TITLE_BAR_HEIGHT: usize = FONT_HEIGHT + 4;
-const BORDER_THICKNESS: usize = 2;
-const WINDOW_PADDING: usize = 6;
+const TITLE_BAR_HEIGHT: usize = 22;
+const BORDER_THICKNESS: usize = 1;
+const WINDOW_PADDING: usize = 0;
 const CURSOR_SIZE: usize = 16;
 const CURSOR_MASK: [u16; CURSOR_SIZE] = [
     0b1000000000000000,
@@ -46,14 +46,33 @@ const CURSOR_MASK: [u16; CURSOR_SIZE] = [
     0b0000000000000000,
 ];
 
-const COLOR_TITLE_BAR: Rgba = Rgba::new(0x00, 0x3c, 0x45, 0x55);
-const COLOR_TITLE: Rgba = Rgba::new(0x00, 0xf2, 0xf4, 0xf8);
-const COLOR_WINDOW_BG: Rgba = Rgba::new(0x00, 0xf8, 0xfb, 0xff);
-const COLOR_BORDER: Rgba = Rgba::new(0x00, 0x25, 0x2d, 0x3a);
-const COLOR_TEXT: Rgba = Rgba::new(0x00, 0x27, 0x2f, 0x3a);
-const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0x00, 0xff, 0xff, 0xff);
+// Sky / accent blues
+const SKY_BLUE: Rgba = Rgba::new(0xff, 0x57, 0xA8, 0xFF);
+const NAVY_LINE: Rgba = Rgba::new(0xff, 0x28, 0x42, 0x5F);
+
+// Window frames & titlebar
+const FRAME_LIGHT: Rgba = Rgba::new(0xff, 0xE9, 0xF0, 0xFF);
+const FRAME_MEDIUM: Rgba = Rgba::new(0xff, 0xC1, 0xD6, 0xFF);
+const FRAME_SHADOW: Rgba = Rgba::new(0xff, 0x7C, 0x9B, 0xCB);
+const FRAME_HILIGHT: Rgba = Rgba::new(0xff, 0xFF, 0xFF, 0xFF);
+
+// Client areas
+const PAPER_BG: Rgba = Rgba::new(0xff, 0xFD, 0xFB, 0xF7);
+
+// Buttons
+const BTN_FACE: Rgba = Rgba::new(0xff, 0xE0, 0xE5, 0xF7);
+const BTN_SHADOW: Rgba = Rgba::new(0xff, 0x8A, 0x9B, 0xC0);
+const BTN_HILIGHT: Rgba = Rgba::new(0xff, 0xFF, 0xFF, 0xFF);
+const BTN_CLOSE_DOT: Rgba = Rgba::new(0xff, 0xC9, 0x5C, 0x5C);
+
+const COLOR_TITLE_BAR: Rgba = FRAME_MEDIUM;
+const COLOR_TITLE: Rgba = NAVY_LINE;
+const COLOR_WINDOW_BG: Rgba = FRAME_LIGHT;
+const COLOR_BORDER: Rgba = NAVY_LINE;
+const COLOR_TEXT: Rgba = NAVY_LINE;
+const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
 const COLOR_CURSOR_SHADOW: Rgba = Rgba::new(0x00, 0x00, 0x00, 0x00);
-const COLOR_SHADOW: Rgba = Rgba::new(0x00, 0x0d, 0x11, 0x18);
+const COLOR_SHADOW: Rgba = FRAME_SHADOW;
 const CLEAR_COLOR: Rgba = Rgba::new(0xff, 0x00, 0x00, 0x00);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,6 +129,7 @@ pub enum SceneItem {
         rect: Rect,
         image: Arc<Bitmap>,
         repeat: bool,
+        offset: (i32, i32),
     },
     DrawText {
         origin: (i32, i32),
@@ -556,6 +576,7 @@ where
             rect: Rect::new(0, 0, width as u32, height as u32),
             image: self.background.clone(),
             repeat: true,
+            offset: (0, 0),
         });
     }
 
@@ -614,55 +635,195 @@ where
         let x = min(surface.window.x as usize, fb_width);
         let y = min(surface.window.y as usize, fb_height);
 
-        let shadow_offset = 3;
+        // Helper to draw rounded rect
+        let mut push_rounded_rect = |scene: &mut Scene, r: Rect, c: Rgba| {
+            // Middle band
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x, r.y + 6, r.width, r.height.saturating_sub(12)),
+                color: c,
+            });
+            // Top band
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + 6, r.y, r.width.saturating_sub(12), 6),
+                color: c,
+            });
+            // Bottom band
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(
+                    r.x + 6,
+                    r.y + r.height as i32 - 6,
+                    r.width.saturating_sub(12),
+                    6,
+                ),
+                color: c,
+            });
+
+            // Corners (simple 2-rect approx for 6px radius)
+            // Top-Left
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + 2, r.y + 1, 4, 1),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + 1, r.y + 2, 1, 4),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + 2, r.y + 2, 4, 4),
+                color: c,
+            });
+
+            // Top-Right
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + r.width as i32 - 6, r.y + 1, 4, 1),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + r.width as i32 - 2, r.y + 2, 1, 4),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + r.width as i32 - 6, r.y + 2, 4, 4),
+                color: c,
+            });
+
+            // Bottom-Left
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + 2, r.y + r.height as i32 - 2, 4, 1),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + 1, r.y + r.height as i32 - 6, 1, 4),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + 2, r.y + r.height as i32 - 6, 4, 4),
+                color: c,
+            });
+
+            // Bottom-Right
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + r.width as i32 - 6, r.y + r.height as i32 - 2, 4, 1),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + r.width as i32 - 2, r.y + r.height as i32 - 6, 1, 4),
+                color: c,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(r.x + r.width as i32 - 6, r.y + r.height as i32 - 6, 4, 4),
+                color: c,
+            });
+        };
+
+        // 1. Outer Border
+        push_rounded_rect(
+            scene,
+            Rect::new(x as i32, y as i32, w as u32, h as u32),
+            NAVY_LINE,
+        );
+
+        // 2. Inner Frame (Background)
+        // Inset by 1px
+        push_rounded_rect(
+            scene,
+            Rect::new(x as i32 + 1, y as i32 + 1, w as u32 - 2, h as u32 - 2),
+            FRAME_LIGHT,
+        );
+
+        // 3. 3D Ridge (Simple lines on straight edges)
+        // Top & Left: FRAME_HILIGHT
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                (x + shadow_offset) as i32,
-                (y + shadow_offset) as i32,
-                w as u32,
-                h as u32,
-            ),
-            color: COLOR_SHADOW,
+            rect: Rect::new(x as i32 + 6, y as i32 + 1, w as u32 - 12, 1),
+            color: FRAME_HILIGHT,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32 + 1, y as i32 + 6, 1, h as u32 - 12),
+            color: FRAME_HILIGHT,
+        });
+        // Bottom & Right: FRAME_SHADOW
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32 + 6, y as i32 + h as i32 - 2, w as u32 - 12, 1),
+            color: FRAME_SHADOW,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32 + w as i32 - 2, y as i32 + 6, 1, h as u32 - 12),
+            color: FRAME_SHADOW,
         });
 
+        // 4. Titlebar
+        let title_y = y + 2;
+        let title_h = TITLE_BAR_HEIGHT;
+        let title_w = w - 4;
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
-            color: COLOR_BORDER,
+            rect: Rect::new(x as i32 + 2, title_y as i32, title_w as u32, title_h as u32),
+            color: FRAME_MEDIUM,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
-                (x + BORDER_THICKNESS) as i32,
-                (y + BORDER_THICKNESS) as i32,
-                w.saturating_sub(BORDER_THICKNESS * 2) as u32,
-                h.saturating_sub(BORDER_THICKNESS * 2) as u32,
+                x as i32 + 2,
+                (title_y + title_h - 1) as i32,
+                title_w as u32,
+                1,
             ),
-            color: COLOR_WINDOW_BG,
+            color: FRAME_SHADOW,
         });
 
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                (x + BORDER_THICKNESS) as i32,
-                (y + BORDER_THICKNESS) as i32,
-                w.saturating_sub(BORDER_THICKNESS * 2) as u32,
-                TITLE_BAR_HEIGHT as u32,
-            ),
-            color: COLOR_TITLE_BAR,
-        });
+        // 6. Control Buttons
+        let btn_y = title_y + (title_h - 10) / 2;
+        let mut btn_x = x + 8;
+
+        for i in 0..3 {
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(btn_x as i32, btn_y as i32, 10, 10),
+                color: BTN_SHADOW,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 8),
+                color: BTN_FACE,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 8, 1),
+                color: BTN_HILIGHT,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(btn_x as i32 + 1, btn_y as i32 + 1, 1, 8),
+                color: BTN_HILIGHT,
+            });
+
+            if i == 0 {
+                // Close button
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(btn_x as i32 + 4, btn_y as i32 + 4, 2, 2),
+                    color: BTN_CLOSE_DOT,
+                });
+            }
+            btn_x += 14;
+        }
+
+        // 5. Title Text
         scene.push(SceneItem::DrawText {
-            origin: (
-                (x + BORDER_THICKNESS + WINDOW_PADDING) as i32,
-                (y + BORDER_THICKNESS + 2) as i32,
-            ),
+            origin: ((btn_x + 4) as i32, (title_y + 4) as i32),
             text: surface.window.title.clone(),
             color: COLOR_TITLE,
-            max_width: Some(w.saturating_sub((BORDER_THICKNESS + WINDOW_PADDING) * 2) as u32),
+            max_width: Some((w - (btn_x - x) - 8) as u32),
         });
 
-        let client_x = x + BORDER_THICKNESS + WINDOW_PADDING;
-        let client_y = y + BORDER_THICKNESS + TITLE_BAR_HEIGHT + WINDOW_PADDING;
-        let client_w = w.saturating_sub(BORDER_THICKNESS * 2 + WINDOW_PADDING * 2);
-        let client_h =
-            h.saturating_sub(TITLE_BAR_HEIGHT + BORDER_THICKNESS * 2 + WINDOW_PADDING * 2);
+        // 7. Client Area
+        let client_x = x + 2;
+        let client_y = title_y + title_h;
+        let client_w = w - 4;
+        let client_h = h - (client_y - y) - 2;
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                client_x as i32,
+                client_y as i32,
+                client_w as u32,
+                client_h as u32,
+            ),
+            color: PAPER_BG,
+        });
 
         if let Some(bmp) = &surface.bitmap {
             scene.push(SceneItem::BlitImage {
@@ -674,6 +835,7 @@ where
                 ),
                 image: bmp.clone(),
                 repeat: true,
+                offset: (0, 0),
             });
         }
 

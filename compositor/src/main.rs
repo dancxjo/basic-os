@@ -278,6 +278,114 @@ const ctx = canvas.getContext('2d');
 const ws = new WebSocket('ws://' + location.host + '/ws');
 ws.binaryType = 'arraybuffer';
 
+// Default layout uses US AltGr International key positions (set 1 scancodes).
+// This maps DOM KeyboardEvent.code strings (physical keys) to PS/2 set 1 scancodes.
+const KEYMAP_US_ALTGR_INTL = {
+    'Escape': { code: 0x01 },
+    'Digit1': { code: 0x02 },
+    'Digit2': { code: 0x03 },
+    'Digit3': { code: 0x04 },
+    'Digit4': { code: 0x05 },
+    'Digit5': { code: 0x06 },
+    'Digit6': { code: 0x07 },
+    'Digit7': { code: 0x08 },
+    'Digit8': { code: 0x09 },
+    'Digit9': { code: 0x0A },
+    'Digit0': { code: 0x0B },
+    'Minus': { code: 0x0C },
+    'Equal': { code: 0x0D },
+    'Backspace': { code: 0x0E },
+    'Tab': { code: 0x0F },
+    'KeyQ': { code: 0x10 },
+    'KeyW': { code: 0x11 },
+    'KeyE': { code: 0x12 },
+    'KeyR': { code: 0x13 },
+    'KeyT': { code: 0x14 },
+    'KeyY': { code: 0x15 },
+    'KeyU': { code: 0x16 },
+    'KeyI': { code: 0x17 },
+    'KeyO': { code: 0x18 },
+    'KeyP': { code: 0x19 },
+    'BracketLeft': { code: 0x1A },
+    'BracketRight': { code: 0x1B },
+    'Enter': { code: 0x1C },
+    'ControlLeft': { code: 0x1D },
+    'KeyA': { code: 0x1E },
+    'KeyS': { code: 0x1F },
+    'KeyD': { code: 0x20 },
+    'KeyF': { code: 0x21 },
+    'KeyG': { code: 0x22 },
+    'KeyH': { code: 0x23 },
+    'KeyJ': { code: 0x24 },
+    'KeyK': { code: 0x25 },
+    'KeyL': { code: 0x26 },
+    'Semicolon': { code: 0x27 },
+    'Quote': { code: 0x28 },
+    'Backquote': { code: 0x29 },
+    'ShiftLeft': { code: 0x2A },
+    'Backslash': { code: 0x2B },
+    'KeyZ': { code: 0x2C },
+    'KeyX': { code: 0x2D },
+    'KeyC': { code: 0x2E },
+    'KeyV': { code: 0x2F },
+    'KeyB': { code: 0x30 },
+    'KeyN': { code: 0x31 },
+    'KeyM': { code: 0x32 },
+    'Comma': { code: 0x33 },
+    'Period': { code: 0x34 },
+    'Slash': { code: 0x35 },
+    'ShiftRight': { code: 0x36 },
+    'NumpadMultiply': { code: 0x37 },
+    'AltLeft': { code: 0x38 },
+    'Space': { code: 0x39 },
+    'CapsLock': { code: 0x3A },
+    'F1': { code: 0x3B },
+    'F2': { code: 0x3C },
+    'F3': { code: 0x3D },
+    'F4': { code: 0x3E },
+    'F5': { code: 0x3F },
+    'F6': { code: 0x40 },
+    'F7': { code: 0x41 },
+    'F8': { code: 0x42 },
+    'F9': { code: 0x43 },
+    'F10': { code: 0x44 },
+    'NumLock': { code: 0x45 },
+    'ScrollLock': { code: 0x46 },
+    'Numpad7': { code: 0x47 },
+    'Numpad8': { code: 0x48 },
+    'Numpad9': { code: 0x49 },
+    'NumpadSubtract': { code: 0x4A },
+    'Numpad4': { code: 0x4B },
+    'Numpad5': { code: 0x4C },
+    'Numpad6': { code: 0x4D },
+    'NumpadAdd': { code: 0x4E },
+    'Numpad1': { code: 0x4F },
+    'Numpad2': { code: 0x50 },
+    'Numpad3': { code: 0x51 },
+    'Numpad0': { code: 0x52 },
+    'NumpadDecimal': { code: 0x53 },
+    'F11': { code: 0x57 },
+    'F12': { code: 0x58 },
+    // Extended keys (E0 prefix)
+    'ArrowUp': { code: 0x48, extended: true },
+    'ArrowDown': { code: 0x50, extended: true },
+    'ArrowLeft': { code: 0x4B, extended: true },
+    'ArrowRight': { code: 0x4D, extended: true },
+    'Home': { code: 0x47, extended: true },
+    'End': { code: 0x4F, extended: true },
+    'PageUp': { code: 0x49, extended: true },
+    'PageDown': { code: 0x51, extended: true },
+    'Insert': { code: 0x52, extended: true },
+    'Delete': { code: 0x53, extended: true },
+    'NumpadEnter': { code: 0x1C, extended: true },
+    'ControlRight': { code: 0x1D, extended: true },
+    'AltRight': { code: 0x38, extended: true }, // AltGr
+    'MetaLeft': { code: 0x5B, extended: true },
+    'MetaRight': { code: 0x5C, extended: true },
+    'ContextMenu': { code: 0x5D, extended: true },
+    'NumpadDivide': { code: 0x35, extended: true },
+};
+
 function sendResize() {
     if (ws.readyState !== WebSocket.OPEN) return;
     const w = window.innerWidth;
@@ -312,20 +420,39 @@ ws.onmessage = function(event) {
     }
 };
 
+function scancodesForEvent(e, released) {
+    const entry = KEYMAP_US_ALTGR_INTL[e.code];
+    if (!entry) return null;
+    const code = entry.code | (released ? 0x80 : 0);
+    if (entry.extended) {
+        return [0xE0, code];
+    }
+    return [code];
+}
+
+function sendKeyScancodes(scancodes) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const packet = new Uint8Array(1 + scancodes.length);
+    packet[0] = 'K'.charCodeAt(0);
+    for (let i = 0; i < scancodes.length; i++) {
+        packet[i + 1] = scancodes[i];
+    }
+    ws.send(packet);
+}
+
 window.addEventListener('keydown', e => {
-    let code = 0;
-    // Basic mapping for testing
-    if (e.code === 'KeyA') code = 0x1E;
-    if (e.code === 'KeyB') code = 0x30;
-    if (e.code === 'KeyC') code = 0x2E;
-    if (e.code === 'Space') code = 0x39;
-    if (e.code === 'Enter') code = 0x1C;
-    if (e.code === 'Backspace') code = 0x0E;
-    
-    if (code !== 0) {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send('K:' + code);
-        }
+    const scancodes = scancodesForEvent(e, false);
+    if (scancodes) {
+        sendKeyScancodes(scancodes);
+        e.preventDefault();
+    }
+});
+
+window.addEventListener('keyup', e => {
+    const scancodes = scancodesForEvent(e, true);
+    if (scancodes) {
+        sendKeyScancodes(scancodes);
+        e.preventDefault();
     }
 });
 
@@ -456,7 +583,11 @@ fn handle_input(text: &str) {
 
 #[cfg(feature = "std")]
 fn handle_binary_input(data: &[u8]) {
-    if data.len() == 3 {
+    if !data.is_empty() && data[0] == b'K' {
+        for byte in &data[1..] {
+            userland::host_runtime().push_scancode(*byte);
+        }
+    } else if data.len() == 3 {
         userland::host_runtime().push_mouse_packet(data);
     } else if data.len() == 9 && data[0] == b'R' {
         let width = u32::from_le_bytes(data[1..5].try_into().unwrap()) as usize;

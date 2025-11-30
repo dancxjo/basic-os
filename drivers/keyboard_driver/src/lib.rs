@@ -17,9 +17,12 @@ pub struct KeyboardDriver {
     device_handle: Option<u64>,
     irq_handle: Option<u64>,
     watch: WatchId,
+    layout: KeyboardLayout,
     prefix: Option<u8>,
     shift: bool,
     caps_lock: bool,
+    altgr: bool,
+    deadkey: DeadKey,
     num_lock: bool,
 }
 
@@ -42,9 +45,12 @@ impl App for KeyboardDriver {
             device_handle,
             irq_handle,
             watch,
+            layout: KeyboardLayout::UsAltGrIntl,
             prefix: None,
             shift: false,
             caps_lock: false,
+            altgr: false,
+            deadkey: DeadKey::None,
             num_lock: false,
         }
     }
@@ -105,10 +111,15 @@ impl KeyboardDriver {
     fn emit_event(&mut self, scancode: u8, extended: bool) {
         let down = scancode & 0x80 == 0;
         let code = scancode & 0x7F;
+
+        if down && !extended && self.start_dead_key(code) {
+            return;
+        }
+
         let key_code = self.decode_key(code, extended);
         self.update_state(key_code, down);
 
-        let (key_symbol, key_text) = self.describe_key(key_code, down);
+        let (key_symbol, key_text) = self.describe_key(key_code, code, down);
 
         let mut fields = BTreeMap::new();
         fields.insert(canon::DEVICE_ID, Value::Uuid(self.device_id));
@@ -388,6 +399,9 @@ impl KeyboardDriver {
             KeyCode::ShiftLeft | KeyCode::ShiftRight => {
                 self.shift = down;
             }
+            KeyCode::AltRight => {
+                self.altgr = down;
+            }
             KeyCode::CapsLock if down => {
                 self.caps_lock = !self.caps_lock;
             }
@@ -398,8 +412,13 @@ impl KeyboardDriver {
         }
     }
 
-    fn describe_key(&self, key_code: KeyCode, down: bool) -> (Option<Symbol>, String) {
-        if let Some(ch) = self.key_char(key_code) {
+    fn describe_key(
+        &mut self,
+        key_code: KeyCode,
+        scancode: u8,
+        down: bool,
+    ) -> (Option<Symbol>, String) {
+        if let Some(ch) = self.key_char(key_code, scancode) {
             let symbol = canon::from_char(ch);
             let text = if ch == ' ' {
                 "Space".to_string()
@@ -482,20 +501,35 @@ impl KeyboardDriver {
         }
     }
 
-    fn key_char(&self, key_code: KeyCode) -> Option<char> {
+    fn key_char(&mut self, key_code: KeyCode, scancode: u8) -> Option<char> {
+        match self.layout {
+            KeyboardLayout::UsAltGrIntl => self.key_char_us_altgr_intl(key_code, scancode),
+        }
+    }
+
+    fn key_char_us_altgr_intl(&mut self, key_code: KeyCode, scancode: u8) -> Option<char> {
         match key_code {
-            KeyCode::Character { base, shifted } => {
-                if base.is_ascii_alphabetic() {
-                    if self.shift ^ self.caps_lock {
-                        Some(base.to_ascii_uppercase())
+            KeyCode::Character { .. } => {
+                let uppercase = self.shift ^ self.caps_lock;
+
+                let ch = if let Some(letter) = letter_from_scancode(scancode) {
+                    if uppercase {
+                        letter.to_ascii_uppercase()
                     } else {
-                        Some(base)
+                        letter
                     }
-                } else if self.shift {
-                    Some(shifted.unwrap_or(base))
+                } else if let Some(digit) = digit_from_scancode(scancode, self.shift) {
+                    digit
                 } else {
-                    Some(base)
+                    symbol_from_scancode(scancode, self.shift, self.altgr)?
+                };
+
+                let dead = self.deadkey;
+                self.deadkey = DeadKey::None;
+                if let Some(composed) = apply_dead_key(dead, ch) {
+                    return Some(composed);
                 }
+                Some(ch)
             }
             KeyCode::Keypad(d) if self.num_lock => Some((b'0' + d) as char),
             KeyCode::KeypadDecimal if self.num_lock => Some('.'),
@@ -505,6 +539,32 @@ impl KeyboardDriver {
             KeyCode::KeypadDivide => Some('/'),
             KeyCode::KeypadEnter => None,
             _ => None,
+        }
+    }
+
+    fn start_dead_key(&mut self, scancode: u8) -> bool {
+        match scancode {
+            0x28 => {
+                self.deadkey = DeadKey::Acute;
+                true
+            }
+            0x29 => {
+                self.deadkey = if self.shift {
+                    DeadKey::Tilde
+                } else {
+                    DeadKey::Grave
+                };
+                true
+            }
+            0x2B => {
+                self.deadkey = DeadKey::Circumflex;
+                true
+            }
+            0x1A => {
+                self.deadkey = DeadKey::Diaeresis;
+                true
+            }
+            _ => false,
         }
     }
 }
@@ -600,5 +660,187 @@ fn on_off(enabled: bool) -> &'static str {
         "on"
     } else {
         "off"
+    }
+}
+
+#[derive(Clone, Copy)]
+enum KeyboardLayout {
+    UsAltGrIntl,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeadKey {
+    None,
+    Acute,
+    Grave,
+    Circumflex,
+    Diaeresis,
+    Tilde,
+}
+
+fn letter_from_scancode(scancode: u8) -> Option<char> {
+    let letter = match scancode {
+        0x10 => 'q',
+        0x11 => 'w',
+        0x12 => 'e',
+        0x13 => 'r',
+        0x14 => 't',
+        0x15 => 'y',
+        0x16 => 'u',
+        0x17 => 'i',
+        0x18 => 'o',
+        0x19 => 'p',
+        0x1E => 'a',
+        0x1F => 's',
+        0x20 => 'd',
+        0x21 => 'f',
+        0x22 => 'g',
+        0x23 => 'h',
+        0x24 => 'j',
+        0x25 => 'k',
+        0x26 => 'l',
+        0x2C => 'z',
+        0x2D => 'x',
+        0x2E => 'c',
+        0x2F => 'v',
+        0x30 => 'b',
+        0x31 => 'n',
+        0x32 => 'm',
+        _ => return None,
+    };
+    Some(letter)
+}
+
+fn digit_from_scancode(scancode: u8, shift: bool) -> Option<char> {
+    Some(match scancode {
+        0x0B => '0',
+        0x02 => '1',
+        0x03 => '2',
+        0x04 => '3',
+        0x05 => '4',
+        0x06 => '5',
+        0x07 => '6',
+        0x08 => '7',
+        0x09 => '8',
+        0x0A => '9',
+        _ => return None,
+    })
+    .map(|c| {
+        if shift {
+            match c {
+                '1' => '!',
+                '2' => '@',
+                '3' => '#',
+                '4' => '$',
+                '5' => '%',
+                '6' => '^',
+                '7' => '&',
+                '8' => '*',
+                '9' => '(',
+                '0' => ')',
+                other => other,
+            }
+        } else {
+            c
+        }
+    })
+}
+
+fn symbol_from_scancode(scancode: u8, shift: bool, altgr: bool) -> Option<char> {
+    let symbol = match scancode {
+        0x1A => {
+            if altgr {
+                '}'
+            } else {
+                return None;
+            }
+        }
+        0x1B => '[',
+        0x27 => ';',
+        0x28 => '\'',
+        0x29 => '`',
+        0x2B => '\\',
+        0x33 => ',',
+        0x34 => '.',
+        0x35 => '/',
+        0x56 => {
+            if altgr {
+                '\\'
+            } else {
+                '`'
+            }
+        }
+        0x73 => ';',
+        0x7D => {
+            if altgr {
+                '|'
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+
+    Some(if shift {
+        match symbol {
+            '[' => '{',
+            ']' => '}',
+            ';' => ':',
+            '\'' => '"',
+            '`' => '~',
+            '\\' => '|',
+            ',' => '<',
+            '.' => '>',
+            '/' => '?',
+            c => c,
+        }
+    } else {
+        symbol
+    })
+}
+
+fn apply_dead_key(dead: DeadKey, ch: char) -> Option<char> {
+    let lower = ch.to_ascii_lowercase();
+
+    let composed = match (dead, lower) {
+        (DeadKey::Acute, 'a') => Some('á'),
+        (DeadKey::Acute, 'e') => Some('é'),
+        (DeadKey::Acute, 'i') => Some('í'),
+        (DeadKey::Acute, 'o') => Some('ó'),
+        (DeadKey::Acute, 'u') => Some('ú'),
+        (DeadKey::Acute, 'c') => Some('ć'),
+        (DeadKey::Acute, 'n') => Some('ń'),
+
+        (DeadKey::Grave, 'a') => Some('à'),
+        (DeadKey::Grave, 'e') => Some('è'),
+        (DeadKey::Grave, 'i') => Some('ì'),
+        (DeadKey::Grave, 'o') => Some('ò'),
+        (DeadKey::Grave, 'u') => Some('ù'),
+
+        (DeadKey::Circumflex, 'a') => Some('â'),
+        (DeadKey::Circumflex, 'e') => Some('ê'),
+        (DeadKey::Circumflex, 'i') => Some('î'),
+        (DeadKey::Circumflex, 'o') => Some('ô'),
+        (DeadKey::Circumflex, 'u') => Some('û'),
+        (DeadKey::Circumflex, 'c') => Some('ĉ'),
+
+        (DeadKey::Diaeresis, 'a') => Some('ä'),
+        (DeadKey::Diaeresis, 'e') => Some('ë'),
+        (DeadKey::Diaeresis, 'i') => Some('ï'),
+        (DeadKey::Diaeresis, 'o') => Some('ö'),
+        (DeadKey::Diaeresis, 'u') => Some('ü'),
+        (DeadKey::Diaeresis, 'y') => Some('ÿ'),
+
+        (DeadKey::Tilde, 'a') => Some('ã'),
+        (DeadKey::Tilde, 'o') => Some('õ'),
+        (DeadKey::Tilde, 'n') => Some('ñ'),
+
+        _ => None,
+    }?;
+
+    if ch.is_uppercase() {
+        composed.to_uppercase().next()
+    } else {
+        Some(composed)
     }
 }

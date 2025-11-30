@@ -12,7 +12,7 @@ const MAX_KEY_LOG: usize = 24;
 
 pub struct DemoApp {
     window: WindowHandle,
-    bmp_data: &'static [u8],
+    bmp_data: alloc::vec::Vec<u8>,
     key_count: usize,
     key_log: VecDeque<String>,
     sent_bitmap: bool,
@@ -35,7 +35,7 @@ impl App for DemoApp {
             id: None,
         });
 
-        let bmp_data = include_bytes!("../../../clouds.bmp");
+        let bmp_data = generate_demo_bitmap();
 
         // --- Graph Client Logic ---
         // Create "Hello" thing
@@ -109,7 +109,7 @@ impl App for DemoApp {
         ctx.clear_window(&self.window);
 
         if !self.sent_bitmap {
-            ctx.draw_bitmap(&self.window, self.bmp_data);
+            ctx.draw_bitmap(&self.window, &self.bmp_data);
             self.sent_bitmap = true;
         }
 
@@ -169,4 +169,84 @@ impl DemoApp {
             self.key_log.pop_front();
         }
     }
+}
+
+fn generate_demo_bitmap() -> alloc::vec::Vec<u8> {
+    let width = 8;
+    let height = 8;
+    let row_stride = (width * 3 + 3) & !3; // Align to 4 bytes
+    let data_size = row_stride * height;
+    let file_size = 14 + 40 + data_size;
+
+    let mut bmp = alloc::vec::Vec::with_capacity(file_size);
+
+    // File Header
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
+    bmp.extend_from_slice(&[0, 0, 0, 0]); // Reserved
+    bmp.extend_from_slice(&(54u32).to_le_bytes()); // Offset to data
+
+    // Info Header
+    bmp.extend_from_slice(&(40u32).to_le_bytes()); // Header size
+    bmp.extend_from_slice(&(width as i32).to_le_bytes());
+    bmp.extend_from_slice(&(height as i32).to_le_bytes());
+    bmp.extend_from_slice(&(1u16).to_le_bytes()); // Planes
+    bmp.extend_from_slice(&(24u16).to_le_bytes()); // BPP
+    bmp.extend_from_slice(&[0; 24]); // Compression, SizeImage, XPels, YPels, ClrUsed, ClrImportant
+
+    // Palette (BGR)
+    let peach = [0xC4, 0xE2, 0xFF];
+    let peach_dark = [0x9A, 0xB5, 0xE8];
+    let purple = [0xD8, 0x9A, 0xC7];
+
+    // Pattern (Top-down spec, but BMP is bottom-up)
+    // Row 0 (Top): PEACH, PEACH, DARK, DARK...
+    // ...
+    // Row 7 (Bottom): DARK, DARK, PURPLE, PURPLE...
+
+    let rows = [
+        // Row 0 (Top)
+        [
+            peach, peach, peach_dark, peach_dark, peach, peach, peach_dark, peach_dark,
+        ],
+        // Row 1
+        [
+            peach, peach, peach_dark, peach_dark, peach, peach, peach_dark, peach_dark,
+        ],
+        // Row 2
+        [
+            peach_dark, peach_dark, peach, peach, peach_dark, peach_dark, peach, peach,
+        ],
+        // Row 3
+        [
+            peach_dark, peach_dark, peach, peach, peach_dark, peach_dark, peach, peach,
+        ],
+        // Row 4
+        [peach, peach, purple, purple, peach, peach, purple, purple],
+        // Row 5
+        [peach, peach, purple, purple, peach, peach, purple, purple],
+        // Row 6
+        [
+            peach_dark, peach_dark, purple, purple, peach_dark, peach_dark, purple, purple,
+        ],
+        // Row 7 (Bottom)
+        [
+            peach_dark, peach_dark, purple, purple, peach_dark, peach_dark, purple, purple,
+        ],
+    ];
+
+    // Write rows from bottom (7) to top (0)
+    for y in (0..8).rev() {
+        let row_data = rows[y];
+        for color in row_data.iter() {
+            bmp.extend_from_slice(color);
+        }
+        // Padding
+        let padding = row_stride - width * 3;
+        for _ in 0..padding {
+            bmp.push(0);
+        }
+    }
+
+    bmp
 }

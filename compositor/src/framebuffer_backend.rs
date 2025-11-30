@@ -64,8 +64,9 @@ impl<'a> RendererBackend for BitmapRenderer<'a> {
                     rect,
                     image,
                     repeat,
+                    offset,
                 } => {
-                    raster_blit_image(self, rect, image, *repeat);
+                    raster_blit_image(self, rect, image, *repeat, *offset);
                 }
                 SceneItem::DrawText {
                     origin,
@@ -190,7 +191,13 @@ fn raster_fill_rect(backend: &mut BitmapRenderer, rect: &Rect, color: Rgba) {
     }
 }
 
-fn raster_blit_image(backend: &mut BitmapRenderer, rect: &Rect, bmp: &Bitmap, repeat: bool) {
+fn raster_blit_image(
+    backend: &mut BitmapRenderer,
+    rect: &Rect,
+    bmp: &Bitmap,
+    repeat: bool,
+    offset: (i32, i32),
+) {
     if rect.width == 0 || rect.height == 0 || backend.width == 0 {
         return;
     }
@@ -201,8 +208,8 @@ fn raster_blit_image(backend: &mut BitmapRenderer, rect: &Rect, bmp: &Bitmap, re
     for yy in y0..y1 {
         let row = yy * backend.width;
         for xx in x0..x1 {
-            let sample_x = xx - x0;
-            let sample_y = yy - y0;
+            let sample_x = (xx as i32 - rect.x + offset.0) as usize;
+            let sample_y = (yy as i32 - rect.y + offset.1) as usize;
             let color = if repeat {
                 bmp.sample(sample_x, sample_y)
             } else if let Some(c) = bmp.pixel(sample_x, sample_y) {
