@@ -36,6 +36,10 @@ impl App for LauncherApp {
         graph::fiat(Some(launcher_surface_id), canon::WIDGET, fields);
         graph::that(window.window_id(), "contains", launcher_surface_id, 0);
 
+        // Grant access to widget_host
+        let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
+        graph::grant_capability(widget_host_bundle, launcher_surface_id, "CAN_READ");
+
         let mut app = LauncherApp {
             window: window.clone(),
             entries: Vec::new(),
@@ -84,6 +88,8 @@ impl App for LauncherApp {
 
 impl LauncherApp {
     fn sync_entries(&mut self, ctx: &mut AppContext<'_>, parent_id: Uuid) {
+        let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
+
         // Create selection node
         let selection_id = userland::simple_uuid(b"launcher_selection");
         let mut sel_fields = graph::map();
@@ -91,6 +97,9 @@ impl LauncherApp {
         sel_fields.insert(canon::SELECTED_INDEX, Value::I64(-1));
         graph::fiat(Some(selection_id), canon::cc('V', 'A'), sel_fields);
         self.selection_node_id = selection_id;
+
+        graph::grant_capability(widget_host_bundle, selection_id, "CAN_READ");
+        graph::grant_capability(widget_host_bundle, selection_id, "CAN_WRITE");
 
         self.selection_watch = Some(ctx.watch_graph(ThingFilter {
             kind: None,
@@ -131,6 +140,7 @@ impl LauncherApp {
                 item_fields.insert(canon::PARENT, Value::Uuid(listbox_id));
 
                 graph::fiat(Some(item_id), canon::ITEM, item_fields);
+                graph::grant_capability(widget_host_bundle, item_id, "CAN_READ");
 
                 self.entries.push(LauncherEntry {
                     fs_node_id: entry.id,
@@ -140,6 +150,7 @@ impl LauncherApp {
         }
 
         graph::fiat(Some(listbox_id), canon::WIDGET, list_fields);
+        graph::grant_capability(widget_host_bundle, listbox_id, "CAN_READ");
         graph::that(parent_id, "contains", listbox_id, 0);
     }
 

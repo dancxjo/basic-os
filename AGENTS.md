@@ -11,6 +11,8 @@
 - Install the `x86_64-unknown-none` target with `rustup target add x86_64-unknown-none`.
 
 ## Building and running
+- **NOTE: The native kernel is currently blocked due to a double fault issue. Use the Linux hosted system for development and testing.**
+- To run the hosted system: `cargo run -p compositor --features host` (ensure you are on a Linux system with X11/Wayland).
 - The provided `GNUmakefile` drives the build.  `make` builds the kernel and userland runner/compositor and produces an ISO image.
 - Run `make run` to boot the ISO in QEMU.  The variable `KARCH` selects the architecture (default `x86_64`).
 - Run `make clean` to remove build artifacts.
