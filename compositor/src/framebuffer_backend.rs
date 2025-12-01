@@ -48,12 +48,12 @@ impl RendererBackend for BitmapRenderer {
         = &'b [u32]
     where
         Self: 'b;
-    fn render<'b>(&'b mut self, scene: &Scene) -> Self::Output<'b> {
+    fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a> {
         self.clear(CLEAR_COLOR);
         let mut clip_stack: Vec<Option<Rect>> = Vec::new();
         clip_stack.push(Some(Rect::new(0, 0, self.width as u32, self.height as u32)));
 
-        for item in scene.items() {
+        for item in &scene.items {
             match item {
                 SceneItem::Clear { color } => {
                     self.clear(*color);
@@ -61,6 +61,14 @@ impl RendererBackend for BitmapRenderer {
                 SceneItem::FillRect { rect, color } => {
                     let clip = clip_stack.last().copied().flatten();
                     raster_fill_rect(self, rect, *color, clip);
+                }
+                SceneItem::HatchRect {
+                    rect,
+                    color,
+                    spacing,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_hatch_rect(self, rect, *color, *spacing, clip);
                 }
                 SceneItem::BlitImage {
                     rect,
@@ -109,6 +117,58 @@ impl RendererBackend for BitmapRenderer {
             }
         }
         &self.storage
+    }
+}
+
+fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
+    let x = max(a.x, b.x);
+    let y = max(a.y, b.y);
+    let x2 = min(a.x + a.width as i32, b.x + b.width as i32);
+    let y2 = min(a.y + a.height as i32, b.y + b.height as i32);
+
+    if x < x2 && y < y2 {
+        Some(Rect::new(x, y, (x2 - x) as u32, (y2 - y) as u32))
+    } else {
+        None
+    }
+}
+
+fn apply_clip(rect: Rect, clip: Option<Rect>) -> Option<Rect> {
+    if let Some(c) = clip {
+        intersect_rect(rect, c)
+    } else {
+        Some(rect)
+    }
+}
+
+fn raster_hatch_rect(
+    backend: &mut BitmapRenderer,
+    rect: &Rect,
+    color: Rgba,
+    spacing: i32,
+    clip: Option<Rect>,
+) {
+    if rect.width == 0 || rect.height == 0 || backend.width == 0 || spacing <= 0 {
+        return;
+    }
+    let clipped = apply_clip(*rect, clip);
+    let Some(rect) = clipped else {
+        return;
+    };
+    let x0 = min(rect.x.max(0) as usize, backend.width);
+    let y0 = min(rect.y.max(0) as usize, backend.height);
+    let x1 = min(x0 + rect.width as usize, backend.width);
+    let y1 = min(y0 + rect.height as usize, backend.height);
+    let color_u32 = color.to_u32();
+
+    // Simple diagonal hatch: (x + y) % spacing == 0
+    for yy in y0..y1 {
+        let row = yy * backend.width;
+        for xx in x0..x1 {
+            if (xx as i32 + yy as i32) % spacing == 0 {
+                backend.storage[row + xx] = color_u32;
+            }
+        }
     }
 }
 
@@ -436,22 +496,6 @@ fn raster_draw_cursor(
             backend.storage[idx] = out;
         }
     }
-}
-
-fn apply_clip(rect: Rect, clip: Option<Rect>) -> Option<Rect> {
-    clip.and_then(|clip_rect| intersect_rect(rect, clip_rect))
-}
-
-fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
-    let x0 = max(a.x, b.x);
-    let y0 = max(a.y, b.y);
-    let x1 = min(a.x + a.width as i32, b.x + b.width as i32);
-    let y1 = min(a.y + a.height as i32, b.y + b.height as i32);
-
-    if x1 <= x0 || y1 <= y0 {
-        return None;
-    }
-    Some(Rect::new(x0, y0, (x1 - x0) as u32, (y1 - y0) as u32))
 }
 
 #[cfg(test)]

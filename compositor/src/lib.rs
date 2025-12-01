@@ -516,6 +516,11 @@ pub enum SceneItem {
         rect: Rect,
         color: Rgba,
     },
+    HatchRect {
+        rect: Rect,
+        color: Rgba,
+        spacing: i32,
+    },
     BlitImage {
         rect: Rect,
         image: Arc<Bitmap>,
@@ -758,10 +763,12 @@ pub struct Compositor<F, R> {
     background: Arc<Bitmap>,
     drag_state: Option<DragState>,
     alt_down: bool,
+    shift_down: bool,
     state_node: Uuid,
     widgets: BTreeMap<Uuid, userland::semantic_ui::Widget>,
     active_widget: Option<Uuid>,
     debug_layout_mode: bool,
+    debug_overlay_mode: bool,
 }
 
 impl<F, R> Compositor<F, R>
@@ -806,10 +813,12 @@ where
             background,
             drag_state: None,
             alt_down: false,
+            shift_down: false,
             state_node,
             widgets: BTreeMap::new(),
             active_widget: None,
             debug_layout_mode: true,
+            debug_overlay_mode: false,
         }
     }
 
@@ -2137,21 +2146,92 @@ where
                 self.alt_down = down;
             }
 
+            if scancode == Some(0x2A)
+                || scancode == Some(0x36)
+                || (scancode.is_none() && key == canon::cc('S', 'F'))
+            {
+                self.shift_down = down;
+            }
+
             if down {
                 if self.alt_down && (key == canon::from_char('t') || key == canon::from_char('T')) {
                     self.tile_windows();
+                } else if self.alt_down
+                    && (key == canon::from_char('i') || key == canon::from_char('I'))
+                {
+                    self.debug_layout_mode = !self.debug_layout_mode;
+                    self.fb_dirty = true;
+                } else if self.alt_down
+                    && (key == canon::from_char('o') || key == canon::from_char('O'))
+                {
+                    self.debug_overlay_mode = !self.debug_overlay_mode;
+                    self.fb_dirty = true;
                 } else if key == canon::Symbol::new(0xF001) {
                     self.switch_mode(Mode::Sky);
                 } else if key == canon::Symbol::new(0xF002) {
                     self.switch_mode(Mode::Max);
                 } else if key == canon::Symbol::new(0xF00C) {
                     self.handle_f12();
+                } else if key == canon::cc('T', 'B') {
+                    self.handle_tab_focus();
                 }
             }
 
             if down {
                 self.handle_scroll_key(key);
             }
+        }
+    }
+
+    fn handle_tab_focus(&mut self) {
+        let Some(active_window_id) = self.active_window else {
+            return;
+        };
+
+        let mut focusable = Vec::new();
+        self.collect_focusable_widgets(active_window_id, &mut focusable);
+
+        if focusable.is_empty() {
+            return;
+        }
+
+        let current_index = self
+            .active_widget
+            .and_then(|id| focusable.iter().position(|x| *x == id));
+
+        let next_index = if let Some(idx) = current_index {
+            if self.shift_down {
+                if idx == 0 {
+                    focusable.len() - 1
+                } else {
+                    idx - 1
+                }
+            } else {
+                (idx + 1) % focusable.len()
+            }
+        } else {
+            0
+        };
+
+        self.active_widget = Some(focusable[next_index]);
+        self.fb_dirty = true;
+    }
+
+    fn collect_focusable_widgets(&self, parent_id: Uuid, list: &mut Vec<Uuid>) {
+        let mut children: Vec<&userland::semantic_ui::Widget> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(parent_id))
+            .collect();
+
+        // Sort by ID for stability (creation order)
+        children.sort_by_key(|w| w.id);
+
+        for child in children {
+            if child.focusable {
+                list.push(child.id);
+            }
+            self.collect_focusable_widgets(child.id, list);
         }
     }
 
@@ -2800,6 +2880,9 @@ where
                     self.draw_debug_window(scene, &surface, fb_width, fb_height);
                 } else {
                     self.draw_window(scene, &surface, fb_width, fb_height);
+                    if self.debug_overlay_mode {
+                        self.draw_debug_window(scene, &surface, fb_width, fb_height);
+                    }
                 }
             }
         }
@@ -2858,6 +2941,174 @@ where
             color: border_color,
             scroll_offset: 0,
         });
+
+        // Draw Widgets
+        let root_widgets: Vec<Uuid> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(surface.window.id))
+            .map(|w| w.id)
+            .collect();
+
+        if root_widgets.is_empty() {
+            return;
+        }
+
+        // Compute layout area (assume full window for debug)
+        let client_x = x as i32;
+        let client_y = y as i32;
+        let client_w = w as i32;
+        let client_h = h as i32;
+
+        let mut y_offset = client_y + TITLE_BAR_HEIGHT as i32;
+        let x_offset = client_x + BORDER_THICKNESS;
+        let width = client_w - BORDER_THICKNESS * 2;
+        let mut remaining_h = client_h - TITLE_BAR_HEIGHT as i32 - BORDER_THICKNESS;
+
+        let mut relative_widgets = Vec::new();
+        let mut overlay_widgets = Vec::new();
+
+        for widget_id in root_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if widget.x.is_some() && widget.y.is_some() {
+                    overlay_widgets.push(widget_id);
+                } else {
+                    relative_widgets.push(widget_id);
+                }
+            }
+        }
+
+        for widget_id in relative_widgets {
+            let child_h = self.draw_debug_widget_recursive(
+                scene,
+                widget_id,
+                x_offset,
+                y_offset,
+                width,
+                remaining_h,
+            );
+            y_offset += child_h;
+            remaining_h = remaining_h.saturating_sub(child_h);
+        }
+
+        for widget_id in overlay_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if let (Some(wx), Some(wy), Some(ww), Some(wh)) =
+                    (widget.x, widget.y, widget.width, widget.height)
+                {
+                    self.draw_debug_widget_recursive(
+                        scene,
+                        widget_id,
+                        client_x + wx as i32,
+                        client_y + wy as i32,
+                        ww as i32,
+                        wh as i32,
+                    );
+                }
+            }
+        }
+    }
+
+    fn draw_debug_widget_recursive(
+        &self,
+        scene: &mut Scene,
+        widget_id: Uuid,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) -> i32 {
+        let Some(widget) = self.widgets.get(&widget_id) else {
+            return 0;
+        };
+        if !widget.visible {
+            return 0;
+        }
+
+        let mut drawn_height = 0;
+
+        if widget.role == ROLE_TOOLBAR {
+            drawn_height = TOOLBAR_HEIGHT;
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget_id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_x = x;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let btn_w = TOOLBAR_BUTTON_SIZE;
+                    let btn_h = TOOLBAR_BUTTON_SIZE;
+                    let btn_y = y + (drawn_height - btn_h) / 2;
+
+                    self.draw_debug_widget_box(scene, child, child_x, btn_y, btn_w, btn_h);
+                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
+                }
+            }
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget_id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y;
+            let mut remaining_h = h;
+
+            for child_id in children {
+                let child_h =
+                    self.draw_debug_widget_recursive(scene, child_id, x, child_y, w, remaining_h);
+                child_y += child_h;
+                drawn_height += child_h;
+                remaining_h = remaining_h.saturating_sub(child_h);
+            }
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            drawn_height = h;
+        } else {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(32);
+        }
+
+        self.draw_debug_widget_box(scene, widget, x, y, w, drawn_height);
+        drawn_height
+    }
+
+    fn draw_debug_widget_box(
+        &self,
+        scene: &mut Scene,
+        widget: &userland::semantic_ui::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        let color = Rgba::new(0xFF, 0x00, 0xFF, 0x00); // Green
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w as u32, 2),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y + h - 2, w as u32, 2),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, 2, h as u32),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x + w - 2, y, 2, h as u32),
+            color,
+        });
+
+        if Some(widget.id) == self.active_widget {
+            scene.push(SceneItem::HatchRect {
+                rect: Rect::new(x, y, w as u32, h as u32),
+                color: Rgba::new(0xFF, 0xFF, 0xFF, 0x00), // Yellow
+                spacing: 4,
+            });
+        }
     }
 
     fn draw_max_mode(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
