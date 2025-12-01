@@ -2981,6 +2981,7 @@ where
         for widget_id in relative_widgets {
             let child_h = self.draw_debug_widget_recursive(
                 scene,
+                surface.window.id,
                 widget_id,
                 x_offset,
                 y_offset,
@@ -2998,6 +2999,7 @@ where
                 {
                     self.draw_debug_widget_recursive(
                         scene,
+                        surface.window.id,
                         widget_id,
                         client_x + wx as i32,
                         client_y + wy as i32,
@@ -3012,6 +3014,7 @@ where
     fn draw_debug_widget_recursive(
         &self,
         scene: &mut Scene,
+        window_id: Uuid,
         widget_id: Uuid,
         x: i32,
         y: i32,
@@ -3059,14 +3062,51 @@ where
             let mut remaining_h = h;
 
             for child_id in children {
-                let child_h =
-                    self.draw_debug_widget_recursive(scene, child_id, x, child_y, w, remaining_h);
+                let child_h = self.draw_debug_widget_recursive(
+                    scene,
+                    window_id,
+                    child_id,
+                    x,
+                    child_y,
+                    w,
+                    remaining_h,
+                );
                 child_y += child_h;
                 drawn_height += child_h;
                 remaining_h = remaining_h.saturating_sub(child_h);
             }
         } else if widget.role == ROLE_EDITOR_ROOT {
             drawn_height = h;
+
+            let scroll_y = if let Some(surface) = self.windows.get(&window_id) {
+                surface.scroll_y
+            } else {
+                0
+            };
+
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget_id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y - scroll_y;
+            // Give children plenty of space to draw themselves
+            let child_available_h = 10000;
+
+            for child_id in children {
+                let child_h = self.draw_debug_widget_recursive(
+                    scene,
+                    window_id,
+                    child_id,
+                    x,
+                    child_y,
+                    w,
+                    child_available_h,
+                );
+                child_y += child_h;
+            }
         } else {
             drawn_height = widget.height.map(|v| v as i32).unwrap_or(32);
         }
