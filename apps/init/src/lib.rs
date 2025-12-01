@@ -2,6 +2,7 @@
 use userland::canon;
 use userland::fs::{self, FsKind};
 use userland::prelude::*;
+use userland::uuid::Uuid;
 
 pub fn app_main() -> ! {
     userland::println!("Init process started.");
@@ -57,17 +58,13 @@ pub fn app_main() -> ! {
         }
     }
 
-    // Sync launcher widgets from /bin
-    // userland::println!("Init: syncing launcher widgets...");
+    // Create toolbar
+    create_toolbar();
 
     // Give compositor time to start watching
     for _ in 0..5000000 {
         core::hint::spin_loop();
     }
-
-    // if let Err(e) = userland::launcher::sync_launcher_from_bin() {
-    //     userland::println!("Failed to sync launcher: {:?}", e);
-    // }
 
     // Create LaunchRequest for text_editor
     userland::println!("Creating LaunchRequest for text_editor...");
@@ -113,4 +110,52 @@ pub fn app_main() -> ! {
             }
         }
     }
+}
+
+fn create_toolbar() {
+    userland::println!("Creating toolbar...");
+
+    // Toolbar container
+    let toolbar_id = userland::simple_uuid(b"Toolbar");
+    let mut fields = userland::map();
+    fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+    fields.insert(canon::cc('W', 'K'), Value::Text("toolbar".into()));
+    fields.insert(canon::WIDTH, Value::U64(800)); // Screen width?
+    fields.insert(canon::HEIGHT, Value::U64(40));
+    fields.insert(canon::X, Value::I64(0));
+    fields.insert(canon::Y, Value::I64(0)); // Top
+    userland::fiat(Some(toolbar_id), canon::WIDGET, fields);
+
+    // Button 1: Clouds
+    create_toolbar_button(toolbar_id, "Clouds", "demo_app", 0);
+
+    // Button 2: Text Editor
+    create_toolbar_button(toolbar_id, "Text", "text_editor", 1);
+
+    // Button 3: Graph Viewer
+    create_toolbar_button(toolbar_id, "Graph", "graph_viewer", 2);
+}
+
+fn create_toolbar_button(_parent: Uuid, label: &str, target: &str, index: i32) {
+    let id = userland::simple_uuid(label.as_bytes()); // Simple ID generation
+    let mut fields = userland::map();
+    fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+    fields.insert(canon::cc('W', 'K'), Value::Text("toolbar_button".into()));
+    fields.insert(canon::WIDTH, Value::U64(60));
+    fields.insert(canon::HEIGHT, Value::U64(30));
+
+    // Position relative to toolbar? Or absolute?
+    // If absolute, we need to know toolbar position.
+    // For now, let's put them inside the toolbar area visually.
+    // Assuming toolbar is at 0,0.
+    let x = 10 + index * 70;
+    let y = 5;
+
+    fields.insert(canon::X, Value::I64(x as i64));
+    fields.insert(canon::Y, Value::I64(y as i64));
+
+    fields.insert(canon::TEXT, Value::Text(label.into()));
+    fields.insert(canon::TARGET, Value::Text(target.into()));
+
+    userland::fiat(Some(id), canon::WIDGET, fields);
 }

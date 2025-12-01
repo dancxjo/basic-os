@@ -1,14 +1,14 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "std")]
-extern crate std as alloc;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std as alloc;
 
 use alloc::string::String;
+use thing_abi::canon;
 use thingos_bundle_std::graph::current_bundle_handle;
 use thingos_kernel_std::id::PredId;
-use thing_abi::canon;
 
 // Define predicates
 // launch_count: 'L' 'C' 'T'
@@ -31,9 +31,11 @@ pub fn app_main() -> ! {
     let root = bundle.get_root_thing();
 
     // 1. Read existing props
-    let props = bundle.get_props(root).unwrap_or_else(|_| {
-        thingos_bundle_std::graph::BundleProps { props: alloc::collections::BTreeMap::new() }
-    });
+    let props = bundle
+        .get_props(root)
+        .unwrap_or_else(|_| thingos_bundle_std::graph::BundleProps {
+            props: alloc::collections::BTreeMap::new(),
+        });
 
     // 2. Compute new values
     let old_count = props.get_u64(PRED_LAUNCH_COUNT).unwrap_or(0);

@@ -132,7 +132,11 @@ impl GraphViewerApp {
                     .and_then(|v| v.as_text())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "-".to_string());
-                BundleInfo { name, kind, version }
+                BundleInfo {
+                    name,
+                    kind,
+                    version,
+                }
             })
             .collect()
     }

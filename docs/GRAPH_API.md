@@ -117,7 +117,7 @@ impl Thingable for Window {
 }
 ```
 
-`load_things_of_kind::<Window>()` will call `find_by_kind("window")` and decode each entry. Applications can use the optional `WINDOW_RECT` field as a semantic hint: setting it (via `GraphPropsRequest`) tells the compositor which portion of the surface should stay visible, letting caret-style cursors keep focus as the user types. Note that `userland::graph::fiat_thing` is still a placeholder (it always returns `Uuid::nil()`), so typed creation helpers are not ready yet.
+`load_things_of_kind::<Window>()` will call `find_by_kind("window")` and decode each entry. Applications can use the optional `WINDOW_RECT` field as a semantic hint: setting it (via `GraphPropsRequest`) tells the compositor which portion of the surface should stay visible, letting caret-style cursors keep focus as the user types. The embedded `visible` flag defaults to `true` and lets apps blink the caret without mutating their text layout. Note that `userland::graph::fiat_thing` is still a placeholder (it always returns `Uuid::nil()`), so typed creation helpers are not ready yet.
 
 ## Syscalls used by the graph layer
 

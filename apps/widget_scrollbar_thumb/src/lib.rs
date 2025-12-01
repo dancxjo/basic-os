@@ -58,12 +58,20 @@ impl WidgetAbi for ScrollbarThumbWidget {
     fn draw(state: &Self::State, fb: &mut [u8], rect: Rect) {
         // 1. Read properties from the widget node
         let mut metrics = state.metrics.borrow_mut();
-        
+
         if let Some(thing) = get_thing(state.widget_id) {
-            if let Some(v) = thing.fields.get(&canon::VIEWPORT_HEIGHT).and_then(|v| v.as_i64()) {
+            if let Some(v) = thing
+                .fields
+                .get(&canon::VIEWPORT_HEIGHT)
+                .and_then(|v| v.as_i64())
+            {
                 metrics.viewport_height = v as i32;
             }
-            if let Some(v) = thing.fields.get(&canon::CONTENT_HEIGHT).and_then(|v| v.as_i64()) {
+            if let Some(v) = thing
+                .fields
+                .get(&canon::CONTENT_HEIGHT)
+                .and_then(|v| v.as_i64())
+            {
                 metrics.content_height = v as i32;
             }
             if let Some(v) = thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64()) {
@@ -78,7 +86,15 @@ impl WidgetAbi for ScrollbarThumbWidget {
         // 3. Draw the track (background)
         // SCROLLBAR_TRACK_COLOR: 0xffE2E6F0
         let track_color = (0xE2, 0xE6, 0xF0, 0xFF); // B G R A
-        fill_rect(fb, rect.width as usize, 0, 0, rect.width as i32, rect.height as i32, track_color);
+        fill_rect(
+            fb,
+            rect.width as usize,
+            0,
+            0,
+            rect.width as i32,
+            rect.height as i32,
+            track_color,
+        );
 
         // 4. Draw the thumb
         // SCROLLBAR_THUMB_COLOR: 0xff7C8BAB
@@ -89,7 +105,15 @@ impl WidgetAbi for ScrollbarThumbWidget {
             (0x7C, 0x8B, 0xAB, 0xFF)
         };
 
-        fill_rect(fb, rect.width as usize, 0, thumb_y, rect.width as i32, thumb_height, thumb_color);
+        fill_rect(
+            fb,
+            rect.width as usize,
+            0,
+            thumb_y,
+            rect.width as i32,
+            thumb_height,
+            thumb_color,
+        );
     }
 
     fn handle_event(state: &mut Self::State, event: WidgetEvent) {
@@ -97,7 +121,7 @@ impl WidgetAbi for ScrollbarThumbWidget {
             WidgetEvent::Input(InputEvent::MouseDown { y, .. }) => {
                 let metrics = state.metrics.borrow();
                 let (thumb_y, thumb_height) = calculate_thumb_geometry(*metrics);
-                
+
                 if y >= thumb_y && y < thumb_y + thumb_height {
                     state.pressed = true;
                     state.drag_start_mouse_y = y;
@@ -111,11 +135,11 @@ impl WidgetAbi for ScrollbarThumbWidget {
                 if state.pressed {
                     let metrics = state.metrics.borrow();
                     let dy = y - state.drag_start_mouse_y;
-                    
+
                     let track_height = metrics.track_height;
                     let content_height = metrics.content_height;
                     let viewport_height = metrics.viewport_height;
-                    
+
                     let max_scroll = max(0, content_height - viewport_height);
                     if max_scroll <= 0 {
                         return;
@@ -124,13 +148,14 @@ impl WidgetAbi for ScrollbarThumbWidget {
                     let ratio = track_height as f32 / max(1, content_height) as f32;
                     let mut thumb_height = ((ratio * track_height as f32) + 0.5) as i32;
                     thumb_height = clamp(thumb_height, min(32, track_height), track_height);
-                    
+
                     let max_thumb_offset = track_height - thumb_height;
                     if max_thumb_offset <= 0 {
                         return;
                     }
 
-                    let delta_scroll = (dy as f32 * max_scroll as f32 / max_thumb_offset as f32) as i32;
+                    let delta_scroll =
+                        (dy as f32 * max_scroll as f32 / max_thumb_offset as f32) as i32;
                     let new_scroll = clamp(state.drag_start_scroll + delta_scroll, 0, max_scroll);
 
                     let mut updates = graph::map();

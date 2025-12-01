@@ -328,6 +328,7 @@ pub struct WindowRect {
     pub y: i64,
     pub width: i64,
     pub height: i64,
+    pub visible: bool,
 }
 
 impl WindowRect {
@@ -338,6 +339,10 @@ impl WindowRect {
             y: map_i64(map, canon::Y),
             width: map_i64(map, canon::WIDTH),
             height: map_i64(map, canon::HEIGHT),
+            visible: map
+                .get(&canon::VISIBLE)
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
         })
     }
 
@@ -354,6 +359,7 @@ impl WindowRect {
         map.insert(canon::Y, Value::I64(self.y));
         map.insert(canon::WIDTH, Value::I64(self.width));
         map.insert(canon::HEIGHT, Value::I64(self.height));
+        map.insert(canon::VISIBLE, Value::Bool(self.visible));
         Value::Map(map)
     }
 }

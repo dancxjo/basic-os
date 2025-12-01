@@ -27,10 +27,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Actually, HostRuntime::new() creates its OWN runtime.
     // So we should spawn it in a thread that is NOT a tokio thread?
     // Or just use spawn_blocking?
-    
-    let runtime = tokio::task::spawn_blocking(|| {
-        Arc::new(HostRuntime::new())
-    }).await?;
+
+    let runtime = tokio::task::spawn_blocking(|| Arc::new(HostRuntime::new())).await?;
 
     // Create socket
     let socket_path = "/tmp/thingos.sock";

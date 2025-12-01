@@ -1603,18 +1603,20 @@ where
             });
 
             if let Some(rect) = surface.window.window_rect {
-                let cx = rect.x as i32;
-                let cy = rect.y as i32;
-                let ch = rect.height as i32;
+                if rect.visible {
+                    let cx = rect.x as i32;
+                    let cy = rect.y as i32;
+                    let ch = rect.height as i32;
 
-                let draw_cx = x + cx;
-                let draw_cy = y + cy - surface.scroll_y;
+                    let draw_cx = x + cx;
+                    let draw_cy = y + cy - surface.scroll_y;
 
-                if draw_cy + ch >= y && draw_cy < y + h {
-                    scene.push(SceneItem::FillRect {
-                        rect: Rect::new(draw_cx, draw_cy, 2, ch as u32),
-                        color: COLOR_CURSOR_PRIMARY,
-                    });
+                    if draw_cy + ch >= y && draw_cy < y + h {
+                        scene.push(SceneItem::FillRect {
+                            rect: Rect::new(draw_cx, draw_cy, 2, ch as u32),
+                            color: COLOR_CURSOR_PRIMARY,
+                        });
+                    }
                 }
             }
         }
@@ -2585,15 +2587,17 @@ where
 
                     // Draw cursor
                     if let Some(rect) = surface.window.window_rect {
-                        let cx = content_rect.x + rect.x as i32;
-                        let cy = content_rect.y + rect.y as i32 - surface.scroll_y;
-                        if cy + (rect.height as i32) >= content_rect.y
-                            && cy < content_rect.y + content_rect.height as i32
-                        {
-                            scene.push(SceneItem::FillRect {
-                                rect: Rect::new(cx, cy, 2, rect.height as u32),
-                                color: COLOR_CURSOR_PRIMARY,
-                            });
+                        if rect.visible {
+                            let cx = content_rect.x + rect.x as i32;
+                            let cy = content_rect.y + rect.y as i32 - surface.scroll_y;
+                            if cy + (rect.height as i32) >= content_rect.y
+                                && cy < content_rect.y + content_rect.height as i32
+                            {
+                                scene.push(SceneItem::FillRect {
+                                    rect: Rect::new(cx, cy, 2, rect.height as u32),
+                                    color: COLOR_CURSOR_PRIMARY,
+                                });
+                            }
                         }
                     }
                 }

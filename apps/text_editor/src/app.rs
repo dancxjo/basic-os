@@ -3,7 +3,7 @@ use alloc::string::{String, ToString};
 use core::convert::TryFrom;
 use core::sync::atomic::{AtomicU64, Ordering};
 use userland::prelude::*;
-use userland::{canon, graph, simple_uuid, AppEvent, ThingFilter, semantic_ui};
+use userland::{canon, graph, semantic_ui, simple_uuid, AppEvent, ThingFilter};
 use uuid::Uuid;
 
 static EVENT_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -170,7 +170,6 @@ impl App for TextEditor {
         if self.cursor_blink_ticks >= CURSOR_BLINK_PERIOD_TICKS {
             self.cursor_visible = !self.cursor_visible;
             self.cursor_blink_ticks = 0;
-            self.redraw_needed = true;
         }
 
         if self.redraw_needed {
@@ -184,15 +183,8 @@ impl App for TextEditor {
             );
             ctx.draw_text(&self.window, format_args!("------------------------\n"));
 
-            // Content with cursor indicator
-            let (head, tail) = self.content.split_at(self.cursor_index);
-            let mut display = String::with_capacity(self.content.len() + 1);
-            display.push_str(head);
-            if self.cursor_visible {
-                display.push('|');
-            }
-            display.push_str(tail);
-            ctx.draw_text(&self.window, format_args!("{}", display));
+            // Content body
+            ctx.draw_text(&self.window, format_args!("{}", self.content));
 
             self.redraw_needed = false;
         }
@@ -325,6 +317,7 @@ impl TextEditor {
         rect.insert(canon::Y, Value::I64(y as i64));
         rect.insert(canon::WIDTH, Value::I64(width as i64));
         rect.insert(canon::HEIGHT, Value::I64(height as i64));
+        rect.insert(canon::VISIBLE, Value::Bool(self.cursor_visible));
         let mut props = graph::map();
         props.insert(canon::WINDOW_RECT, Value::Map(rect));
         graph::set_props(graph::GraphPropsRequest {
