@@ -11,12 +11,13 @@ use userland::{canon, Value};
 
 pub struct ButtonWidget;
 
+#[derive(Clone, Debug)]
 pub struct State {
-    label: String,
-    target: String,
-    pressed: bool,
-    icon_char: char,
-    show_label: bool,
+    pub label: String,
+    pub target: String,
+    pub pressed: bool,
+    pub icon_char: char,
+    pub show_label: bool,
 }
 
 impl WidgetAbi for ButtonWidget {

@@ -19,6 +19,8 @@ use userland::{
     canon, load_thing, println, AbiRequest, AppEvent, FramebufferGeometry, NodePattern, Surface,
     Thingable, Value, WatchId, WatchManager, Window,
 };
+use userland::widget_abi::{WidgetAbi, WidgetContext, GraphHandle, WidgetEventRx, SharedFramebuffer};
+use widget_button::ButtonWidget;
 use uuid::Uuid;
 
 mod framebuffer_backend;
@@ -1424,16 +1426,53 @@ where
             return;
         }
 
-        let mut y_offset = layout.client_y;
-        let x_offset = layout.client_x;
-        let width = layout.client_w;
-        let height = layout.client_h;
+        let mut relative_widgets: Vec<Uuid> = Vec::new();
+        let mut overlay_widgets: Vec<Uuid> = Vec::new();
 
-        for widget_id in root_widgets {
+        for widget_id in &root_widgets {
+            if let Some(widget) = self.widgets.get(widget_id) {
+                if widget.x.is_some() && widget.y.is_some() {
+                    overlay_widgets.push(*widget_id);
+                } else {
+                    relative_widgets.push(*widget_id);
+                }
+            }
+        }
+
+        let x_offset = layout.client_x;
+        let width = layout.client_w.max(0);
+        let mut y_offset = layout.client_y;
+        let mut remaining_h = layout.client_h.max(0);
+
+        for widget_id in relative_widgets {
+            if remaining_h <= 0 {
+                break;
+            }
+
             if let Some(widget) = self.widgets.get(&widget_id) {
-                self.draw_widget_recursive(
-                    scene, window_id, widget, x_offset, y_offset, width, height,
+                let child_h = self.draw_widget_recursive(
+                    scene,
+                    window_id,
+                    widget,
+                    x_offset,
+                    y_offset,
+                    width,
+                    remaining_h,
                 );
+                y_offset += child_h;
+                remaining_h = remaining_h.saturating_sub(child_h);
+            }
+        }
+
+        for widget_id in overlay_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if let (Some(x), Some(y), Some(w), Some(h)) =
+                    (widget.x, widget.y, widget.width, widget.height)
+                {
+                    self.draw_widget_recursive(
+                        scene, window_id, widget, x as i32, y as i32, w as i32, h as i32,
+                    );
+                }
             }
         }
     }

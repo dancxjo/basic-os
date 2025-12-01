@@ -226,6 +226,7 @@ dependencies = [
  "unifont",
  "userland",
  "uuid",
+ "widget_button",
  "widget_host",
 ]
 
