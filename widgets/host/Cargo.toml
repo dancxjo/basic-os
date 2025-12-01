@@ -1,0 +1,29 @@
+[package]
+name = "widget_host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+uuid = { version = "=1.10", default-features = false, features = [
+    "v5",
+    "serde",
+] }
+thing_abi = { path = "../../thing_abi" }
+widget_launcher_entry = { path = "../launcher_entry" }
+widget_scrollbar_thumb = { path = "../scrollbar_thumb" }
+widget_toolbar = { path = "../toolbar" }
+widget_button = { path = "../button" }
+widget_listbox_default = { path = "../listbox_default" }
+widget_notification_toast = { path = "../notification_toast" }
+widget_notification_dialog = { path = "../notification_dialog" }
+widget_image = { path = "../image" }
+
+[features]
+default = []
+std = ["userland/std"]
+host = ["std"]
+
+[[bin]]
+name = "widget_host"
+path = "src/main.rs"

@@ -26,20 +26,6 @@ impl App for LauncherApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
         let window = ctx.create_window("Launcher");
 
-        // Create launcher surface widget (container)
-        let launcher_surface_id = userland::simple_uuid(b"launcher_surface");
-        let mut fields = graph::map();
-        fields.insert(canon::ROLE, Value::Text("launcher_surface".to_string()));
-        fields.insert(canon::LABEL, Value::Text("Launcher".to_string()));
-        fields.insert(canon::VISIBLE, Value::Bool(true));
-        fields.insert(canon::PARENT, Value::Uuid(window.window_id()));
-        graph::fiat(Some(launcher_surface_id), canon::WIDGET, fields);
-        graph::that(window.window_id(), "contains", launcher_surface_id, 0);
-
-        // Grant access to widget_host
-        let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
-        graph::grant_capability(widget_host_bundle, launcher_surface_id, "CAN_READ");
-
         let mut app = LauncherApp {
             window: window.clone(),
             entries: Vec::new(),
@@ -49,7 +35,7 @@ impl App for LauncherApp {
             selection_watch: None,
         };
 
-        app.sync_entries(ctx, launcher_surface_id);
+        app.sync_entries(ctx, window.window_id());
 
         // Watch window for active state
         app.window_watch = Some(ctx.watch_graph(ThingFilter {

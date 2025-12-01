@@ -13,6 +13,7 @@ use userland::widget_abi::{
 };
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_button::ButtonWidget;
+use widget_image::ImageWidget;
 use widget_launcher_entry::LauncherEntryWidget;
 use widget_listbox_default::ListboxDefaultWidget;
 use widget_notification_dialog::NotificationDialog;
@@ -28,6 +29,7 @@ enum WidgetState {
     ListboxDefault(<ListboxDefaultWidget as WidgetAbi>::State),
     NotificationToast(<NotificationToast as WidgetAbi>::State),
     NotificationDialog(<NotificationDialog as WidgetAbi>::State),
+    Image(<ImageWidget as WidgetAbi>::State),
 }
 
 struct WidgetInstance {
@@ -156,6 +158,7 @@ impl App for WidgetHost {
                             Some("notification_dialog") => Some(WidgetState::NotificationDialog(
                                 NotificationDialog::init(&context),
                             )),
+                            Some("image") => Some(WidgetState::Image(ImageWidget::init(&context))),
                             _ => {
                                 // Default to launcher for now if unspecified or unknown
                                 Some(WidgetState::Launcher(LauncherEntryWidget::init(&context)))
@@ -228,6 +231,7 @@ impl App for WidgetHost {
                                 WidgetState::NotificationDialog(s) => {
                                     NotificationDialog::handle_event(s, e)
                                 }
+                                WidgetState::Image(s) => ImageWidget::handle_event(s, e),
                             }
                         }
                     }
@@ -271,6 +275,7 @@ impl App for WidgetHost {
                                     WidgetState::NotificationDialog(s) => {
                                         NotificationDialog::handle_event(s, e)
                                     }
+                                    WidgetState::Image(s) => ImageWidget::handle_event(s, e),
                                 }
                             }
                         }
@@ -309,6 +314,7 @@ impl App for WidgetHost {
                 WidgetState::NotificationDialog(s) => {
                     NotificationDialog::draw(s, &mut instance.framebuffer, rect)
                 }
+                WidgetState::Image(s) => ImageWidget::draw(s, &mut instance.framebuffer, rect),
             }
 
             // Publish

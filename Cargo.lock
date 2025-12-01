@@ -1853,12 +1853,21 @@ dependencies = [
  "userland",
  "uuid",
  "widget_button",
+ "widget_image",
  "widget_launcher_entry",
  "widget_listbox_default",
  "widget_notification_dialog",
  "widget_notification_toast",
  "widget_scrollbar_thumb",
  "widget_toolbar",
+]
+
+[[package]]
+name = "widget_image"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "userland",
 ]
 
 [[package]]

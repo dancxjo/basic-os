@@ -21,8 +21,8 @@ graph_viewer = { path = "../apps/graph_viewer", optional = true }
 text_editor = { path = "../apps/text_editor", optional = true }
 rootfs = { path = "../apps/rootfs", optional = true }
 launcher = { path = "../apps/launcher", optional = true }
-widget_host = { path = "../apps/widget_host", optional = true }
-widget_button = { path = "../apps/widget_button" }
+widget_host = { path = "../widgets/host", optional = true }
+widget_button = { path = "../widgets/button" }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 tiny_http = { version = "0.12", optional = true }

@@ -13,10 +13,8 @@ const MAX_KEY_LOG: usize = 24;
 
 pub struct DemoApp {
     window: WindowHandle,
-    bmp_data: alloc::vec::Vec<u8>,
     key_count: usize,
     key_log: VecDeque<String>,
-    sent_bitmap: bool,
     // Smoke state
     smoke_node: Uuid,
     smoke_watch: WatchId,
@@ -36,7 +34,23 @@ impl App for DemoApp {
             id: None,
         });
 
-        let bmp_data = load_and_process_bitmap();
+        let bmp_data = create_demo_image_data();
+
+        // Create Image Widget
+        let image_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"demo_image");
+        let mut fields = graph::map();
+        fields.insert(canon::cc('W', 'K'), Value::Text(String::from("image")));
+        fields.insert(canon::WIDTH, Value::U64(16));
+        fields.insert(canon::HEIGHT, Value::U64(16));
+        fields.insert(canon::cc('I', 'D'), Value::Bytes(bmp_data));
+        fields.insert(canon::PARENT, Value::Uuid(window.window_id()));
+        
+        graph::fiat(Some(image_id), canon::WIDGET, fields);
+        
+        let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
+        graph::grant_capability(widget_host_bundle, image_id, "CAN_READ");
+        
+        graph::that(window.window_id(), "contains", image_id, 0);
 
         // --- Graph Client Logic ---
         // Create "Hello" thing
@@ -69,10 +83,8 @@ impl App for DemoApp {
 
         DemoApp {
             window,
-            bmp_data,
             key_count: 0,
             key_log: VecDeque::new(),
-            sent_bitmap: false,
             smoke_node,
             smoke_watch,
             smoke_seen_events: false,
@@ -108,11 +120,6 @@ impl App for DemoApp {
         }
 
         ctx.clear_window(&self.window);
-
-        if !self.sent_bitmap {
-            ctx.draw_bitmap(&self.window, &self.bmp_data);
-            self.sent_bitmap = true;
-        }
 
         ctx.draw_text(
             &self.window,
@@ -172,41 +179,21 @@ impl DemoApp {
     }
 }
 
-fn load_and_process_bitmap() -> alloc::vec::Vec<u8> {
+fn create_demo_image_data() -> alloc::vec::Vec<u8> {
     const TILE: u32 = 16;
-    const HEADER_SIZE: usize = 54;
-    let row_stride = (TILE as usize * 3 + 3) & !3;
-    let image_size = row_stride * TILE as usize;
-    let file_size = HEADER_SIZE + image_size;
-
-    let mut bmp = vec![0u8; file_size];
-
-    // BMP Header
-    bmp[0..2].copy_from_slice(b"BM");
-    bmp[2..6].copy_from_slice(&(file_size as u32).to_le_bytes());
-    bmp[10..14].copy_from_slice(&(HEADER_SIZE as u32).to_le_bytes());
-    bmp[14..18].copy_from_slice(&(40u32).to_le_bytes()); // DIB header size
-    bmp[18..22].copy_from_slice(&(TILE as i32).to_le_bytes());
-    bmp[22..26].copy_from_slice(&(TILE as i32).to_le_bytes());
-    bmp[26..28].copy_from_slice(&(1u16).to_le_bytes()); // planes
-    bmp[28..30].copy_from_slice(&(24u16).to_le_bytes()); // bpp
-    bmp[30..34].copy_from_slice(&(0u32).to_le_bytes()); // compression
-    bmp[34..38].copy_from_slice(&(image_size as u32).to_le_bytes());
-
-    for y in 0..TILE as usize {
-        let dst_row = HEADER_SIZE + y * row_stride;
-        // BMP rows are bottom-up
-        let src_y = TILE as usize - 1 - y;
-        for x in 0..TILE as usize {
-            let (r, g, b) = demo_tile_color(x as u32, src_y as u32);
-            let idx = dst_row + x * 3;
-            bmp[idx] = b;
-            bmp[idx + 1] = g;
-            bmp[idx + 2] = r;
+    let mut data = vec![0u8; (TILE * TILE * 4) as usize];
+    
+    for y in 0..TILE {
+        for x in 0..TILE {
+            let (r, g, b) = demo_tile_color(x, y);
+            let idx = ((y * TILE + x) * 4) as usize;
+            data[idx] = b;
+            data[idx + 1] = g;
+            data[idx + 2] = r;
+            data[idx + 3] = 0xFF;
         }
     }
-
-    bmp
+    data
 }
 
 fn demo_tile_color(x: u32, y: u32) -> (u8, u8, u8) {
