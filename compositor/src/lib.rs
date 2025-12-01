@@ -669,6 +669,12 @@ impl CursorState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Sky,
+    Max,
+}
+
 pub struct Compositor<F, R> {
     frame_no: u64,
     fb_device: F,
@@ -687,6 +693,8 @@ pub struct Compositor<F, R> {
     cursor: CursorState,
     cursor_sprites: CursorSprites,
     active_window: Option<Uuid>,
+    active_mode: Mode,
+    saved_sky_geometry: BTreeMap<Uuid, Rect>,
     theme: Theme,
     background: Arc<Bitmap>,
     drag_state: Option<DragState>,
@@ -731,6 +739,8 @@ where
             cursor: CursorState::new(width, height),
             cursor_sprites,
             active_window: None,
+            active_mode: Mode::Sky,
+            saved_sky_geometry: BTreeMap::new(),
             theme,
             background,
             drag_state: None,
@@ -1005,8 +1015,17 @@ where
 
         let mut scene = Scene::new(width as u32, height as u32);
         scene.push(SceneItem::Clear { color: CLEAR_COLOR });
-        self.draw_background(&mut scene, width, height);
-        self.draw_windows(&mut scene, width, height);
+
+        match self.active_mode {
+            Mode::Sky => {
+                self.draw_background(&mut scene, width, height);
+                self.draw_windows(&mut scene, width, height);
+            }
+            Mode::Max => {
+                self.draw_max_mode(&mut scene, width, height);
+            }
+        }
+
         self.draw_cursor(&mut scene, width, height);
 
         let frame = self.renderer.render(&scene);
@@ -1743,6 +1762,79 @@ where
         }
     }
 
+    pub fn switch_mode(&mut self, new_mode: Mode) {
+        if self.active_mode == new_mode {
+            return;
+        }
+
+        match new_mode {
+            Mode::Max => self.enter_max_mode(),
+            Mode::Sky => self.exit_max_mode(),
+        }
+
+        self.active_mode = new_mode;
+        self.fb_dirty = true;
+    }
+
+    fn enter_max_mode(&mut self) {
+        if let Some(active_id) = self.active_window {
+            self.maximize_window(active_id);
+        }
+    }
+
+    fn exit_max_mode(&mut self) {
+        let ids: Vec<Uuid> = self.saved_sky_geometry.keys().cloned().collect();
+        for id in ids {
+            self.restore_window(id);
+        }
+    }
+
+    fn maximize_window(&mut self, window_id: Uuid) {
+        if let Some(surface) = self.windows.get(&window_id) {
+            if !self.saved_sky_geometry.contains_key(&window_id) {
+                self.saved_sky_geometry.insert(
+                    window_id,
+                    Rect::new(
+                        surface.window.x as i32,
+                        surface.window.y as i32,
+                        surface.window.width as u32,
+                        surface.window.height as u32,
+                    ),
+                );
+            }
+
+            let geo = self.fb_device.geometry();
+            let mut props = BTreeMap::new();
+            props.insert(canon::X, Value::U64(0));
+            props.insert(canon::Y, Value::U64(0));
+            props.insert(canon::WIDTH, Value::U64(geo.width as u64));
+            props.insert(canon::HEIGHT, Value::U64(geo.height as u64));
+            self.update_window_props(window_id, props);
+        }
+    }
+
+    fn restore_window(&mut self, window_id: Uuid) {
+        if let Some(rect) = self.saved_sky_geometry.remove(&window_id) {
+            let mut props = BTreeMap::new();
+            props.insert(canon::X, Value::U64(rect.x as u64));
+            props.insert(canon::Y, Value::U64(rect.y as u64));
+            props.insert(canon::WIDTH, Value::U64(rect.width as u64));
+            props.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+            self.update_window_props(window_id, props);
+        }
+    }
+
+    fn handle_f12(&mut self) {
+        if let Some(active) = self.active_window {
+            self.switch_mode(Mode::Max);
+            if self.active_mode == Mode::Max {
+                self.maximize_window(active);
+            }
+        } else {
+            self.switch_mode(Mode::Sky);
+        }
+    }
+
     fn ingest_key_event(&mut self, thing: &userland::GraphThing) {
         let key = thing.fields.get(&canon::KEY).and_then(|v| v.as_symbol());
         let down = thing
@@ -1760,12 +1852,19 @@ where
             {
                 self.alt_down = down;
             }
-            if down
-                && self.alt_down
-                && (key == canon::from_char('t') || key == canon::from_char('T'))
-            {
-                self.tile_windows();
+
+            if down {
+                if self.alt_down && (key == canon::from_char('t') || key == canon::from_char('T')) {
+                    self.tile_windows();
+                } else if key == canon::Symbol::new(0xF001) {
+                    self.switch_mode(Mode::Sky);
+                } else if key == canon::Symbol::new(0xF002) {
+                    self.switch_mode(Mode::Max);
+                } else if key == canon::Symbol::new(0xF00C) {
+                    self.handle_f12();
+                }
             }
+
             if down {
                 self.handle_scroll_key(key);
             }
@@ -2118,6 +2217,8 @@ where
             return;
         }
 
+        let prev_window = self.active_window;
+
         if let Some(prev) = self.active_window.take() {
             if let Some(entry) = self.windows.get_mut(&prev) {
                 entry.window.active = false;
@@ -2143,6 +2244,15 @@ where
         } else {
             self.active_window = None;
             self.update_graph_state();
+        }
+
+        if self.active_mode == Mode::Max {
+            if let Some(prev) = prev_window {
+                self.restore_window(prev);
+            }
+            if let Some(id) = window_id {
+                self.maximize_window(id);
+            }
         }
     }
 
@@ -2331,6 +2441,82 @@ where
                 self.draw_window(scene, &surface, fb_width, fb_height);
             }
         }
+    }
+
+    fn draw_max_mode(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
+        if let Some(active_id) = self.active_window {
+            if let Some(surface) = self.windows.get(&active_id).cloned() {
+                if surface.window.visible {
+                    self.draw_window_frameless(scene, &surface, fb_width, fb_height);
+                    return;
+                }
+            }
+        }
+
+        self.draw_background(scene, fb_width, fb_height);
+    }
+
+    fn draw_window_frameless(
+        &self,
+        scene: &mut Scene,
+        surface: &WindowSurface,
+        fb_width: usize,
+        fb_height: usize,
+    ) {
+        let w = surface.window.width as usize;
+        let h = surface.window.height as usize;
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        let x = min(surface.window.x as usize, fb_width);
+        let y = min(surface.window.y as usize, fb_height);
+
+        scene.push(SceneItem::ClipPush {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+        });
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+            color: self.theme.client_bg,
+        });
+
+        if let Some(bmp) = &surface.bitmap {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                image: bmp.clone(),
+                repeat: false,
+                offset: (0, 0),
+            });
+        } else if !surface.text.is_empty() {
+            scene.push(SceneItem::DrawTextBlock {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                text: surface.text.clone(),
+                color: COLOR_TEXT,
+                scroll_offset: surface.scroll_y,
+            });
+        }
+
+        let has_widgets = self
+            .widgets
+            .values()
+            .any(|w| w.parent == Some(surface.window.id));
+
+        if has_widgets {
+            let layout = WindowLayout {
+                title_x: 0,
+                title_y: 0,
+                title_w: 0,
+                title_h: 0,
+                client_x: x as i32,
+                client_y: y as i32,
+                client_w: w as i32,
+                client_h: h as i32,
+            };
+            self.draw_widgets(scene, surface.window.id, &layout);
+        }
+
+        scene.push(SceneItem::ClipPop);
     }
 
     fn draw_window(

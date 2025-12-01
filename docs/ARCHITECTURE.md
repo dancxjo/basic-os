@@ -64,3 +64,39 @@ You can have:
 *   A bunch of app instances sharing one userland process (hosted mode), all using `AppABI`.
 *   The exact same bundles running one-instance-per-process on bare metal for stronger isolation.
 *   Widgets all using `WidgetABI`, regardless of whether their isolates are separate processes or Wasm instances inside `widgetd`.
+
+## System Modes
+
+ThingOS supports distinct system modes that define the top-level UI and interaction model. Modes are managed by the Compositor and can be switched using global keybindings.
+
+### Core Modes
+
+1.  **Sky Mode** (`Mode::Sky`)
+    *   The default desktop environment.
+    *   Supports multiple overlapping windows, a desktop background (clouds), and a visible launcher.
+    *   Standard window management (move, resize, minimize).
+    *   Activated via `F1`.
+
+2.  **Max Mode** (`Mode::Max`)
+    *   A single-tasking, distraction-free environment.
+    *   The currently active program is forced to fullscreen, covering the entire display.
+    *   No window decorations (title bars, borders) or background are visible.
+    *   Switching active programs automatically maximizes the new program.
+    *   Activated via `F2`.
+
+### Mode Switching
+
+*   **F1**: Switch to Sky Mode.
+*   **F2**: Switch to Max Mode.
+*   **F12**: "Return to Active Program".
+    *   If a program is active, switches to Max Mode and ensures it is focused and visible.
+    *   If no program is active, defaults to Sky Mode.
+
+### Implementation Details
+
+The `Compositor` maintains the `active_mode` state.
+*   When entering **Max Mode**, the active window's current geometry is saved, and it is resized to fill the screen.
+*   When leaving **Max Mode** (returning to Sky), the window's original geometry is restored.
+*   The Compositor's rendering loop adapts to the mode:
+    *   In Sky Mode, it draws the background and all windows with decorations.
+    *   In Max Mode, it draws only the active window (frameless) or the background if no window is active.
