@@ -21,13 +21,13 @@ pub static APPS: &[AppSpec] = &[
     AppSpec {
         name: "demo_app",
         bin_name: "demo_app",
-        autostart: true,
+        autostart: false,
         show_in_launcher: true,
     },
     AppSpec {
         name: "graph_viewer",
         bin_name: "graph_viewer",
-        autostart: true,
+        autostart: false,
         show_in_launcher: true,
     },
     AppSpec {
@@ -43,9 +43,15 @@ pub static APPS: &[AppSpec] = &[
         show_in_launcher: true,
     },
     AppSpec {
+        name: "launcher",
+        bin_name: "launcher",
+        autostart: true,
+        show_in_launcher: false,
+    },
+    AppSpec {
         name: "rootfs",
         bin_name: "rootfs",
-        autostart: true,
+        autostart: false,
         show_in_launcher: false,
     },
 ];

@@ -1,0 +1,17 @@
+[package]
+name = "launcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+thing_abi = { path = "../../thing_abi" }
+uuid = { version = "1.10.0", default-features = false, features = ["v5"] }
+
+[features]
+default = []
+std = ["userland/std"]
+
+[[bin]]
+name = "launcher"
+path = "src/main.rs"

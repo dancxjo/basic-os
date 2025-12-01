@@ -20,10 +20,12 @@ pub fn sync_launcher_from_bin() -> Result<(), fs::FsError> {
     let bin_entries = fs::read_dir("/bin")?;
 
     // 3. For each FsNode with SHOW_IN_LAUNCHER=true:
+    let mut count = 0;
     for entry in bin_entries {
         if !entry.show_in_launcher {
             continue;
         }
+        count += 1;
 
         // Create or update a launcher_entry widget under launcher_surface.
         // We'll use a deterministic ID based on the app name to avoid duplicates.
@@ -44,6 +46,8 @@ pub fn sync_launcher_from_bin() -> Result<(), fs::FsError> {
         // Link to the FsNode with LAUNCHES.
         graph::that(entry_id, "LAUNCHES", entry.id, 0);
     }
+
+    crate::println!("Launcher: synced {} entries from /bin", count);
 
     Ok(())
 }
