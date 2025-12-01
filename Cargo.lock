@@ -226,6 +226,7 @@ dependencies = [
  "unifont",
  "userland",
  "uuid",
+ "widget_host",
 ]
 
 [[package]]
@@ -1876,6 +1877,7 @@ name = "widget_toolbar_button"
 version = "0.1.0"
 dependencies = [
  "thing_abi",
+ "unifont",
  "userland",
 ]
 

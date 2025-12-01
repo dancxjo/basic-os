@@ -127,22 +127,23 @@ fn create_toolbar() {
     userland::fiat(Some(toolbar_id), canon::WIDGET, fields);
 
     // Button 1: Clouds
-    create_toolbar_button(toolbar_id, "Clouds", "demo_app", 0);
+    create_toolbar_button(toolbar_id, "Clouds", "demo_app", "clouds", 0);
 
     // Button 2: Text Editor
-    create_toolbar_button(toolbar_id, "Text", "text_editor", 1);
+    create_toolbar_button(toolbar_id, "Text", "text_editor", "text", 1);
 
     // Button 3: Graph Viewer
-    create_toolbar_button(toolbar_id, "Graph", "graph_viewer", 2);
+    create_toolbar_button(toolbar_id, "Graph", "graph_viewer", "graph", 2);
 }
 
-fn create_toolbar_button(_parent: Uuid, label: &str, target: &str, index: i32) {
+fn create_toolbar_button(_parent: Uuid, label: &str, target: &str, icon_path: &str, index: i32) {
     let id = userland::simple_uuid(label.as_bytes()); // Simple ID generation
     let mut fields = userland::map();
     fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
     fields.insert(canon::cc('W', 'K'), Value::Text("toolbar_button".into()));
     fields.insert(canon::WIDTH, Value::U64(60));
     fields.insert(canon::HEIGHT, Value::U64(30));
+    fields.insert(canon::ICON_NAME, Value::Text(icon_path.into()));
 
     // Position relative to toolbar? Or absolute?
     // If absolute, we need to know toolbar position.

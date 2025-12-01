@@ -163,6 +163,10 @@ fn main() {
         userland::app::run_app::<text_editor::TextEditor>,
     );
     userland::sys::register_host_app("launcher", userland::app::run_app::<launcher::LauncherApp>);
+    userland::sys::register_host_app(
+        "widget_host",
+        userland::app::run_app::<widget_host::WidgetHost>,
+    );
     userland::sys::register_host_app("rootfs", rootfs::app_main);
     userland::sys::register_host_app("compositor", || {
         println!("Compositor spawned (ignored)");

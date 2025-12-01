@@ -294,15 +294,8 @@ impl TextEditor {
             .saturating_mul(LINE_HEIGHT)
             .saturating_sub(CURSOR_VERTICAL_NUDGE)
             .max(0);
-        let mut x = column_offset
-            .saturating_mul(CHAR_WIDTH)
-            .saturating_sub(CURSOR_FOCUS_NUDGE);
-        if x < 0 {
-            x = 0;
-        }
-        let width = CHAR_WIDTH
-            .saturating_add(CURSOR_FOCUS_NUDGE * 2)
-            .max(CHAR_WIDTH);
+        let x = column_offset.saturating_mul(CHAR_WIDTH).max(0);
+        let width = CHAR_WIDTH.max(1);
         let height = LINE_HEIGHT.saturating_add(CURSOR_VERTICAL_NUDGE);
         (x, y, width, height)
     }

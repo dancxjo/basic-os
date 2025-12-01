@@ -3,15 +3,12 @@
 extern crate alloc;
 
 use alloc::string::ToString;
+use alloc::vec;
+use alloc::vec::Vec;
 use userland::canon;
 use userland::prelude::*;
 use userland::uuid::Uuid;
 use userland::{AbiRequest, Symbol};
-
-// Define symbols locally for now
-// const DIRECTORY: Symbol = canon::canon(b'D', b'I', b'R');
-// const FILE: Symbol = canon::canon(b'F', b'I', b'L');
-// const DEVICE: Symbol = canon::canon(b'D', b'E', b'V');
 
 pub fn app_main() -> ! {
     userland::println!("RootFS service started.");
@@ -31,6 +28,10 @@ pub fn app_main() -> ! {
     // Create /tmp
     let tmp_id = create_directory("tmp", Some(root_id));
     userland::println!("Created /tmp: {:?}", tmp_id);
+
+    // Create /icons
+    let icons_id = create_directory("icons", Some(root_id));
+    userland::println!("Created /icons: {:?}", icons_id);
 
     // Populate /bin
     for app in userland::apps_manifest::APPS {
@@ -107,6 +108,56 @@ fn create_device(name: &str, parent: Uuid) {
 
     link(parent, "contains", dev_id);
     link(dev_id, "parent", parent);
+}
+
+fn create_icon_file(name: &str, parent: Uuid, color: u32) {
+    let mut fields = userland::map();
+    fields.insert(canon::NAME, Value::Text(name.into()));
+    fields.insert(canon::KIND, Value::Symbol(canon::FILE));
+    fields.insert(canon::PARENT, Value::Uuid(parent));
+    fields.insert(canon::MIME, Value::Text("image/raw-argb".into()));
+
+    // Generate 32x32 icon data
+    let width = 32;
+    let height = 32;
+    let mut data = vec![0u8; width * height * 4];
+    for i in 0..width * height {
+        data[i * 4] = (color >> 16) as u8; // B
+        data[i * 4 + 1] = (color >> 8) as u8; // G
+        data[i * 4 + 2] = color as u8; // R
+        data[i * 4 + 3] = (color >> 24) as u8; // A
+    }
+
+    // Add a simple pattern (border)
+    for x in 0..width {
+        let offset = (x * 4) as usize;
+        data[offset] = 0;
+        data[offset + 1] = 0;
+        data[offset + 2] = 0; // Top
+        let offset = ((height - 1) * width + x) as usize * 4;
+        data[offset] = 0;
+        data[offset + 1] = 0;
+        data[offset + 2] = 0; // Bottom
+    }
+    for y in 0..height {
+        let offset = (y * width) as usize * 4;
+        data[offset] = 0;
+        data[offset + 1] = 0;
+        data[offset + 2] = 0; // Left
+        let offset = (y * width + width - 1) as usize * 4;
+        data[offset] = 0;
+        data[offset + 1] = 0;
+        data[offset + 2] = 0; // Right
+    }
+
+    fields.insert(canon::BYTES, Value::Bytes(data));
+    fields.insert(canon::WIDTH, Value::U64(width as u64));
+    fields.insert(canon::HEIGHT, Value::U64(height as u64));
+
+    let file_id = userland::fiat(None, canon::FILE, fields);
+
+    link(parent, "contains", file_id);
+    link(file_id, "parent", parent);
 }
 
 fn link(from: Uuid, pred: &str, to: Uuid) {

@@ -1614,7 +1614,7 @@ where
                     if draw_cy + ch >= y && draw_cy < y + h {
                         scene.push(SceneItem::FillRect {
                             rect: Rect::new(draw_cx, draw_cy, 2, ch as u32),
-                            color: COLOR_CURSOR_PRIMARY,
+                            color: COLOR_TEXT,
                         });
                     }
                 }
@@ -2595,7 +2595,7 @@ where
                             {
                                 scene.push(SceneItem::FillRect {
                                     rect: Rect::new(cx, cy, 2, rect.height as u32),
-                                    color: COLOR_CURSOR_PRIMARY,
+                                    color: COLOR_TEXT,
                                 });
                             }
                         }
