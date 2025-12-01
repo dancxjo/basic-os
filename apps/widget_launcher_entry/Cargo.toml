@@ -1,0 +1,12 @@
+[package]
+name = "widget_launcher_entry"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+thing_abi = { path = "../../thing_abi" }
+
+[features]
+default = []
+std = ["userland/std"]

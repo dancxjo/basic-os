@@ -36,7 +36,8 @@ pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
 }
 
 /// Spawn a new kernel-mode task with an associated bundle.
-/// This creates the bundle node in the graph and assigns it to the task before first run.
+/// This ensures the bundle package exists, creates a new task instance in the graph,
+/// and assigns that instance ID to the task before first run.
 pub fn spawn_kernel_with_bundle(
     entry: extern "C" fn(),
     bundle_name: &str,
@@ -59,7 +60,7 @@ pub fn spawn_kernel_with_bundle(
     (handle, task_id)
 }
 
-/// Mark the given task as belonging to a bundle.
+/// Assign the bundle instance ID to the given task.
 pub fn assign_bundle(task: TaskId, bundle: BundleId) {
     with_scheduler(|sched| {
         if let Some(Some(t)) = sched.tasks.get_mut(task.0 as usize).map(|t| t.as_mut()) {
@@ -68,7 +69,7 @@ pub fn assign_bundle(task: TaskId, bundle: BundleId) {
     });
 }
 
-/// Mark the current task as belonging to a bundle.
+/// Assign the bundle instance ID to the current task.
 pub fn assign_current_bundle(bundle: BundleId) {
     unsafe {
         let task_ptr = crate::task::scheduler::CURRENT_TASK;
@@ -78,7 +79,7 @@ pub fn assign_current_bundle(bundle: BundleId) {
     }
 }
 
-/// Return the bundle associated with the currently running task.
+/// Return the bundle instance ID of the currently running task.
 pub fn current_bundle() -> BundleId {
     unsafe {
         let task_ptr = crate::task::scheduler::CURRENT_TASK;

@@ -37,6 +37,12 @@ use x86_64::{PhysAddr, registers::control::Cr3};
 use crate::task::context::{FullContext, TaskMode, prepare_context};
 
 /// Represents a schedulable task with its execution context and stack.
+///
+/// A Task is a running instance of a Bundle. It has its own stack,
+/// CPU context, and identity, but shares the Bundle's code and contract.
+///
+/// In the current implementation, each Task runs in its own protection domain (process),
+/// but future versions may host multiple Tasks in a single process.
 #[repr(C)]
 #[derive(Debug)]
 pub struct Task {
@@ -45,6 +51,7 @@ pub struct Task {
     pub context: FullContext,
     pub initialized: bool,
     pub mode: TaskMode,
+    /// The ID of the bundle this task is an instance of.
     pub bundle: BundleId,
     pub cr3: u64,
     pub magic: u64,

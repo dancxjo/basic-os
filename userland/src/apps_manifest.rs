@@ -49,9 +49,9 @@ pub static APPS: &[AppSpec] = &[
         show_in_launcher: false,
     },
     AppSpec {
-        name: "rootfs",
-        bin_name: "rootfs",
-        autostart: false,
+        name: "widget_host",
+        bin_name: "widget_host",
+        autostart: true,
         show_in_launcher: false,
     },
 ];

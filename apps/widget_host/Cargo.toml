@@ -1,0 +1,22 @@
+[package]
+name = "widget_host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+uuid = { version = "=1.10", default-features = false, features = [
+    "v5",
+    "serde",
+] }
+thing_abi = { path = "../../thing_abi" }
+widget_launcher_entry = { path = "../widget_launcher_entry" }
+
+[features]
+default = []
+std = ["userland/std"]
+host = ["std"]
+
+[[bin]]
+name = "widget_host"
+path = "src/main.rs"

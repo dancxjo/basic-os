@@ -3,7 +3,7 @@ use alloc::string::{String, ToString};
 use core::convert::TryFrom;
 use core::sync::atomic::{AtomicU64, Ordering};
 use userland::prelude::*;
-use userland::{canon, graph, simple_uuid, AppEvent, ThingFilter};
+use userland::{canon, graph, simple_uuid, AppEvent, ThingFilter, semantic_ui};
 use uuid::Uuid;
 
 static EVENT_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -81,6 +81,20 @@ impl App for TextEditor {
 
         // 3. Create Window
         let window = ctx.create_window("Advent_Notes — Editor");
+
+        // Create Semantic UI
+        // Root container
+        let window_root = semantic_ui::create_widget("container.vertical", true, true, None);
+        graph::that(window.window_id(), canon::CHILD, window_root, 0);
+
+        // Toolbar
+        let toolbar = semantic_ui::toolbar(ctx, window_root);
+        semantic_ui::toolbar_button(ctx, toolbar, "save", "editor.save", Some("Save"));
+        semantic_ui::toolbar_button(ctx, toolbar, "undo", "editor.undo", Some("Undo"));
+
+        // Editor Root (holds the content)
+        let editor_root = semantic_ui::create_widget("container.editor_root", true, true, None);
+        graph::that(window_root, canon::CHILD, editor_root, 0);
 
         // Link Window -> View
         graph::that(window.window_id(), canon::SHOWS, view_uuid, 0);

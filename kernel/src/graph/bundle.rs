@@ -87,9 +87,13 @@ pub fn create_package_with_id(
 }
 
 /// Create a new task node (running instance) from a package.
+///
+/// This creates a new "Instance" of the given Bundle.
+/// The returned ID represents the running actor, distinct from the static Bundle ID.
 pub fn create_task(package_id: BundleId, name: &str, extra_labels: Vec<Symbol>) -> BundleId {
     let counter = TASK_COUNTER.fetch_add(1, Ordering::Relaxed);
     let unique_name = format!("{}-{}", name, counter);
+    // The task ID is derived from the package ID but is unique per instance.
     let task_id = BundleId(Uuid::new_v5(&package_id.0, unique_name.as_bytes()));
     let mut fields = BTreeMap::new();
     fields.insert(canon::ID, Value::Uuid(task_id.0));

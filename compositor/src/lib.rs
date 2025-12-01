@@ -46,6 +46,11 @@ const SCROLLBAR_MIN_THUMB: i32 = 32; // Keeps the thumb graspable per WCAG 2.5.5
 const SCROLL_STEP_LINE: i32 = FONT_HEIGHT as i32;
 const SCROLLBAR_TOTAL_RESERVE: i32 = SCROLLBAR_WIDTH + SCROLLBAR_GAP;
 
+const ROLE_TOOLBAR: &str = "container.toolbar";
+const ROLE_TOOLBAR_BUTTON: &str = "control.toolbar_button";
+const ROLE_CONTAINER_VERTICAL: &str = "container.vertical";
+const ROLE_EDITOR_ROOT: &str = "container.editor_root";
+
 #[derive(Clone, Copy)]
 pub struct Theme {
     pub frame_outer: Rgba,
@@ -1102,6 +1107,399 @@ where
         false
     }
 
+    fn get_widget_height(&self, widget: &userland::semantic_ui::Widget, w: i32, h: i32) -> i32 {
+        if !widget.visible {
+            return 0;
+        }
+        if widget.role == ROLE_TOOLBAR {
+            return 32;
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+            let mut height = 0;
+            let mut remaining_h = h;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let ch = self.get_widget_height(child, w, remaining_h);
+                    height += ch;
+                    remaining_h -= ch;
+                }
+            }
+            return height;
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            return h;
+        }
+        0
+    }
+
+    fn hit_test_widgets(
+        &self,
+        window_id: Uuid,
+        layout: &WindowLayout,
+        mx: i32,
+        my: i32,
+    ) -> Option<Uuid> {
+        let root_widgets: Vec<Uuid> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(window_id))
+            .map(|w| w.id)
+            .collect();
+
+        let y_offset = layout.client_y;
+        let x_offset = layout.client_x;
+        let width = layout.client_w;
+        let height = layout.client_h;
+
+        for widget_id in root_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if let Some(hit) = self
+                    .hit_test_widget_recursive(widget, x_offset, y_offset, width, height, mx, my)
+                {
+                    return Some(hit);
+                }
+            }
+        }
+        None
+    }
+
+    fn hit_test_widget_recursive(
+        &self,
+        widget: &userland::semantic_ui::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        mx: i32,
+        my: i32,
+    ) -> Option<Uuid> {
+        if !widget.visible {
+            return None;
+        }
+
+        let height = self.get_widget_height(widget, w, h);
+
+        if mx < x || mx >= x + w || my < y || my >= y + height {
+            return None;
+        }
+
+        if widget.role == ROLE_TOOLBAR {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_x = x + 4;
+            let drawn_height = 32;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let btn_w = 24;
+                    let btn_h = 24;
+                    let btn_y = y + (drawn_height - btn_h) / 2;
+
+                    if mx >= child_x && mx < child_x + btn_w && my >= btn_y && my < btn_y + btn_h {
+                        return Some(child.id);
+                    }
+                    child_x += btn_w + 4;
+                }
+            }
+            return Some(widget.id);
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y;
+            let mut remaining_h = h;
+
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let child_h = self.get_widget_height(child, w, remaining_h);
+                    if let Some(hit) =
+                        self.hit_test_widget_recursive(child, x, child_y, w, remaining_h, mx, my)
+                    {
+                        return Some(hit);
+                    }
+                    child_y += child_h;
+                    remaining_h -= child_h;
+                }
+            }
+            return Some(widget.id);
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            return Some(widget.id);
+        }
+
+        if widget.role == ROLE_TOOLBAR_BUTTON {
+            return Some(widget.id);
+        }
+
+        None
+    }
+
+    fn draw_widgets(&self, scene: &mut Scene, window_id: Uuid, layout: &WindowLayout) {
+        let root_widgets: Vec<Uuid> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(window_id))
+            .map(|w| w.id)
+            .collect();
+
+        if root_widgets.is_empty() {
+            return;
+        }
+
+        let mut y_offset = layout.client_y;
+        let x_offset = layout.client_x;
+        let width = layout.client_w;
+        let height = layout.client_h;
+
+        for widget_id in root_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                self.draw_widget_recursive(
+                    scene, window_id, widget, x_offset, y_offset, width, height,
+                );
+            }
+        }
+    }
+
+    fn draw_widget_recursive(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        widget: &userland::semantic_ui::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) -> i32 {
+        if !widget.visible {
+            return 0;
+        }
+
+        if let Some(bytes) = &widget.bitmap {
+            if let (Some(bw), Some(bh)) = (widget.width, widget.height) {
+                let mut pixels = Vec::with_capacity((bw * bh) as usize);
+                for chunk in bytes.chunks(4) {
+                    if chunk.len() == 4 {
+                        let b = chunk[0] as u32; // Blue
+                        let g = chunk[1] as u32; // Green
+                        let r = chunk[2] as u32; // Red
+                        let a = chunk[3] as u32; // Alpha
+                                                 // ARGB
+                        let val = (a << 24) | (r << 16) | (g << 8) | b;
+                        pixels.push(val);
+                    } else {
+                        pixels.push(0);
+                    }
+                }
+
+                let bmp = Arc::new(Bitmap {
+                    width: bw as usize,
+                    height: bh as usize,
+                    pixels: pixels.into(),
+                });
+
+                scene.push(SceneItem::BlitImage {
+                    rect: Rect::new(x, y, w as u32, h as u32),
+                    image: bmp,
+                    repeat: false,
+                    offset: (0, 0),
+                });
+
+                return h;
+            }
+        }
+
+        let mut drawn_height = 0;
+
+        if widget.role == ROLE_TOOLBAR {
+            drawn_height = 32;
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: THEME.client_bg,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y + drawn_height - 1, w as u32, 1),
+                color: THEME.frame_shadow,
+            });
+
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_x = x + 4;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let btn_w = 24;
+                    let btn_h = 24;
+                    let btn_y = y + (drawn_height - btn_h) / 2;
+                    self.draw_toolbar_button(scene, child, child_x, btn_y, btn_w, btn_h);
+                    child_x += btn_w + 4;
+                }
+            }
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y;
+            let mut remaining_h = h;
+
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let child_h = self.draw_widget_recursive(
+                        scene,
+                        window_id,
+                        child,
+                        x,
+                        child_y,
+                        w,
+                        remaining_h,
+                    );
+                    child_y += child_h;
+                    drawn_height += child_h;
+                    remaining_h -= child_h;
+                }
+            }
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            drawn_height = h;
+            self.draw_surface_content(scene, window_id, x, y, w, h);
+        }
+
+        drawn_height
+    }
+
+    fn draw_toolbar_button(
+        &self,
+        scene: &mut Scene,
+        widget: &userland::semantic_ui::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w as u32, h as u32),
+            color: BTN_FACE,
+        });
+        self.draw_rect_outline(scene, x, y, w, h, BTN_BORDER);
+
+        if let Some(icon_name) = &widget.icon {
+            let color = BTN_GLYPH;
+            let cx = x + w / 2;
+            let cy = y + h / 2;
+
+            if icon_name == "save" {
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(cx - 6, cy - 6, 12, 12),
+                    color,
+                });
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(cx - 4, cy - 6, 8, 4),
+                    color: BTN_FACE,
+                });
+            } else if icon_name == "undo" {
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(cx - 6, cy, 12, 2),
+                    color,
+                });
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(cx - 6, cy - 4, 2, 6),
+                    color,
+                });
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(cx - 6, cy - 4, 6, 2),
+                    color,
+                });
+            }
+        }
+    }
+
+    fn draw_rect_outline(&self, scene: &mut Scene, x: i32, y: i32, w: i32, h: i32, color: Rgba) {
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w as u32, 1),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y + h - 1, w as u32, 1),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, 1, h as u32),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x + w - 1, y, 1, h as u32),
+            color,
+        });
+    }
+
+    fn draw_surface_content(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        let Some(surface) = self.windows.get(&window_id) else {
+            return;
+        };
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w as u32, h as u32),
+            color: THEME.client_bg,
+        });
+
+        if let Some(bmp) = &surface.bitmap {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(x, y, w as u32, h as u32),
+                image: bmp.clone(),
+                repeat: false,
+                offset: (0, 0),
+            });
+        } else if !surface.text.is_empty() {
+            scene.push(SceneItem::DrawTextBlock {
+                rect: Rect::new(x, y, w as u32, h as u32),
+                text: surface.text.clone(),
+                color: COLOR_TEXT,
+                scroll_offset: surface.scroll_y,
+            });
+
+            if let Some(rect) = surface.window.window_rect {
+                let cx = rect.x as i32;
+                let cy = rect.y as i32;
+                let ch = rect.height as i32;
+
+                let draw_cx = x + cx;
+                let draw_cy = y + cy - surface.scroll_y;
+
+                if draw_cy + ch >= y && draw_cy < y + h {
+                    scene.push(SceneItem::FillRect {
+                        rect: Rect::new(draw_cx, draw_cy, 2, ch as u32),
+                        color: COLOR_CURSOR_PRIMARY,
+                    });
+                }
+            }
+        }
+    }
+
     fn ingest_surface(&mut self, thing: &userland::GraphThing) {
         if thing.kind != canon::SURFACE {
             return;
@@ -1323,6 +1721,20 @@ where
                 props.insert(canon::VISIBLE, Value::Bool(false));
                 self.update_window_props(win_id, props);
                 return;
+            }
+
+            if let Some(widget_id) =
+                self.hit_test_widgets(win_id, &layout, self.cursor.x, self.cursor.y)
+            {
+                if let Some(widget) = self.widgets.get(&widget_id) {
+                    if widget.role == ROLE_TOOLBAR_BUTTON {
+                        println!("Toolbar button clicked: {}", widget_id);
+                        if let Some(action) = &widget.action {
+                            println!("Action: {}", action);
+                        }
+                        return;
+                    }
+                }
             }
 
             let metrics = ContentMetrics::new(surface, &layout);
@@ -1968,31 +2380,52 @@ where
         });
 
         let metrics = ContentMetrics::new(surface, &layout);
-        let content_rect = metrics.content_rect;
 
-        if content_rect.width > 0 && content_rect.height > 0 {
-            if let Some(bmp) = &surface.bitmap {
-                scene.push(SceneItem::BlitImage {
-                    rect: content_rect,
-                    image: bmp.clone(),
-                    repeat: false,
-                    offset: (0, metrics.scroll_offset),
-                });
+        // Check for widgets
+        let has_widgets = self
+            .widgets
+            .values()
+            .any(|w| w.parent == Some(surface.window.id));
+        if has_widgets {
+            // Adjust layout for widgets (remove the +1 offset used for legacy border?)
+            // The legacy code adds +1 to client_y.
+            // My draw_widgets uses layout.client_y directly.
+            // I should probably stick to layout.client_y for widgets.
+            self.draw_widgets(scene, surface.window.id, &layout);
+        } else {
+            let content_rect = metrics.content_rect;
+
+            if content_rect.width > 0 && content_rect.height > 0 {
+                if let Some(bmp) = &surface.bitmap {
+                    scene.push(SceneItem::BlitImage {
+                        rect: content_rect,
+                        image: bmp.clone(),
+                        repeat: false,
+                        offset: (0, 0),
+                    });
+                } else if !surface.text.is_empty() {
+                    scene.push(SceneItem::DrawTextBlock {
+                        rect: content_rect,
+                        text: surface.text.clone(),
+                        color: COLOR_TEXT,
+                        scroll_offset: surface.scroll_y,
+                    });
+
+                    // Draw cursor
+                    if let Some(rect) = surface.window.window_rect {
+                        let cx = content_rect.x + rect.x as i32;
+                        let cy = content_rect.y + rect.y as i32 - surface.scroll_y;
+                        if cy + (rect.height as i32) >= content_rect.y
+                            && cy < content_rect.y + content_rect.height as i32
+                        {
+                            scene.push(SceneItem::FillRect {
+                                rect: Rect::new(cx, cy, 2, rect.height as u32),
+                                color: COLOR_CURSOR_PRIMARY,
+                            });
+                        }
+                    }
+                }
             }
-
-            scene.push(SceneItem::DrawTextBlock {
-                rect: content_rect,
-                text: surface.text.clone(),
-                color: COLOR_TEXT,
-                scroll_offset: metrics.scroll_offset,
-            });
-        } else if let Some(bmp) = &surface.bitmap {
-            scene.push(SceneItem::BlitImage {
-                rect: client_rect,
-                image: bmp.clone(),
-                repeat: false,
-                offset: (0, metrics.scroll_offset),
-            });
         }
 
         if let Some(track) = metrics.scrollbar_track_rect {

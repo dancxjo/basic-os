@@ -18,8 +18,8 @@ use crate::task::runtime;
 /// Lifecycle overview:
 /// 1. The bootloader supplies a raw ELF *module*.
 /// 2. We create a deterministic graph *bundle node* for it using a v5 UUID.
-/// 3. `start_user_task` turns that bundle into an executing *task*.
-/// 4. We apply initial *capabilities* that connect the bundle to device nodes.
+/// 3. `start_user_task` creates a new *task* (instance) from that bundle.
+/// 4. We apply initial *capabilities* that connect the bundle instance to device nodes.
 struct UserModule {
     name: &'static str,
     bundle: BundleId,

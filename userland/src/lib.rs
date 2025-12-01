@@ -15,6 +15,7 @@ pub mod runtime;
 pub mod semantic_ui;
 pub mod sys;
 pub mod watch;
+pub mod widget_abi;
 
 pub use heap::init_heap;
 #[cfg(feature = "std")]
@@ -192,6 +193,9 @@ pub mod canon {
     pub const VIEW: Symbol = canon(b'V', b'I', b'W');
     pub const WIDGET: Symbol = canon(b'W', b'D', b'G');
     pub const ROLE: Symbol = canon(b'R', b'O', b'L');
+    pub const WIDGET_ROLE: Symbol = canon(b'W', b'R', b'L');
+    pub const ICON_NAME: Symbol = canon(b'I', b'C', b'N');
+    pub const ACTION: Symbol = canon(b'A', b'C', b'N');
     pub const LABEL: Symbol = canon(b'L', b'B', b'L');
     pub const DESCRIPTION: Symbol = canon(b'D', b'S', b'C');
     pub const FOCUSABLE: Symbol = canon(b'F', b'C', b'S');

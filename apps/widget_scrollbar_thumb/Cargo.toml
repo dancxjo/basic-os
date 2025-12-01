@@ -1,0 +1,8 @@
+[package]
+name = "widget_scrollbar_thumb"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+thing_abi = { path = "../../thing_abi" }

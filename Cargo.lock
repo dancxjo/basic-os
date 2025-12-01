@@ -1835,6 +1835,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget_host"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "userland",
+ "uuid",
+ "widget_launcher_entry",
+]
+
+[[package]]
+name = "widget_launcher_entry"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "userland",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

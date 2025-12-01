@@ -1,4 +1,5 @@
-use crate::{canon, graph, Thingable, Value};
+use crate::app::AppContext;
+use crate::{canon, graph, Symbol, Thingable, Value};
 use alloc::string::String;
 use thing_abi::GraphThing;
 use uuid::Uuid;
@@ -7,12 +8,18 @@ use uuid::Uuid;
 pub struct Widget {
     pub id: Uuid,
     pub role: String,
+    pub parent: Option<Uuid>,
     pub visible: bool,
     pub enabled: bool,
     pub label: Option<String>,
+    pub icon: Option<String>,
+    pub action: Option<String>,
     pub description: Option<String>,
     pub focusable: bool,
     pub tab_index: Option<i64>,
+    pub bitmap: Option<alloc::vec::Vec<u8>>,
+    pub width: Option<u64>,
+    pub height: Option<u64>,
 }
 
 impl Thingable for Widget {
@@ -29,6 +36,7 @@ impl Thingable for Widget {
             .get(&canon::ROLE)
             .and_then(graph::extract_text)
             .unwrap_or_default();
+        let parent = thing.fields.get(&canon::PARENT).and_then(|v| v.as_uuid());
         let visible = thing
             .fields
             .get(&canon::VISIBLE)
@@ -43,6 +51,14 @@ impl Thingable for Widget {
             .fields
             .get(&canon::LABEL)
             .and_then(graph::extract_text);
+        let icon = thing
+            .fields
+            .get(&canon::ICON_NAME)
+            .and_then(graph::extract_text);
+        let action = thing
+            .fields
+            .get(&canon::ACTION)
+            .and_then(graph::extract_text);
         let description = thing
             .fields
             .get(&canon::DESCRIPTION)
@@ -53,16 +69,28 @@ impl Thingable for Widget {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let tab_index = thing.fields.get(&canon::TAB_INDEX).and_then(|v| v.as_i64());
+        let bitmap = thing.fields.get(&canon::BITMAP).and_then(|v| match v {
+            Value::Bytes(b) => Some(b.to_vec()),
+            _ => None,
+        });
+        let width = thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64());
+        let height = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64());
 
         Some(Widget {
             id: thing.id,
             role,
+            parent,
             visible,
             enabled,
             label,
+            icon,
+            action,
             description,
             focusable,
             tab_index,
+            bitmap,
+            width,
+            height,
         })
     }
 }
@@ -136,6 +164,117 @@ pub fn create_cursor(kind: &str, position: i64, page_size: i64, total_size: i64)
     fields.insert(canon::TOTAL_SIZE, Value::I64(total_size));
 
     graph::fiat(None, canon::CURSOR, fields)
+}
+
+pub struct WidgetBuilder<'a, 'b> {
+    ctx: &'b mut AppContext<'a>,
+    role: String,
+    parent: Option<Uuid>,
+    label: Option<String>,
+    icon: Option<String>,
+    action: Option<String>,
+    focusable: bool,
+}
+
+impl<'a, 'b> WidgetBuilder<'a, 'b> {
+    pub fn new(ctx: &'b mut AppContext<'a>) -> Self {
+        Self {
+            ctx,
+            role: "widget".into(),
+            parent: None,
+            label: None,
+            icon: None,
+            action: None,
+            focusable: false,
+        }
+    }
+
+    pub fn role(mut self, role: &str) -> Self {
+        self.role = role.into();
+        self
+    }
+
+    pub fn child_of(mut self, parent: Uuid) -> Self {
+        self.parent = Some(parent);
+        self
+    }
+
+    pub fn set_text_label(mut self, label: &str) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    pub fn set_property(mut self, key: Symbol, value: Value) -> Self {
+        if key == canon::ICON_NAME {
+            if let Value::Text(s) = value {
+                self.icon = Some(s);
+            }
+        } else if key == canon::ACTION {
+            if let Value::Text(s) = value {
+                self.action = Some(s);
+            }
+        }
+        self
+    }
+
+    pub fn focusable(mut self, focusable: bool) -> Self {
+        self.focusable = focusable;
+        self
+    }
+
+    pub fn build(self) -> Uuid {
+        let mut fields = graph::map();
+        fields.insert(canon::ROLE, Value::Text(self.role));
+        if let Some(l) = self.label {
+            fields.insert(canon::LABEL, Value::Text(l));
+        }
+        if let Some(i) = self.icon {
+            fields.insert(canon::ICON_NAME, Value::Text(i));
+        }
+        if let Some(a) = self.action {
+            fields.insert(canon::ACTION, Value::Text(a));
+        }
+        if let Some(parent) = self.parent {
+            fields.insert(canon::PARENT, Value::Uuid(parent));
+        }
+        fields.insert(canon::FOCUSABLE, Value::Bool(self.focusable));
+
+        let widget_id = graph::fiat(None, canon::WIDGET, fields);
+
+        if let Some(parent) = self.parent {
+            graph::that(parent, canon::CHILD, widget_id, 0);
+        }
+
+        widget_id
+    }
+}
+
+pub fn toolbar(ctx: &mut AppContext, parent: Uuid) -> Uuid {
+    WidgetBuilder::new(ctx)
+        .role("container.toolbar")
+        .child_of(parent)
+        .build()
+}
+
+pub fn toolbar_button(
+    ctx: &mut AppContext,
+    parent: Uuid,
+    icon_name: &str,
+    action: &str,
+    label: Option<&str>,
+) -> Uuid {
+    let mut b = WidgetBuilder::new(ctx);
+    b = b
+        .role("control.toolbar_button")
+        .child_of(parent)
+        .focusable(true)
+        .set_property(canon::ICON_NAME, Value::Text(icon_name.into()))
+        .set_property(canon::ACTION, Value::Text(action.into()));
+
+    if let Some(l) = label {
+        b = b.set_text_label(l);
+    }
+    b.build()
 }
 
 #[cfg(test)]
