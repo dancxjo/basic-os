@@ -588,6 +588,15 @@ impl Bitmap {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Caret {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub visible: bool,
+}
+
 #[derive(Clone)]
 struct WindowSurface {
     window: Window,
@@ -596,6 +605,7 @@ struct WindowSurface {
     bitmap: Option<Arc<Bitmap>>,
     scroll_y: i32,
     scrollbar_widget_id: Option<Uuid>,
+    caret: Caret,
 }
 
 #[derive(Clone)]
@@ -1104,6 +1114,18 @@ where
     }
 
     fn apply_window_rect_hint(&mut self, window_id: Uuid) {
+        if let Some(surface) = self.windows.get_mut(&window_id) {
+            if let Some(rect) = surface.window.window_rect {
+                surface.caret.x = rect.x as i32;
+                surface.caret.y = rect.y as i32;
+                surface.caret.width = 2;
+                surface.caret.height = rect.height as i32;
+                surface.caret.visible = rect.visible;
+            } else {
+                surface.caret.visible = false;
+            }
+        }
+
         let Some(rect) = self
             .windows
             .get(&window_id)
@@ -1655,21 +1677,20 @@ where
                 scroll_offset: surface.scroll_y,
             });
 
-            if let Some(rect) = surface.window.window_rect {
-                if rect.visible {
-                    let cx = rect.x as i32;
-                    let cy = rect.y as i32;
-                    let ch = rect.height as i32;
+            let is_active = surface.window.active || self.active_window == Some(window_id);
+            if is_active && surface.caret.visible {
+                let cx = surface.caret.x;
+                let cy = surface.caret.y;
+                let ch = surface.caret.height;
 
-                    let draw_cx = x + cx;
-                    let draw_cy = y + cy - surface.scroll_y;
+                let draw_cx = x + cx;
+                let draw_cy = y + cy - surface.scroll_y;
 
-                    if draw_cy + ch >= y && draw_cy < y + h {
-                        scene.push(SceneItem::FillRect {
-                            rect: Rect::new(draw_cx, draw_cy, 2, ch as u32),
-                            color: COLOR_TEXT,
-                        });
-                    }
+                if draw_cy + ch >= y && draw_cy < y + h {
+                    scene.push(SceneItem::FillRect {
+                        rect: Rect::new(draw_cx, draw_cy, surface.caret.width as u32, ch as u32),
+                        color: COLOR_TEXT,
+                    });
                 }
             }
         }
@@ -1697,6 +1718,7 @@ where
             bitmap: None,
             scroll_y: 0,
             scrollbar_widget_id: None,
+            caret: Caret::default(),
         });
         entry.window = window;
         entry.surface_id = Some(surface.id);
@@ -2424,6 +2446,7 @@ where
                     bitmap: None,
                     scroll_y: 0,
                     scrollbar_widget_id: None,
+                    caret: Caret::default(),
                 },
             );
         }
@@ -2776,19 +2799,22 @@ where
                         scroll_offset: surface.scroll_y,
                     });
 
-                    // Draw cursor
-                    if let Some(rect) = surface.window.window_rect {
-                        if rect.visible {
-                            let cx = content_rect.x + rect.x as i32;
-                            let cy = content_rect.y + rect.y as i32 - surface.scroll_y;
-                            if cy + (rect.height as i32) >= content_rect.y
-                                && cy < content_rect.y + content_rect.height as i32
-                            {
-                                scene.push(SceneItem::FillRect {
-                                    rect: Rect::new(cx, cy, 2, rect.height as u32),
-                                    color: COLOR_TEXT,
-                                });
-                            }
+                    // Draw caret
+                    if is_active && surface.caret.visible {
+                        let cx = content_rect.x + surface.caret.x;
+                        let cy = content_rect.y + surface.caret.y - surface.scroll_y;
+                        if cy + surface.caret.height >= content_rect.y
+                            && cy < content_rect.y + content_rect.height as i32
+                        {
+                            scene.push(SceneItem::FillRect {
+                                rect: Rect::new(
+                                    cx,
+                                    cy,
+                                    surface.caret.width as u32,
+                                    surface.caret.height as u32,
+                                ),
+                                color: COLOR_TEXT,
+                            });
                         }
                     }
                 }
