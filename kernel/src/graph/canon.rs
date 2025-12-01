@@ -111,6 +111,10 @@ pub const APP: Symbol = canon(b'A', b'P', b'P');
 pub const TYPE: Symbol = canon(b'T', b'Y', b'P');
 pub const VERSION: Symbol = canon(b'V', b'E', b'R');
 
+pub const ITEM: Symbol = canon(b'I', b'T', b'M');
+pub const ITEM_LABEL: Symbol = canon(b'I', b'T', b'L');
+pub const ITEM_VALUE: Symbol = canon(b'I', b'T', b'V');
+
 pub const INPUT_DEVICE_MOUSE: Symbol = canon(b'I', b'D', b'M');
 pub const INPUT_EVENT: Symbol = canon(b'I', b'E', b'V');
 pub const MOVE: Symbol = canon(b'M', b'O', b'V');
@@ -239,6 +243,10 @@ pub fn from_str(s: &str) -> Option<Symbol> {
             return Some(TBL[i].0);
         }
         i += 1;
+    }
+    if s.len() == 3 {
+        let b = s.as_bytes();
+        return Some(canon(b[0], b[1], b[2]));
     }
     None
 }
