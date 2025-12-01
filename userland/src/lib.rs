@@ -252,6 +252,9 @@ pub mod canon {
     pub const SCOPE: Symbol = canon(b'S', b'C', b'P');
     pub const PERSIST: Symbol = canon(b'P', b'S', b'T');
     pub const WIDGET_KIND_NOTIFICATION: Symbol = canon(b'W', b'N', b'T');
+
+    pub const WIDGET_KIND: Symbol = cc('W', 'K');
+    pub const THING_WIDGET: Symbol = canon(b'T', b'H', b'W');
 }
 
 pub mod prelude {

@@ -44,12 +44,12 @@ impl App for DemoApp {
         fields.insert(canon::HEIGHT, Value::U64(16));
         fields.insert(canon::cc('I', 'D'), Value::Bytes(bmp_data));
         fields.insert(canon::PARENT, Value::Uuid(window.window_id()));
-        
+
         graph::fiat(Some(image_id), canon::WIDGET, fields);
-        
+
         let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
         graph::grant_capability(widget_host_bundle, image_id, "CAN_READ");
-        
+
         graph::that(window.window_id(), "contains", image_id, 0);
 
         // --- Graph Client Logic ---
@@ -182,7 +182,7 @@ impl DemoApp {
 fn create_demo_image_data() -> alloc::vec::Vec<u8> {
     const TILE: u32 = 16;
     let mut data = vec![0u8; (TILE * TILE * 4) as usize];
-    
+
     for y in 0..TILE {
         for x in 0..TILE {
             let (r, g, b) = demo_tile_color(x, y);

@@ -34,6 +34,7 @@ pub fn sync_launcher_from_bin() -> Result<(), fs::FsError> {
 
         let mut entry_fields = graph::map();
         entry_fields.insert(canon::ROLE, Value::Text("launcher_entry".to_string()));
+        entry_fields.insert(canon::WIDGET_KIND, Value::Text("thing_tile".to_string()));
         entry_fields.insert(canon::LABEL, Value::Text(entry.name.clone()));
         entry_fields.insert(canon::VISIBLE, Value::Bool(true));
         entry_fields.insert(canon::FOCUSABLE, Value::Bool(true));

@@ -4,26 +4,51 @@ extern crate alloc;
 
 use alloc::string::{String, ToString};
 use userland::widget_abi::*;
+use userland::{canon, graph};
+use userland::graph::{Thingable, GraphThing};
+use thing_abi::Map;
 
-pub struct LauncherEntryWidget;
+pub struct ThingWidget;
 
 pub struct State {
     label: String,
 }
 
-impl WidgetAbi for LauncherEntryWidget {
+struct GenericThing {
+    fields: Map,
+}
+
+impl Thingable for GenericThing {
+    fn kind() -> &'static str { "any" }
+    fn load(thing: &GraphThing) -> Option<Self> {
+        Some(Self { fields: thing.fields.clone() })
+    }
+}
+
+impl WidgetAbi for ThingWidget {
     type State = State;
 
-    fn init(_ctx: &WidgetContext) -> Self::State {
-        // In a real implementation, we would read the label from the graph using ctx.widget_id
-        State {
-            label: "Launcher Entry".to_string(),
-        }
+    fn init(ctx: &WidgetContext) -> Self::State {
+        let label = if let Some(thing) = graph::load_thing::<GenericThing>(ctx.widget_id) {
+            thing
+                .fields
+                .get(&canon::LABEL)
+                .or_else(|| thing.fields.get(&canon::TEXT))
+                .and_then(|v| match v {
+                    userland::Value::Text(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "Thing".to_string())
+        } else {
+            "Thing".to_string()
+        };
+
+        State { label }
     }
 
-    fn draw(state: &Self::State, fb: &mut [u8], rect: Rect) {
-        // Simple drawing: fill with gray, draw text
-        // For now, just fill with a color to prove it works
+    fn draw(_state: &Self::State, fb: &mut [u8], rect: Rect) {
+        // Simple drawing: fill with gray
+        // TODO: Render text (state.label)
         let color: u32 = 0xFF_44_44_44; // Dark gray
 
         for y in 0..rect.height {

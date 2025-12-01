@@ -4,8 +4,8 @@ extern crate alloc;
 
 use alloc::string::{String, ToString};
 use userland::prelude::*;
+use userland::widget_abi::{InputEvent, Rect, WidgetAbi, WidgetContext, WidgetEvent};
 use userland::{canon, graph, Value};
-use userland::widget_abi::{WidgetAbi, WidgetContext, WidgetEvent, InputEvent, Rect};
 use uuid::Uuid;
 
 pub struct NotificationToast;
@@ -21,7 +21,9 @@ pub struct State {
 struct RawThing(userland::graph::GraphThing);
 
 impl userland::graph::Thingable for RawThing {
-    fn kind() -> &'static str { "ANY" }
+    fn kind() -> &'static str {
+        "ANY"
+    }
     fn load(thing: &userland::graph::GraphThing) -> Option<Self> {
         Some(RawThing(thing.clone()))
     }
@@ -32,7 +34,7 @@ impl WidgetAbi for NotificationToast {
 
     fn init(ctx: &WidgetContext) -> Self::State {
         let mut state = State::default();
-        
+
         // Load the widget node itself to find what it is bound to
         let widget_node: RawThing = match graph::load_thing(ctx.widget_id) {
             Some(t) => t,
@@ -85,12 +87,27 @@ impl WidgetAbi for NotificationToast {
 
         // Fill background
         draw_rect_fill(fb, rect, rect.x, rect.y, rect.width, rect.height, bg_color);
-        
+
         // Draw border
-        draw_rect_outline(fb, rect, rect.x, rect.y, rect.width, rect.height, border_color);
+        draw_rect_outline(
+            fb,
+            rect,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            border_color,
+        );
 
         // Draw text
-        draw_string(fb, rect, rect.x + 10, rect.y + 10, &state.message, 0xFF_FF_FF_FF);
+        draw_string(
+            fb,
+            rect,
+            rect.x + 10,
+            rect.y + 10,
+            &state.message,
+            0xFF_FF_FF_FF,
+        );
     }
 
     fn teardown(_state: Self::State) {}

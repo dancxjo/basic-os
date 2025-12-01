@@ -14,7 +14,7 @@ use userland::widget_abi::{
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_button::ButtonWidget;
 use widget_image::ImageWidget;
-use widget_launcher_entry::LauncherEntryWidget;
+use widget_launcher_entry::ThingWidget;
 use widget_listbox_default::ListboxDefaultWidget;
 use widget_notification_dialog::NotificationDialog;
 use widget_notification_toast::NotificationToast;
@@ -22,7 +22,7 @@ use widget_scrollbar_thumb::ScrollbarThumbWidget;
 use widget_toolbar::ToolbarWidget;
 
 enum WidgetState {
-    Launcher(<LauncherEntryWidget as WidgetAbi>::State),
+    Thing(<ThingWidget as WidgetAbi>::State),
     Scrollbar(<ScrollbarThumbWidget as WidgetAbi>::State),
     Toolbar(<ToolbarWidget as WidgetAbi>::State),
     Button(<ButtonWidget as WidgetAbi>::State),
@@ -159,9 +159,12 @@ impl App for WidgetHost {
                                 NotificationDialog::init(&context),
                             )),
                             Some("image") => Some(WidgetState::Image(ImageWidget::init(&context))),
+                            Some("thing_tile") => {
+                                Some(WidgetState::Thing(ThingWidget::init(&context)))
+                            }
                             _ => {
                                 // Default to launcher for now if unspecified or unknown
-                                Some(WidgetState::Launcher(LauncherEntryWidget::init(&context)))
+                                Some(WidgetState::Thing(ThingWidget::init(&context)))
                             }
                         };
 
@@ -216,7 +219,7 @@ impl App for WidgetHost {
 
                         if let Some(e) = event {
                             match &mut instance.state {
-                                WidgetState::Launcher(s) => LauncherEntryWidget::handle_event(s, e),
+                                WidgetState::Thing(s) => ThingWidget::handle_event(s, e),
                                 WidgetState::Scrollbar(s) => {
                                     ScrollbarThumbWidget::handle_event(s, e)
                                 }
@@ -258,9 +261,7 @@ impl App for WidgetHost {
 
                             if let Some(e) = event {
                                 match &mut instance.state {
-                                    WidgetState::Launcher(s) => {
-                                        LauncherEntryWidget::handle_event(s, e)
-                                    }
+                                    WidgetState::Thing(s) => ThingWidget::handle_event(s, e),
                                     WidgetState::Scrollbar(s) => {
                                         ScrollbarThumbWidget::handle_event(s, e)
                                     }
@@ -297,9 +298,7 @@ impl App for WidgetHost {
             };
 
             match &instance.state {
-                WidgetState::Launcher(s) => {
-                    LauncherEntryWidget::draw(s, &mut instance.framebuffer, rect)
-                }
+                WidgetState::Thing(s) => ThingWidget::draw(s, &mut instance.framebuffer, rect),
                 WidgetState::Scrollbar(s) => {
                     ScrollbarThumbWidget::draw(s, &mut instance.framebuffer, rect)
                 }
