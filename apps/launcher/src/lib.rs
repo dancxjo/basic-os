@@ -114,9 +114,6 @@ impl LauncherApp {
         // Bind to selection via property
         list_fields.insert(canon::BINDS, Value::Uuid(selection_id));
 
-        graph::fiat(Some(listbox_id), canon::WIDGET, list_fields);
-        graph::that(parent_id, "contains", listbox_id, 0);
-
         // Read /bin
         if let Ok(bin_entries) = userland::fs::read_dir("/bin") {
             for entry in bin_entries {
@@ -141,6 +138,9 @@ impl LauncherApp {
                 });
             }
         }
+
+        graph::fiat(Some(listbox_id), canon::WIDGET, list_fields);
+        graph::that(parent_id, "contains", listbox_id, 0);
     }
 
     fn activate_entry(&self, idx: usize) {
