@@ -41,12 +41,18 @@ const CLOSE_BUTTON_MARGIN_RIGHT: i32 = 8;
 const CLOSE_BUTTON_MARGIN_TOP: i32 = 2;
 const TITLE_TEXT_LEFT_PAD: i32 = 8;
 const TITLE_TEXT_TOP_OFFSET: i32 = 8;
+const TOOLBAR_HEIGHT: i32 = 32;
+const TOOLBAR_BUTTON_SIZE: i32 = 24;
+const TOOLBAR_BUTTON_SPACING: i32 = 2;
 const CURSOR_SIZE: usize = 98;
 const SCROLLBAR_WIDTH: i32 = 24; // WCAG 2.2 SC 2.5.8 requires >=24px pointer targets (W3C Oct 2023).
 const SCROLLBAR_GAP: i32 = 4;
 const SCROLLBAR_MIN_THUMB: i32 = 32; // Keeps the thumb graspable per WCAG 2.5.5 Target Size (Enhanced).
 const SCROLL_STEP_LINE: i32 = FONT_HEIGHT as i32;
 const SCROLLBAR_TOTAL_RESERVE: i32 = SCROLLBAR_WIDTH + SCROLLBAR_GAP;
+const AUTO_TILE_MARGIN: i32 = 8;
+const AUTO_TILE_MIN_WINDOWS: usize = 3;
+const AUTO_TILE_TOP_OFFSET: i32 = 48;
 
 const ROLE_TOOLBAR: &str = "container.toolbar";
 const ROLE_TOOLBAR_BUTTON: &str = "control.toolbar_button";
@@ -740,6 +746,7 @@ pub struct Compositor<F, R> {
     watch_widgets: Option<WatchId>,
     fb_id: Option<Uuid>,
     fb_dirty: bool,
+    auto_layout_done: bool,
     cursor: CursorState,
     cursor_sprites: CursorSprites,
     active_window: Option<Uuid>,
@@ -786,6 +793,7 @@ where
             watch_widgets: None,
             fb_id: None,
             fb_dirty: false,
+            auto_layout_done: false,
             cursor: CursorState::new(width, height),
             cursor_sprites,
             active_window: None,
@@ -1292,7 +1300,7 @@ where
             return 0;
         }
         if widget.role == ROLE_TOOLBAR {
-            return 32;
+            return TOOLBAR_HEIGHT;
         } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
             let children: Vec<Uuid> = self
                 .widgets
@@ -1320,6 +1328,7 @@ where
         &self,
         window_id: Uuid,
         layout: &WindowLayout,
+        metrics: &ContentMetrics,
         mx: i32,
         my: i32,
     ) -> Option<Uuid> {
@@ -1349,7 +1358,12 @@ where
 
         let y_offset = layout.client_y;
         let x_offset = layout.client_x;
-        let width = layout.client_w;
+        let widget_width = if metrics.content_rect.width > 0 {
+            metrics.content_rect.width as i32
+        } else {
+            layout.client_w
+        };
+        let width = widget_width.max(0);
         let height = layout.client_h;
 
         for widget_id in root_widgets {
@@ -1396,18 +1410,23 @@ where
                 .map(|w| w.id)
                 .collect();
 
-            let mut child_x = x + 4;
-            let drawn_height = 32;
+            let mut child_x = x;
+            let toolbar_end = x + w;
+            let drawn_height = TOOLBAR_HEIGHT;
             for child_id in children {
                 if let Some(child) = self.widgets.get(&child_id) {
-                    let btn_w = 24;
-                    let btn_h = 24;
+                    let btn_w = TOOLBAR_BUTTON_SIZE;
+                    let btn_h = TOOLBAR_BUTTON_SIZE;
                     let btn_y = y + (drawn_height - btn_h) / 2;
+
+                    if child_x + btn_w > toolbar_end {
+                        break;
+                    }
 
                     if mx >= child_x && mx < child_x + btn_w && my >= btn_y && my < btn_y + btn_h {
                         return Some(child.id);
                     }
-                    child_x += btn_w + 4;
+                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
                 }
             }
             return Some(widget.id);
@@ -1446,7 +1465,13 @@ where
         None
     }
 
-    fn draw_widgets(&self, scene: &mut Scene, window_id: Uuid, layout: &WindowLayout) {
+    fn draw_widgets(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        layout: &WindowLayout,
+        widget_area_width: i32,
+    ) {
         let root_widgets: Vec<Uuid> = self
             .widgets
             .values()
@@ -1472,7 +1497,7 @@ where
         }
 
         let x_offset = layout.client_x;
-        let width = layout.client_w.max(0);
+        let width = widget_area_width.max(0);
         let mut y_offset = layout.client_y;
         let mut remaining_h = layout.client_h.max(0);
 
@@ -1560,7 +1585,7 @@ where
         let mut drawn_height = 0;
 
         if widget.role == ROLE_TOOLBAR {
-            drawn_height = 32;
+            drawn_height = TOOLBAR_HEIGHT;
             scene.push(SceneItem::FillRect {
                 rect: Rect::new(x, y, w as u32, drawn_height as u32),
                 color: THEME.client_bg,
@@ -1577,14 +1602,20 @@ where
                 .map(|w| w.id)
                 .collect();
 
-            let mut child_x = x + 4;
+            let mut child_x = x;
+            let toolbar_end = x + w;
             for child_id in children {
                 if let Some(child) = self.widgets.get(&child_id) {
-                    let btn_w = 24;
-                    let btn_h = 24;
+                    let btn_w = TOOLBAR_BUTTON_SIZE;
+                    let btn_h = TOOLBAR_BUTTON_SIZE;
                     let btn_y = y + (drawn_height - btn_h) / 2;
+
+                    if child_x + btn_w > toolbar_end {
+                        break;
+                    }
+
                     self.draw_toolbar_button(scene, child, child_x, btn_y, btn_w, btn_h);
-                    child_x += btn_w + 4;
+                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
                 }
             }
         } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
@@ -1632,37 +1663,99 @@ where
         h: i32,
     ) {
         scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y, w as u32, h as u32),
+            rect: Rect::new(x, y, w.max(0) as u32, h.max(0) as u32),
             color: BTN_FACE,
         });
         self.draw_rect_outline(scene, x, y, w, h, BTN_BORDER);
 
-        if let Some(icon_name) = &widget.icon {
-            let color = BTN_GLYPH;
-            let cx = x + w / 2;
-            let cy = y + h / 2;
+        if w > 2 && h > 2 {
+            let highlight = self.theme.frame_hilight;
+            let shadow = self.theme.frame_shadow;
+            let inner_width = (w - 2).max(0) as u32;
+            let inner_height = (h - 2).max(0) as u32;
 
-            if icon_name == "save" {
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + 1, y + 1, inner_width, 1),
+                color: highlight,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + 1, y + 1, 1, inner_height),
+                color: highlight,
+            });
+
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + 1, y + h - 2, inner_width, 1),
+                color: shadow,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + w - 2, y + 1, 1, inner_height),
+                color: shadow,
+            });
+        }
+
+        if let Some(icon_name) = &widget.icon {
+            self.draw_toolbar_icon(scene, icon_name, x, y, w, h);
+        }
+    }
+
+    fn draw_toolbar_icon(
+        &self,
+        scene: &mut Scene,
+        icon_name: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        let color = BTN_GLYPH;
+        let center_offset = |container: i32, item: i32| -> i32 { ((container - item).max(0)) / 2 };
+
+        match icon_name {
+            "save" => {
+                let icon_size = 12;
+                let icon_left = x + center_offset(w, icon_size);
+                let icon_top = y + center_offset(h, icon_size);
+
                 scene.push(SceneItem::FillRect {
-                    rect: Rect::new(cx - 6, cy - 6, 12, 12),
+                    rect: Rect::new(icon_left, icon_top, icon_size as u32, icon_size as u32),
                     color,
                 });
                 scene.push(SceneItem::FillRect {
-                    rect: Rect::new(cx - 4, cy - 6, 8, 4),
+                    rect: Rect::new(icon_left + 2, icon_top, (icon_size - 4).max(0) as u32, 4),
                     color: BTN_FACE,
                 });
-            } else if icon_name == "undo" {
+            }
+            "undo" => {
+                let icon_width = 12;
+                let icon_height = 6;
+                let icon_left = x + center_offset(w, icon_width);
+                let icon_top = y + center_offset(h, icon_height);
+
                 scene.push(SceneItem::FillRect {
-                    rect: Rect::new(cx - 6, cy, 12, 2),
+                    rect: Rect::new(icon_left, icon_top + 2, icon_width as u32, 2),
                     color,
                 });
                 scene.push(SceneItem::FillRect {
-                    rect: Rect::new(cx - 6, cy - 4, 2, 6),
+                    rect: Rect::new(icon_left, icon_top, 2, icon_height as u32),
                     color,
                 });
                 scene.push(SceneItem::FillRect {
-                    rect: Rect::new(cx - 6, cy - 4, 6, 2),
+                    rect: Rect::new(icon_left, icon_top, 6, 2),
                     color,
+                });
+            }
+            _ => {
+                let icon_width = 8;
+                let icon_height = FONT_HEIGHT as i32;
+                let icon_left = x + center_offset(w, icon_width);
+                let icon_top = y + center_offset(h, icon_height);
+                let fallback_char = icon_name.chars().next().unwrap_or('?');
+
+                scene.push(SceneItem::DrawText {
+                    origin: (icon_left, icon_top),
+                    text: fallback_char.to_string(),
+                    color,
+                    max_width: Some(w.max(0) as u32),
                 });
             }
         }
@@ -1853,6 +1946,18 @@ where
         });
 
         ordered
+    }
+
+    fn visible_window_ids(&self) -> Vec<Uuid> {
+        self.ordered_window_ids()
+            .into_iter()
+            .filter(|id| {
+                self.windows
+                    .get(id)
+                    .map(|surface| surface.surface_id.is_some())
+                    .unwrap_or(false)
+            })
+            .collect()
     }
 
     fn ingest_input_event(&mut self, thing: &userland::GraphThing) {
@@ -2047,16 +2152,7 @@ where
     }
 
     fn tile_windows(&mut self) {
-        let visible_windows: Vec<Uuid> = self
-            .ordered_window_ids()
-            .into_iter()
-            .filter(|id| {
-                self.windows.get(id).map_or(false, |w| {
-                    // Ignore placeholder nodes without a surface to avoid tiling "fake" windows.
-                    w.window.visible && w.surface_id.is_some()
-                })
-            })
-            .collect();
+        let visible_windows = self.visible_window_ids();
 
         if visible_windows.is_empty() {
             return;
@@ -2096,6 +2192,84 @@ where
             props.insert(canon::WIDTH, Value::U64(w.max(MIN_WINDOW_WIDTH) as u64));
             props.insert(canon::HEIGHT, Value::U64(h.max(MIN_WINDOW_HEIGHT) as u64));
 
+            self.update_window_props(*win_id, props);
+        }
+    }
+
+    fn maybe_auto_tile_windows(&mut self) {
+        if self.auto_layout_done {
+            return;
+        }
+
+        let visible_windows = self.visible_window_ids();
+        if visible_windows.len() < AUTO_TILE_MIN_WINDOWS {
+            return;
+        }
+
+        let geo = self.fb_device.geometry();
+        // Reserve banner space so tiled windows start below the toolbar.
+        let available_height = (geo.height as i32).saturating_sub(AUTO_TILE_TOP_OFFSET);
+        if available_height <= 0 {
+            return;
+        }
+
+        let area = Rect::new(0, AUTO_TILE_TOP_OFFSET, geo.width, available_height as u32);
+        self.layout_windows_in_area(area, &visible_windows);
+
+        self.auto_layout_done = true;
+        self.fb_dirty = true;
+    }
+
+    fn layout_windows_in_area(&mut self, area: Rect, window_ids: &[Uuid]) {
+        if window_ids.is_empty() || area.width == 0 || area.height == 0 {
+            return;
+        }
+
+        let count = window_ids.len() as i32;
+        let mut cols = 1;
+        while cols * cols < count {
+            cols += 1;
+        }
+        let rows = (count + cols - 1) / cols;
+
+        let area_w = area.width as i32;
+        let area_h = area.height as i32;
+        if area_w <= 0 || area_h <= 0 {
+            return;
+        }
+
+        // Keep gutters between cells so pointer targets stay distinct.
+        let margin_x = AUTO_TILE_MARGIN.min(area_w / (cols + 1));
+        let margin_y = AUTO_TILE_MARGIN.min(area_h / (rows + 1));
+        let available_w = area_w - margin_x * (cols + 1);
+        let available_h = area_h - margin_y * (rows + 1);
+        if available_w <= 0 || available_h <= 0 {
+            return;
+        }
+
+        let slot_w = max(1, available_w / cols);
+        let slot_h = max(1, available_h / rows);
+
+        for (i, win_id) in window_ids.iter().enumerate() {
+            let row = i as i32 / cols;
+            let col = i as i32 % cols;
+            let x = area.x + margin_x + col * (slot_w + margin_x);
+            let y = area.y + margin_y + row * (slot_h + margin_y);
+            let width = slot_w.max(MIN_WINDOW_WIDTH);
+            let height = slot_h.max(MIN_WINDOW_HEIGHT);
+
+            if let Some(entry) = self.windows.get_mut(win_id) {
+                entry.window.x = x.max(0) as u64;
+                entry.window.y = y.max(0) as u64;
+                entry.window.width = width as u64;
+                entry.window.height = height as u64;
+            }
+
+            let mut props = BTreeMap::new();
+            props.insert(canon::X, Value::U64(x.max(0) as u64));
+            props.insert(canon::Y, Value::U64(y.max(0) as u64));
+            props.insert(canon::WIDTH, Value::U64(width as u64));
+            props.insert(canon::HEIGHT, Value::U64(height as u64));
             self.update_window_props(*win_id, props);
         }
     }
@@ -2151,8 +2325,15 @@ where
                 return;
             }
 
+            let metrics = {
+                let Some(surface) = self.windows.get(&win_id) else {
+                    return;
+                };
+                ContentMetrics::new(surface, &layout)
+            };
+
             if let Some(widget_id) =
-                self.hit_test_widgets(win_id, &layout, self.cursor.x, self.cursor.y)
+                self.hit_test_widgets(win_id, &layout, &metrics, self.cursor.x, self.cursor.y)
             {
                 self.active_widget = Some(widget_id);
                 if let Some(widget) = self.widgets.get(&widget_id) {
@@ -2178,12 +2359,6 @@ where
                 return;
             }
 
-            let metrics = {
-                let Some(surface) = self.windows.get(&win_id) else {
-                    return;
-                };
-                ContentMetrics::new(surface, &layout)
-            };
             if metrics.max_scroll > 0 {
                 if let (Some(track), Some(thumb), Some(offset)) = (
                     metrics.scrollbar_track_rect,
@@ -2607,6 +2782,7 @@ where
         }
 
         self.clamp_scroll_for(window_id);
+        self.maybe_auto_tile_windows();
     }
 
     fn bump_window(&mut self, window_id: Uuid) {
@@ -2704,7 +2880,7 @@ where
                 client_w: w as i32,
                 client_h: h as i32,
             };
-            self.draw_widgets(scene, surface.window.id, &layout);
+            self.draw_widgets(scene, surface.window.id, &layout, layout.client_w);
         }
 
         if !surface.window.active {
@@ -2902,6 +3078,11 @@ where
         });
 
         let metrics = ContentMetrics::new(surface, &layout);
+        let widget_area_width = if metrics.content_rect.width > 0 {
+            metrics.content_rect.width as i32
+        } else {
+            layout.client_w
+        };
 
         // Check for widgets
         let has_widgets = self
@@ -2913,7 +3094,7 @@ where
             // The legacy code adds +1 to client_y.
             // My draw_widgets uses layout.client_y directly.
             // I should probably stick to layout.client_y for widgets.
-            self.draw_widgets(scene, surface.window.id, &layout);
+            self.draw_widgets(scene, surface.window.id, &layout, widget_area_width);
         } else {
             let content_rect = metrics.content_rect;
 

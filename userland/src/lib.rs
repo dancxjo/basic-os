@@ -6,6 +6,7 @@ extern crate alloc;
 pub mod app;
 pub mod apps_manifest;
 pub mod drivers;
+pub mod errors;
 pub mod fs;
 pub mod graph;
 pub mod graphics;
@@ -240,6 +241,17 @@ pub mod canon {
     pub const THEME: Symbol = canon(b'T', b'H', b'M');
     pub const WIDGET_KIND_LISTBOX: Symbol = canon(b'W', b'L', b'B');
     pub const BINDS: Symbol = canon(b'B', b'I', b'N');
+
+    pub const NOTIFICATION: Symbol = canon(b'N', b'T', b'F');
+    pub const ALERT: Symbol = canon(b'A', b'L', b'R');
+    pub const LEVEL: Symbol = canon(b'L', b'V', b'L');
+    pub const MESSAGE: Symbol = canon(b'M', b'S', b'G');
+    pub const DETAILS: Symbol = canon(b'D', b'T', b'L');
+    pub const CREATED_AT: Symbol = canon(b'C', b'A', b'T');
+    pub const ACK: Symbol = canon(b'A', b'C', b'K');
+    pub const SCOPE: Symbol = canon(b'S', b'C', b'P');
+    pub const PERSIST: Symbol = canon(b'P', b'S', b'T');
+    pub const WIDGET_KIND_NOTIFICATION: Symbol = canon(b'W', b'N', b'T');
 }
 
 pub mod prelude {

@@ -3,6 +3,7 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use userland::uuid::Uuid;
@@ -14,6 +15,8 @@ use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_button::ButtonWidget;
 use widget_launcher_entry::LauncherEntryWidget;
 use widget_listbox_default::ListboxDefaultWidget;
+use widget_notification_dialog::NotificationDialog;
+use widget_notification_toast::NotificationToast;
 use widget_scrollbar_thumb::ScrollbarThumbWidget;
 use widget_toolbar::ToolbarWidget;
 
@@ -23,6 +26,8 @@ enum WidgetState {
     Toolbar(<ToolbarWidget as WidgetAbi>::State),
     Button(<ButtonWidget as WidgetAbi>::State),
     ListboxDefault(<ListboxDefaultWidget as WidgetAbi>::State),
+    NotificationToast(<NotificationToast as WidgetAbi>::State),
+    NotificationDialog(<NotificationDialog as WidgetAbi>::State),
 }
 
 struct WidgetInstance {
@@ -50,6 +55,11 @@ impl App for WidgetHost {
             id: None,
         });
 
+        ctx.watch_graph(ThingFilter {
+            kind: Some(canon::NOTIFICATION),
+            id: None,
+        });
+
         WidgetHost {
             widgets: BTreeMap::new(),
             focused_widget: None,
@@ -59,6 +69,42 @@ impl App for WidgetHost {
     fn on_event(&mut self, _ctx: &mut AppContext<'_>, ev: AppEvent) {
         match ev {
             AppEvent::Thing { thing, .. } => {
+                if thing.kind == canon::NOTIFICATION {
+                    let ack = match thing.fields.get(&canon::ACK) {
+                        Some(Value::Bool(b)) => *b,
+                        _ => false,
+                    };
+
+                    if !ack {
+                        let scope = match thing.fields.get(&canon::SCOPE) {
+                            Some(Value::Text(s)) => s.as_str(),
+                            _ => "local",
+                        };
+
+                        let widget_kind = if scope == "global" {
+                            "notification_dialog"
+                        } else {
+                            "notification_toast"
+                        };
+
+                        let widget_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, thing.id.as_bytes());
+
+                        let mut fields = graph::map();
+                        fields.insert(canon::cc('W', 'K'), Value::Text(String::from(widget_kind)));
+                        fields.insert(canon::BINDS, Value::Uuid(thing.id));
+
+                        if widget_kind == "notification_dialog" {
+                            fields.insert(canon::WIDTH, Value::U64(400));
+                            fields.insert(canon::HEIGHT, Value::U64(200));
+                        } else {
+                            fields.insert(canon::WIDTH, Value::U64(300));
+                            fields.insert(canon::HEIGHT, Value::U64(80));
+                        }
+
+                        graph::fiat(Some(widget_id), canon::WIDGET, fields);
+                    }
+                }
+
                 if thing.kind == canon::WIDGET {
                     // Initialization
                     if !self.widgets.contains_key(&thing.id) {
@@ -104,6 +150,12 @@ impl App for WidgetHost {
                             Some("listbox_default") | Some("list") => Some(
                                 WidgetState::ListboxDefault(ListboxDefaultWidget::init(&context)),
                             ),
+                            Some("notification_toast") => Some(WidgetState::NotificationToast(
+                                NotificationToast::init(&context),
+                            )),
+                            Some("notification_dialog") => Some(WidgetState::NotificationDialog(
+                                NotificationDialog::init(&context),
+                            )),
                             _ => {
                                 // Default to launcher for now if unspecified or unknown
                                 Some(WidgetState::Launcher(LauncherEntryWidget::init(&context)))
@@ -170,6 +222,12 @@ impl App for WidgetHost {
                                 WidgetState::ListboxDefault(s) => {
                                     ListboxDefaultWidget::handle_event(s, e)
                                 }
+                                WidgetState::NotificationToast(s) => {
+                                    NotificationToast::handle_event(s, e)
+                                }
+                                WidgetState::NotificationDialog(s) => {
+                                    NotificationDialog::handle_event(s, e)
+                                }
                             }
                         }
                     }
@@ -207,6 +265,12 @@ impl App for WidgetHost {
                                     WidgetState::ListboxDefault(s) => {
                                         ListboxDefaultWidget::handle_event(s, e)
                                     }
+                                    WidgetState::NotificationToast(s) => {
+                                        NotificationToast::handle_event(s, e)
+                                    }
+                                    WidgetState::NotificationDialog(s) => {
+                                        NotificationDialog::handle_event(s, e)
+                                    }
                                 }
                             }
                         }
@@ -238,6 +302,12 @@ impl App for WidgetHost {
                 WidgetState::Button(s) => ButtonWidget::draw(s, &mut instance.framebuffer, rect),
                 WidgetState::ListboxDefault(s) => {
                     ListboxDefaultWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::NotificationToast(s) => {
+                    NotificationToast::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::NotificationDialog(s) => {
+                    NotificationDialog::draw(s, &mut instance.framebuffer, rect)
                 }
             }
 

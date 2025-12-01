@@ -98,6 +98,18 @@ pub const IRQ_LINE: Symbol = canon(b'I', b'Q', b'L');
 pub const BUFFER: Symbol = canon(b'B', b'U', b'F');
 pub const BYTES: Symbol = canon(b'B', b'Y', b'T');
 pub const DONE: Symbol = canon(b'D', b'O', b'N');
+
+pub const NOTIFICATION: Symbol = canon(b'N', b'T', b'F');
+pub const ALERT: Symbol = canon(b'A', b'L', b'R');
+pub const LEVEL: Symbol = canon(b'L', b'V', b'L');
+pub const MESSAGE: Symbol = canon(b'M', b'S', b'G');
+pub const DETAILS: Symbol = canon(b'D', b'T', b'L');
+pub const CREATED_AT: Symbol = canon(b'C', b'A', b'T');
+pub const ACK: Symbol = canon(b'A', b'C', b'K');
+pub const SCOPE: Symbol = canon(b'S', b'C', b'P');
+pub const PERSIST: Symbol = canon(b'P', b'S', b'T');
+pub const WIDGET_KIND_NOTIFICATION: Symbol = canon(b'W', b'N', b'T');
+
 pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
 pub const COLOR: Symbol = canon(b'C', b'L', b'R');
 pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
@@ -359,6 +371,16 @@ pub fn symbol_to_string(sym: Symbol) -> String {
         (APP, "app"),
         (TYPE, "type"),
         (VERSION, "version"),
+        (NOTIFICATION, "notification"),
+        (ALERT, "alert"),
+        (LEVEL, "level"),
+        (MESSAGE, "message"),
+        (DETAILS, "details"),
+        (CREATED_AT, "created_at"),
+        (ACK, "ack"),
+        (SCOPE, "scope"),
+        (PERSIST, "persist"),
+        (WIDGET_KIND_NOTIFICATION, "widget.notification"),
     ];
     for (s, name) in TBL {
         if *s == sym {

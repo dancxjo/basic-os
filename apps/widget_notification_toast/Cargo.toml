@@ -1,0 +1,16 @@
+[package]
+name = "widget_notification_toast"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+unifont = "1.1.0"
+uuid = { version = "1.10", default-features = false, features = ["v5"] }
+
+[features]
+default = []
+std = ["userland/std"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

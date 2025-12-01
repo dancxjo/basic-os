@@ -1,0 +1,12 @@
+[package]
+name = "widget_notification_dialog"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+userland = { path = "../../userland" }
+unifont = "1.1.0"
+uuid = { version = "1.4", default-features = false, features = ["v5"] }

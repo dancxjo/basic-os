@@ -15,6 +15,8 @@ widget_scrollbar_thumb = { path = "../widget_scrollbar_thumb" }
 widget_toolbar = { path = "../widget_toolbar" }
 widget_button = { path = "../widget_button" }
 widget_listbox_default = { path = "../widget_listbox_default" }
+widget_notification_toast = { path = "../widget_notification_toast" }
+widget_notification_dialog = { path = "../widget_notification_dialog" }
 
 [features]
 default = []
