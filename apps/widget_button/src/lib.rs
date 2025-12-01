@@ -57,6 +57,7 @@ impl WidgetAbi for ButtonWidget {
             "clouds" => '\u{2601}', // Cloud
             "text" => '\u{1F4DD}',  // Memo
             "graph" => '\u{1F4CA}', // Bar Chart
+            "close" => '\u{2715}',  // Close (Multiplication X)
             _ => '?',
         };
 

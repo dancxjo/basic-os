@@ -15,13 +15,15 @@ use core::convert::TryInto;
 use unifont::get_glyph;
 use userland::graph;
 use userland::graph::GraphPropsRequest;
+use userland::widget_abi::{
+    GraphHandle, SharedFramebuffer, WidgetAbi, WidgetContext, WidgetEventRx,
+};
 use userland::{
     canon, load_thing, println, AbiRequest, AppEvent, FramebufferGeometry, NodePattern, Surface,
     Thingable, Value, WatchId, WatchManager, Window,
 };
-use userland::widget_abi::{WidgetAbi, WidgetContext, GraphHandle, WidgetEventRx, SharedFramebuffer};
-use widget_button::ButtonWidget;
 use uuid::Uuid;
+use widget_button::ButtonWidget;
 
 mod framebuffer_backend;
 
