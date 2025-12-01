@@ -215,6 +215,7 @@ dependencies = [
  "flate2",
  "graph_viewer",
  "init",
+ "launcher",
  "rootfs",
  "self_editing_demo",
  "serde",
