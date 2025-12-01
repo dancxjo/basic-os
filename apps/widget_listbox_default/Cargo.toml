@@ -1,20 +1,13 @@
 [package]
-name = "rootfs"
+name = "widget_listbox_default"
 version = "0.1.0"
 edition = "2021"
-build = "build.rs"
 
 [dependencies]
 userland = { path = "../../userland" }
+thing_abi = { path = "../../thing_abi" }
+unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 
 [features]
 default = []
 std = ["userland/std"]
-
-[lib]
-name = "rootfs"
-path = "src/lib.rs"
-
-[[bin]]
-name = "rootfs"
-path = "src/main.rs"

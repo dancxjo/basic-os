@@ -35,9 +35,9 @@ const RESIZE_CORNER_SIZE: i32 = 8;
 const CORNER_RADIUS: i32 = 0;
 const MIN_WINDOW_WIDTH: i32 = 140;
 const MIN_WINDOW_HEIGHT: i32 = 100;
-const CLOSE_BUTTON_SIZE: i32 = 12;
-const CLOSE_BUTTON_MARGIN_RIGHT: i32 = 6;
-const CLOSE_BUTTON_MARGIN_TOP: i32 = 10;
+const CLOSE_BUTTON_SIZE: i32 = 28;
+const CLOSE_BUTTON_MARGIN_RIGHT: i32 = 8;
+const CLOSE_BUTTON_MARGIN_TOP: i32 = 2;
 const TITLE_TEXT_LEFT_PAD: i32 = 8;
 const TITLE_TEXT_TOP_OFFSET: i32 = 8;
 const CURSOR_SIZE: usize = 98;
@@ -63,6 +63,7 @@ pub struct Theme {
     pub title_text_active: Rgba,
     pub title_text_inactive: Rgba,
     pub client_bg: Rgba,
+    pub inactive_veil: Rgba,
 }
 
 const THEME: Theme = Theme {
@@ -75,12 +76,17 @@ const THEME: Theme = Theme {
     title_text_active: Rgba::new(0xff, 0x24, 0x33, 0x4F),
     title_text_inactive: Rgba::new(0xff, 0x6A, 0x74, 0x8A),
     client_bg: Rgba::new(0xff, 0xFD, 0xFB, 0xF7),
+    inactive_veil: Rgba::new(0x40, 0x00, 0x00, 0x00),
 };
 
 // Buttons
 const BTN_FACE: Rgba = Rgba::new(0xff, 0xE6, 0xED, 0xF7);
 const BTN_BORDER: Rgba = Rgba::new(0xff, 0x5A, 0x6A, 0x8A);
 const BTN_GLYPH: Rgba = Rgba::new(0xff, 0xB8, 0x51, 0x51);
+const CLOSE_BUTTON_FACE: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
+const CLOSE_BUTTON_BORDER: Rgba = Rgba::new(0xff, 0x2A, 0x2E, 0x33);
+const CLOSE_BUTTON_GLYPH: Rgba = Rgba::new(0xff, 0xB2, 0x1A, 0x1A);
+const CLOSE_BUTTON_GLYPH_INACTIVE: Rgba = Rgba::new(0xff, 0x66, 0x66, 0x66);
 // Scrollbar colors maintain >=3:1 contrast per WCAG 2.2 SC 1.4.3 (W3C, Oct 2023).
 const SCROLLBAR_TRACK_COLOR: Rgba = Rgba::new(0xff, 0xE2, 0xE6, 0xF0);
 const SCROLLBAR_THUMB_COLOR: Rgba = Rgba::new(0xff, 0x7C, 0x8B, 0xAB);
@@ -1588,6 +1594,34 @@ where
         });
     }
 
+    fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, is_active: bool) {
+        let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(layout);
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32),
+            color: CLOSE_BUTTON_FACE,
+        });
+        self.draw_rect_outline(scene, btn_x, btn_y, btn_w, btn_h, CLOSE_BUTTON_BORDER);
+
+        if btn_w > 0 && btn_h > 0 {
+            let glyph_origin = (
+                btn_x + ((btn_w - FONT_HEIGHT as i32).max(0) / 2),
+                btn_y + ((btn_h - FONT_HEIGHT as i32).max(0) / 2),
+            );
+            let glyph_color = if is_active {
+                CLOSE_BUTTON_GLYPH
+            } else {
+                CLOSE_BUTTON_GLYPH_INACTIVE
+            };
+            scene.push(SceneItem::DrawText {
+                origin: glyph_origin,
+                text: "✕".to_string(),
+                color: glyph_color,
+                max_width: Some(btn_w as u32),
+            });
+        }
+    }
+
     fn draw_surface_content(
         &self,
         scene: &mut Scene,
@@ -2516,6 +2550,13 @@ where
             self.draw_widgets(scene, surface.window.id, &layout);
         }
 
+        if !surface.window.active {
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                color: self.theme.inactive_veil,
+            });
+        }
+
         scene.push(SceneItem::ClipPop);
     }
 
@@ -2674,43 +2715,7 @@ where
         });
 
         // 6. Control Buttons
-        let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(&layout);
-
-        // Dimpled look (recessed)
-        // Top/Left Shadow
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x, btn_y, btn_w as u32, 1),
-            color: self.theme.frame_shadow,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x, btn_y, 1, btn_h as u32),
-            color: self.theme.frame_shadow,
-        });
-        // Bottom/Right Highlight
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x, btn_y + btn_h - 1, btn_w as u32, 1),
-            color: self.theme.frame_hilight,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x + btn_w - 1, btn_y, 1, btn_h as u32),
-            color: self.theme.frame_hilight,
-        });
-        // Face
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(
-                btn_x + 1,
-                btn_y + 1,
-                btn_w.saturating_sub(2) as u32,
-                btn_h.saturating_sub(2) as u32,
-            ),
-            color: BTN_FACE,
-        });
-
-        // Close button dot
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x + btn_w / 2 - 2, btn_y + btn_h / 2 - 2, 4, 4),
-            color: BTN_GLYPH,
-        });
+        self.draw_close_button(scene, &layout, is_active);
 
         // 5. Title Text
         let title_max_w = (layout.title_w - TITLE_TEXT_LEFT_PAD - 4).max(0) as u32;

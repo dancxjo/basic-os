@@ -37,3 +37,5 @@ ovmf/ovmf-vars-x86_64.fd
 userland.bin
 
 third_party/
+/fonts-cache/*
+!/fonts-cache/.gitignore

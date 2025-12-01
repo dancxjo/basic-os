@@ -229,6 +229,17 @@ pub mod canon {
     pub const EDITED_BY: Symbol = canon(b'E', b'D', b'B');
     pub const EDIT: Symbol = canon(b'E', b'D', b'T');
     pub const READ_ONLY: Symbol = canon(b'R', b'D', b'O');
+
+    pub const CONTROL: Symbol = canon(b'C', b'T', b'R');
+    pub const CONTROL_KIND: Symbol = canon(b'C', b'T', b'K');
+    pub const ITEM: Symbol = canon(b'I', b'T', b'M');
+    pub const ITEM_LABEL: Symbol = canon(b'I', b'T', b'L');
+    pub const ITEM_VALUE: Symbol = canon(b'I', b'T', b'V');
+    pub const SELECTED_INDEX: Symbol = canon(b'S', b'E', b'L');
+    pub const FOCUSED_INDEX: Symbol = canon(b'F', b'O', b'C');
+    pub const THEME: Symbol = canon(b'T', b'H', b'M');
+    pub const WIDGET_KIND_LISTBOX: Symbol = canon(b'W', b'L', b'B');
+    pub const BINDS: Symbol = canon(b'B', b'I', b'N');
 }
 
 pub mod prelude {

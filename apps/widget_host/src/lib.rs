@@ -12,6 +12,7 @@ use userland::widget_abi::{
 };
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_launcher_entry::LauncherEntryWidget;
+use widget_listbox_default::ListboxDefaultWidget;
 use widget_scrollbar_thumb::ScrollbarThumbWidget;
 use widget_toolbar::ToolbarWidget;
 use widget_toolbar_button::ToolbarButtonWidget;
@@ -21,6 +22,7 @@ enum WidgetState {
     Scrollbar(<ScrollbarThumbWidget as WidgetAbi>::State),
     Toolbar(<ToolbarWidget as WidgetAbi>::State),
     ToolbarButton(<ToolbarButtonWidget as WidgetAbi>::State),
+    ListboxDefault(<ListboxDefaultWidget as WidgetAbi>::State),
 }
 
 struct WidgetInstance {
@@ -33,6 +35,7 @@ struct WidgetInstance {
 
 pub struct WidgetHost {
     widgets: BTreeMap<Uuid, WidgetInstance>,
+    focused_widget: Option<Uuid>,
 }
 
 impl App for WidgetHost {
@@ -42,8 +45,14 @@ impl App for WidgetHost {
             id: None,
         });
 
+        ctx.watch_graph(ThingFilter {
+            kind: Some(canon::KEY_EVENT),
+            id: None,
+        });
+
         WidgetHost {
             widgets: BTreeMap::new(),
+            focused_widget: None,
         }
     }
 
@@ -92,6 +101,9 @@ impl App for WidgetHost {
                             Some("toolbar_button") => Some(WidgetState::ToolbarButton(
                                 ToolbarButtonWidget::init(&context),
                             )),
+                            Some("listbox_default") | Some("list") => Some(
+                                WidgetState::ListboxDefault(ListboxDefaultWidget::init(&context)),
+                            ),
                             _ => {
                                 // Default to launcher for now if unspecified or unknown
                                 Some(WidgetState::Launcher(LauncherEntryWidget::init(&context)))
@@ -131,6 +143,7 @@ impl App for WidgetHost {
                             .unwrap_or(false);
 
                         let event = if down && !instance.prev_down {
+                            self.focused_widget = Some(thing.id);
                             Some(WidgetEvent::Input(InputEvent::MouseDown {
                                 x,
                                 y,
@@ -155,6 +168,49 @@ impl App for WidgetHost {
                                 WidgetState::Toolbar(s) => ToolbarWidget::handle_event(s, e),
                                 WidgetState::ToolbarButton(s) => {
                                     ToolbarButtonWidget::handle_event(s, e)
+                                }
+                                WidgetState::ListboxDefault(s) => {
+                                    ListboxDefaultWidget::handle_event(s, e)
+                                }
+                            }
+                        }
+                    }
+                } else if thing.kind == canon::KEY_EVENT {
+                    if let Some(widget_id) = self.focused_widget {
+                        if let Some(instance) = self.widgets.get_mut(&widget_id) {
+                            let key = thing
+                                .fields
+                                .get(&canon::KEY)
+                                .and_then(|v| v.as_symbol())
+                                .map(|s| s.raw())
+                                .unwrap_or(0);
+                            let down = thing
+                                .fields
+                                .get(&canon::DOWN)
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+
+                            let event = if down {
+                                Some(WidgetEvent::Input(InputEvent::KeyDown { key }))
+                            } else {
+                                Some(WidgetEvent::Input(InputEvent::KeyUp { key }))
+                            };
+
+                            if let Some(e) = event {
+                                match &mut instance.state {
+                                    WidgetState::Launcher(s) => {
+                                        LauncherEntryWidget::handle_event(s, e)
+                                    }
+                                    WidgetState::Scrollbar(s) => {
+                                        ScrollbarThumbWidget::handle_event(s, e)
+                                    }
+                                    WidgetState::Toolbar(s) => ToolbarWidget::handle_event(s, e),
+                                    WidgetState::ToolbarButton(s) => {
+                                        ToolbarButtonWidget::handle_event(s, e)
+                                    }
+                                    WidgetState::ListboxDefault(s) => {
+                                        ListboxDefaultWidget::handle_event(s, e)
+                                    }
                                 }
                             }
                         }
@@ -185,6 +241,9 @@ impl App for WidgetHost {
                 WidgetState::Toolbar(s) => ToolbarWidget::draw(s, &mut instance.framebuffer, rect),
                 WidgetState::ToolbarButton(s) => {
                     ToolbarButtonWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::ListboxDefault(s) => {
+                    ListboxDefaultWidget::draw(s, &mut instance.framebuffer, rect)
                 }
             }
 

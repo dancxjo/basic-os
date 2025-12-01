@@ -10,6 +10,11 @@ use userland::prelude::*;
 use userland::uuid::Uuid;
 use userland::{AbiRequest, Symbol};
 
+const NOTO_SANS_SYMBOLS: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/NotoSansSymbols-Regular.ttf"));
+const NOTO_SANS_SYMBOLS_2: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/NotoSansSymbols2-Regular.ttf"));
+
 pub fn app_main() -> ! {
     userland::println!("RootFS service started.");
 
@@ -32,6 +37,22 @@ pub fn app_main() -> ! {
     // Create /icons
     let icons_id = create_directory("icons", Some(root_id));
     userland::println!("Created /icons: {:?}", icons_id);
+
+    // Create /fonts
+    let fonts_id = create_directory("fonts", Some(root_id));
+    userland::println!("Created /fonts: {:?}", fonts_id);
+    create_font_file(
+        "NotoSansSymbols-Regular.ttf",
+        fonts_id,
+        "font/ttf",
+        NOTO_SANS_SYMBOLS,
+    );
+    create_font_file(
+        "NotoSansSymbols2-Regular.ttf",
+        fonts_id,
+        "font/ttf",
+        NOTO_SANS_SYMBOLS_2,
+    );
 
     // Populate /bin
     for app in userland::apps_manifest::APPS {
@@ -156,6 +177,20 @@ fn create_icon_file(name: &str, parent: Uuid, color: u32) {
 
     let file_id = userland::fiat(None, canon::FILE, fields);
 
+    link(parent, "contains", file_id);
+    link(file_id, "parent", parent);
+}
+
+fn create_font_file(name: &str, parent: Uuid, mime: &str, data: &[u8]) {
+    let mut fields = userland::map();
+    fields.insert(canon::NAME, Value::Text(name.into()));
+    fields.insert(canon::KIND, Value::Symbol(canon::FILE));
+    fields.insert(canon::PARENT, Value::Uuid(parent));
+    fields.insert(canon::MIME, Value::Text(mime.into()));
+    fields.insert(canon::BYTES, Value::Bytes(data.to_vec()));
+    fields.insert(canon::LENGTH, Value::U64(data.len() as u64));
+
+    let file_id = userland::fiat(None, canon::FILE, fields);
     link(parent, "contains", file_id);
     link(file_id, "parent", parent);
 }

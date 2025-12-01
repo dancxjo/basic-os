@@ -14,6 +14,7 @@ widget_launcher_entry = { path = "../widget_launcher_entry" }
 widget_scrollbar_thumb = { path = "../widget_scrollbar_thumb" }
 widget_toolbar = { path = "../widget_toolbar" }
 widget_toolbar_button = { path = "../widget_toolbar_button" }
+widget_listbox_default = { path = "../widget_listbox_default" }
 
 [features]
 default = []
