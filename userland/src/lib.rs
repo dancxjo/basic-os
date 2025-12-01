@@ -54,6 +54,9 @@ pub mod canon {
     pub const MOUSE_MOVED: Symbol = cc('M', 'V');
     pub const MOUSE_MOVE: Symbol = canon(b'M', b'M', b'V');
     pub const MOUSE_BUTTON: Symbol = canon(b'M', b'B', b'T');
+    pub const MOUSE_X: Symbol = canon(b'M', b'S', b'X');
+    pub const MOUSE_Y: Symbol = canon(b'M', b'S', b'Y');
+    pub const MOUSE_DOWN: Symbol = canon(b'M', b'D', b'N');
     pub const AT: Symbol = cc('@', ' ');
     pub const INIT: Symbol = cc('I', 'N');
     pub const FAIL: Symbol = cc('F', 'L');
@@ -98,6 +101,9 @@ pub mod canon {
     pub const Y: Symbol = canon(b'Y', b' ', b' ');
     pub const Z: Symbol = canon(b'Z', b'I', b'N');
     pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
+    pub const VIEWPORT_HEIGHT: Symbol = canon(b'V', b'P', b'H');
+    pub const CONTENT_HEIGHT: Symbol = canon(b'C', b'T', b'H');
+    pub const SCROLL_Y: Symbol = canon(b'S', b'C', b'Y');
     pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
     pub const PITCH: Symbol = canon(b'P', b'T', b'H');
     pub const BPP: Symbol = canon(b'B', b'P', b'P');

@@ -20,6 +20,8 @@ pub struct Widget {
     pub bitmap: Option<alloc::vec::Vec<u8>>,
     pub width: Option<u64>,
     pub height: Option<u64>,
+    pub x: Option<u64>,
+    pub y: Option<u64>,
 }
 
 impl Thingable for Widget {
@@ -75,6 +77,8 @@ impl Thingable for Widget {
         });
         let width = thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64());
         let height = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64());
+        let x = thing.fields.get(&canon::X).and_then(|v| v.as_u64());
+        let y = thing.fields.get(&canon::Y).and_then(|v| v.as_u64());
 
         Some(Widget {
             id: thing.id,
@@ -91,6 +95,8 @@ impl Thingable for Widget {
             bitmap,
             width,
             height,
+            x,
+            y,
         })
     }
 }

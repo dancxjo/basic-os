@@ -1842,10 +1842,19 @@ dependencies = [
  "userland",
  "uuid",
  "widget_launcher_entry",
+ "widget_scrollbar_thumb",
 ]
 
 [[package]]
 name = "widget_launcher_entry"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "userland",
+]
+
+[[package]]
+name = "widget_scrollbar_thumb"
 version = "0.1.0"
 dependencies = [
  "thing_abi",

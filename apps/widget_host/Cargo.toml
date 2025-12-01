@@ -11,6 +11,7 @@ uuid = { version = "=1.10", default-features = false, features = [
 ] }
 thing_abi = { path = "../../thing_abi" }
 widget_launcher_entry = { path = "../widget_launcher_entry" }
+widget_scrollbar_thumb = { path = "../widget_scrollbar_thumb" }
 
 [features]
 default = []

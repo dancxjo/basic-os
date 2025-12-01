@@ -13,6 +13,7 @@ use core::cmp::{max, min};
 use core::convert::TryInto;
 
 use unifont::get_glyph;
+use userland::graph;
 use userland::graph::GraphPropsRequest;
 use userland::{
     canon, load_thing, println, AbiRequest, AppEvent, FramebufferGeometry, NodePattern, Surface,
@@ -588,6 +589,7 @@ struct WindowSurface {
     text: String,
     bitmap: Option<Arc<Bitmap>>,
     scroll_y: i32,
+    scrollbar_widget_id: Option<Uuid>,
 }
 
 #[derive(Clone)]
@@ -691,6 +693,7 @@ pub struct Compositor<F, R> {
     alt_down: bool,
     state_node: Uuid,
     widgets: BTreeMap<Uuid, userland::semantic_ui::Widget>,
+    active_widget: Option<Uuid>,
 }
 
 impl<F, R> Compositor<F, R>
@@ -734,6 +737,7 @@ where
             alt_down: false,
             state_node,
             widgets: BTreeMap::new(),
+            active_widget: None,
         }
     }
 
@@ -894,6 +898,100 @@ where
         }
     }
 
+    fn ensure_scrollbar(&mut self, window_id: Uuid, metrics: &ContentMetrics) {
+        let track_rect = metrics.scrollbar_track_rect;
+
+        let widget_id = if let Some(w) = self.windows.get(&window_id) {
+            w.scrollbar_widget_id
+        } else {
+            return;
+        };
+
+        if let Some(rect) = track_rect {
+            if let Some(id) = widget_id {
+                let mut updates = BTreeMap::new();
+                updates.insert(canon::X, Value::U64(rect.x as u64));
+                updates.insert(canon::Y, Value::U64(rect.y as u64));
+                updates.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                updates.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+
+                updates.insert(
+                    canon::VIEWPORT_HEIGHT,
+                    Value::I64(metrics.viewport_height as i64),
+                );
+                updates.insert(
+                    canon::CONTENT_HEIGHT,
+                    Value::I64(metrics.content_height as i64),
+                );
+                updates.insert(canon::SCROLL_Y, Value::I64(metrics.scroll_offset as i64));
+
+                userland::graph::fiat(Some(id), canon::WIDGET, updates);
+            } else {
+                let mut fields = BTreeMap::new();
+                fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+                fields.insert(canon::X, Value::U64(rect.x as u64));
+                fields.insert(canon::Y, Value::U64(rect.y as u64));
+                fields.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                fields.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+
+                fields.insert(
+                    canon::cc('W', 'K'),
+                    Value::Text(String::from("scrollbar_thumb")),
+                );
+                fields.insert(canon::PARENT, Value::Uuid(window_id));
+
+                fields.insert(
+                    canon::VIEWPORT_HEIGHT,
+                    Value::I64(metrics.viewport_height as i64),
+                );
+                fields.insert(
+                    canon::CONTENT_HEIGHT,
+                    Value::I64(metrics.content_height as i64),
+                );
+                fields.insert(canon::SCROLL_Y, Value::I64(metrics.scroll_offset as i64));
+
+                let id = userland::graph::fiat(None, canon::WIDGET, fields);
+
+                if let Some(w) = self.windows.get_mut(&window_id) {
+                    w.scrollbar_widget_id = Some(id);
+                }
+            }
+        } else {
+            if let Some(id) = widget_id {
+                let mut updates = BTreeMap::new();
+                updates.insert(canon::WIDTH, Value::U64(0));
+                updates.insert(canon::HEIGHT, Value::U64(0));
+                userland::graph::fiat(Some(id), canon::WIDGET, updates);
+            }
+        }
+    }
+
+    fn update_scrollbars(&mut self) {
+        let ids: Vec<Uuid> = self.windows.keys().cloned().collect();
+        for id in ids {
+            let metrics = {
+                if let Some(s) = self.windows.get(&id) {
+                    if let Some(layout) = compute_window_layout(
+                        s.window.x as i32,
+                        s.window.y as i32,
+                        s.window.width as i32,
+                        s.window.height as i32,
+                    ) {
+                        Some(ContentMetrics::new(s, &layout))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if let Some(m) = metrics {
+                self.ensure_scrollbar(id, &m);
+            }
+        }
+    }
+
     pub fn tick(&mut self) {
         let geo = self.fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
@@ -903,6 +1001,7 @@ where
 
         self.ensure_active_window();
         self.update_cursor_kind();
+        self.update_scrollbars();
 
         let mut scene = Scene::new(width as u32, height as u32);
         scene.push(SceneItem::Clear { color: CLEAR_COLOR });
@@ -1150,6 +1249,23 @@ where
             .map(|w| w.id)
             .collect();
 
+        // Check absolute positioned widgets first (like scrollbars)
+        for widget_id in &root_widgets {
+            if let Some(widget) = self.widgets.get(widget_id) {
+                if let (Some(x), Some(y), Some(w), Some(h)) =
+                    (widget.x, widget.y, widget.width, widget.height)
+                {
+                    let x = x as i32;
+                    let y = y as i32;
+                    let w = w as i32;
+                    let h = h as i32;
+                    if mx >= x && mx < x + w && my >= y && my < y + h {
+                        return Some(*widget_id);
+                    }
+                }
+            }
+        }
+
         let y_offset = layout.client_y;
         let x_offset = layout.client_x;
         let width = layout.client_w;
@@ -1157,6 +1273,10 @@ where
 
         for widget_id in root_widgets {
             if let Some(widget) = self.widgets.get(&widget_id) {
+                if widget.x.is_some() && widget.y.is_some() {
+                    continue;
+                }
+
                 if let Some(hit) = self
                     .hit_test_widget_recursive(widget, x_offset, y_offset, width, height, mx, my)
                 {
@@ -1521,6 +1641,7 @@ where
             text: String::new(),
             bitmap: None,
             scroll_y: 0,
+            scrollbar_widget_id: None,
         });
         entry.window = window;
         entry.surface_id = Some(surface.id);
@@ -1607,8 +1728,10 @@ where
 
                 if left_down {
                     self.continue_drag();
+                    self.continue_widget_interaction();
                 } else if left_released {
                     self.drag_state = None;
+                    self.end_widget_interaction();
                 } else {
                     self.drag_state = None;
                 }
@@ -1701,6 +1824,31 @@ where
         }
     }
 
+    fn continue_widget_interaction(&mut self) {
+        if let Some(widget_id) = self.active_widget {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                let wx = widget.x.unwrap_or(0) as i32;
+                let wy = widget.y.unwrap_or(0) as i32;
+                let local_x = self.cursor.x - wx;
+                let local_y = self.cursor.y - wy;
+
+                let mut updates = graph::map();
+                updates.insert(canon::MOUSE_X, Value::I64(local_x as i64));
+                updates.insert(canon::MOUSE_Y, Value::I64(local_y as i64));
+                graph::fiat(Some(widget_id), canon::WIDGET, updates);
+            }
+        }
+    }
+
+    fn end_widget_interaction(&mut self) {
+        if let Some(widget_id) = self.active_widget {
+            let mut updates = graph::map();
+            updates.insert(canon::MOUSE_DOWN, Value::Bool(false));
+            graph::fiat(Some(widget_id), canon::WIDGET, updates);
+            self.active_widget = None;
+        }
+    }
+
     fn on_pointer_down(&mut self) {
         if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
             self.set_active_window(Some(win_id));
@@ -1726,7 +1874,19 @@ where
             if let Some(widget_id) =
                 self.hit_test_widgets(win_id, &layout, self.cursor.x, self.cursor.y)
             {
+                self.active_widget = Some(widget_id);
                 if let Some(widget) = self.widgets.get(&widget_id) {
+                    let wx = widget.x.unwrap_or(0) as i32;
+                    let wy = widget.y.unwrap_or(0) as i32;
+                    let local_x = self.cursor.x - wx;
+                    let local_y = self.cursor.y - wy;
+
+                    let mut updates = graph::map();
+                    updates.insert(canon::MOUSE_X, Value::I64(local_x as i64));
+                    updates.insert(canon::MOUSE_Y, Value::I64(local_y as i64));
+                    updates.insert(canon::MOUSE_DOWN, Value::Bool(true));
+                    graph::fiat(Some(widget_id), canon::WIDGET, updates);
+
                     if widget.role == ROLE_TOOLBAR_BUTTON {
                         println!("Toolbar button clicked: {}", widget_id);
                         if let Some(action) = &widget.action {
@@ -1735,6 +1895,7 @@ where
                         return;
                     }
                 }
+                return;
             }
 
             let metrics = ContentMetrics::new(surface, &layout);
@@ -2082,6 +2243,16 @@ where
 
     fn ingest_widget(&mut self, thing: &userland::GraphThing) {
         if let Some(widget) = userland::semantic_ui::Widget::load(thing) {
+            if let Some(parent_id) = widget.parent {
+                if let Some(scroll_y) = thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
+                {
+                    if let Some(window) = self.windows.get_mut(&parent_id) {
+                        if window.scrollbar_widget_id == Some(widget.id) {
+                            window.scroll_y = scroll_y as i32;
+                        }
+                    }
+                }
+            }
             self.widgets.insert(widget.id, widget);
         }
     }
@@ -2106,6 +2277,7 @@ where
                     text: String::new(),
                     bitmap: None,
                     scroll_y: 0,
+                    scrollbar_widget_id: None,
                 },
             );
         }
@@ -2425,28 +2597,6 @@ where
                         }
                     }
                 }
-            }
-        }
-
-        if let Some(track) = metrics.scrollbar_track_rect {
-            scene.push(SceneItem::FillRect {
-                rect: track,
-                color: SCROLLBAR_TRACK_COLOR,
-            });
-            if let Some(thumb) = metrics.scrollbar_thumb_rect {
-                scene.push(SceneItem::FillRect {
-                    rect: thumb,
-                    color: SCROLLBAR_THUMB_COLOR,
-                });
-                // Thumb highlight/shadow improve visual affordance (contrast >=3:1 per WCAG 2.2 SC 1.4.3).
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(thumb.x, thumb.y, thumb.width, 1),
-                    color: SCROLLBAR_THUMB_HILIGHT,
-                });
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(thumb.x, thumb.y + thumb.height as i32 - 1, thumb.width, 1),
-                    color: SCROLLBAR_THUMB_SHADOW,
-                });
             }
         }
 
