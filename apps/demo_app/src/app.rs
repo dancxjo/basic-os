@@ -1,4 +1,4 @@
-use alloc::collections::VecDeque;
+use alloc::collections::{BTreeMap, VecDeque};
 use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
@@ -34,23 +34,75 @@ impl App for DemoApp {
             id: None,
         });
 
-        let bmp_data = create_demo_image_data();
-
-        // Create Image Widget
-        let image_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"demo_image");
-        let mut fields = graph::map();
-        fields.insert(canon::cc('W', 'K'), Value::Text(String::from("image")));
-        fields.insert(canon::WIDTH, Value::U64(16));
-        fields.insert(canon::HEIGHT, Value::U64(16));
-        fields.insert(canon::cc('I', 'D'), Value::Bytes(bmp_data));
-        fields.insert(canon::PARENT, Value::Uuid(window.window_id()));
-
-        graph::fiat(Some(image_id), canon::WIDGET, fields);
-
         let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
-        graph::grant_capability(widget_host_bundle, image_id, "CAN_READ");
 
-        graph::that(window.window_id(), "contains", image_id, 0);
+        // Helper to add widgets
+        let mut add_widget = |name: &str,
+                              kind: &str,
+                              width: u64,
+                              height: u64,
+                              extra_fields: Option<BTreeMap<Symbol, Value>>,
+                              index: u64| {
+            let widget_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
+            let mut fields = graph::map();
+            fields.insert(canon::cc('W', 'K'), Value::Text(String::from(kind)));
+            fields.insert(canon::WIDTH, Value::U64(width));
+            fields.insert(canon::HEIGHT, Value::U64(height));
+            fields.insert(canon::PARENT, Value::Uuid(window.window_id()));
+
+            if let Some(extras) = extra_fields {
+                for (k, v) in extras {
+                    fields.insert(k, v);
+                }
+            }
+
+            graph::fiat(Some(widget_id), canon::WIDGET, fields);
+            graph::grant_capability(widget_host_bundle, widget_id, "CAN_READ");
+            graph::that(window.window_id(), "contains", widget_id, index);
+        };
+
+        // 1. Image Widget
+        let bmp_data = create_demo_image_data();
+        let mut image_extras = BTreeMap::new();
+        image_extras.insert(canon::cc('I', 'D'), Value::Bytes(bmp_data));
+        add_widget("demo_image", "image", 16, 16, Some(image_extras), 0);
+
+        // 2. Button Widget
+        let mut button_extras = BTreeMap::new();
+        button_extras.insert(canon::TEXT, Value::Text(String::from("Click Me")));
+        add_widget("demo_button", "button", 100, 30, Some(button_extras), 1);
+
+        // 3. Listbox Widget
+        add_widget("demo_listbox", "listbox_default", 150, 100, None, 2);
+
+        // 4. Scrollbar Widget
+        add_widget("demo_scrollbar", "scrollbar_thumb", 20, 100, None, 3);
+
+        // 5. Toolbar Widget
+        add_widget("demo_toolbar", "toolbar", 200, 30, None, 4);
+
+        // 6. Launcher Entry (Thing Tile)
+        let mut tile_extras = BTreeMap::new();
+        tile_extras.insert(canon::LABEL, Value::Text(String::from("My App")));
+        add_widget("demo_tile", "thing_tile", 100, 100, Some(tile_extras), 5);
+
+        // 7. Trigger a Notification
+        let notif_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"demo_notification");
+        let mut notif_fields = graph::map();
+        notif_fields.insert(canon::TEXT, Value::Text(String::from("Demo Notification")));
+        notif_fields.insert(canon::SCOPE, Value::Text(String::from("local")));
+        graph::fiat(Some(notif_id), canon::NOTIFICATION, notif_fields);
+
+        // 8. Trigger a Global Notification (Dialog)
+        let notif_dialog_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"demo_notification_dialog");
+        let mut notif_dialog_fields = graph::map();
+        notif_dialog_fields.insert(canon::TEXT, Value::Text(String::from("Global Alert!")));
+        notif_dialog_fields.insert(canon::SCOPE, Value::Text(String::from("global")));
+        graph::fiat(
+            Some(notif_dialog_id),
+            canon::NOTIFICATION,
+            notif_dialog_fields,
+        );
 
         // --- Graph Client Logic ---
         // Create "Hello" thing
