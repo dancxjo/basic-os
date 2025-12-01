@@ -24,8 +24,10 @@ use uuid::Uuid;
 use widget_button::{ButtonWidget, State as ButtonState};
 
 mod framebuffer_backend;
+mod layout;
 
 pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
+pub use layout::{LayoutItem, LayoutSpec};
 
 const FONT_HEIGHT: usize = 16;
 const TITLE_BAR_HEIGHT: usize = 32;
@@ -759,6 +761,7 @@ pub struct Compositor<F, R> {
     state_node: Uuid,
     widgets: BTreeMap<Uuid, userland::semantic_ui::Widget>,
     active_widget: Option<Uuid>,
+    debug_layout_mode: bool,
 }
 
 impl<F, R> Compositor<F, R>
@@ -806,6 +809,7 @@ where
             state_node,
             widgets: BTreeMap::new(),
             active_widget: None,
+            debug_layout_mode: true,
         }
     }
 
@@ -2225,52 +2229,39 @@ where
             return;
         }
 
-        let count = window_ids.len() as i32;
+        let count = window_ids.len();
         let mut cols = 1;
         while cols * cols < count {
             cols += 1;
         }
         let rows = (count + cols - 1) / cols;
 
-        let area_w = area.width as i32;
-        let area_h = area.height as i32;
-        if area_w <= 0 || area_h <= 0 {
-            return;
-        }
+        let items: Vec<LayoutItem> = window_ids
+            .iter()
+            .map(|id| LayoutItem {
+                id: *id,
+                min_width: MIN_WINDOW_WIDTH as u32,
+                min_height: MIN_WINDOW_HEIGHT as u32,
+            })
+            .collect();
 
-        // Keep gutters between cells so pointer targets stay distinct.
-        let margin_x = AUTO_TILE_MARGIN.min(area_w / (cols + 1));
-        let margin_y = AUTO_TILE_MARGIN.min(area_h / (rows + 1));
-        let available_w = area_w - margin_x * (cols + 1);
-        let available_h = area_h - margin_y * (rows + 1);
-        if available_w <= 0 || available_h <= 0 {
-            return;
-        }
+        let spec = LayoutSpec::Grid { rows, cols };
+        let rects = layout::layout(area, spec, &items, AUTO_TILE_MARGIN);
 
-        let slot_w = max(1, available_w / cols);
-        let slot_h = max(1, available_h / rows);
-
-        for (i, win_id) in window_ids.iter().enumerate() {
-            let row = i as i32 / cols;
-            let col = i as i32 % cols;
-            let x = area.x + margin_x + col * (slot_w + margin_x);
-            let y = area.y + margin_y + row * (slot_h + margin_y);
-            let width = slot_w.max(MIN_WINDOW_WIDTH);
-            let height = slot_h.max(MIN_WINDOW_HEIGHT);
-
-            if let Some(entry) = self.windows.get_mut(win_id) {
-                entry.window.x = x.max(0) as u64;
-                entry.window.y = y.max(0) as u64;
-                entry.window.width = width as u64;
-                entry.window.height = height as u64;
+        for (win_id, rect) in rects {
+            if let Some(entry) = self.windows.get_mut(&win_id) {
+                entry.window.x = rect.x.max(0) as u64;
+                entry.window.y = rect.y.max(0) as u64;
+                entry.window.width = rect.width as u64;
+                entry.window.height = rect.height as u64;
             }
 
             let mut props = BTreeMap::new();
-            props.insert(canon::X, Value::U64(x.max(0) as u64));
-            props.insert(canon::Y, Value::U64(y.max(0) as u64));
-            props.insert(canon::WIDTH, Value::U64(width as u64));
-            props.insert(canon::HEIGHT, Value::U64(height as u64));
-            self.update_window_props(*win_id, props);
+            props.insert(canon::X, Value::U64(rect.x.max(0) as u64));
+            props.insert(canon::Y, Value::U64(rect.y.max(0) as u64));
+            props.insert(canon::WIDTH, Value::U64(rect.width as u64));
+            props.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+            self.update_window_props(win_id, props);
         }
     }
 
@@ -2805,9 +2796,68 @@ where
     fn draw_windows(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
         for id in self.ordered_window_ids() {
             if let Some(surface) = self.windows.get(&id).cloned() {
-                self.draw_window(scene, &surface, fb_width, fb_height);
+                if self.debug_layout_mode {
+                    self.draw_debug_window(scene, &surface, fb_width, fb_height);
+                } else {
+                    self.draw_window(scene, &surface, fb_width, fb_height);
+                }
             }
         }
+    }
+
+    fn draw_debug_window(
+        &self,
+        scene: &mut Scene,
+        surface: &WindowSurface,
+        fb_width: usize,
+        fb_height: usize,
+    ) {
+        let w = surface.window.width as usize;
+        let h = surface.window.height as usize;
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        let x = min(surface.window.x as usize, fb_width);
+        let y = min(surface.window.y as usize, fb_height);
+        let is_active = surface.window.active || self.active_window == Some(surface.window.id);
+
+        let border_color = if is_active {
+            Rgba::new(0xFF, 0, 0, 0xFF) // Red for active
+        } else {
+            Rgba::new(0x00, 0, 0xFF, 0xFF) // Blue for inactive
+        };
+
+        // Draw bounding box (outline)
+        // Top
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, w as u32, 2),
+            color: border_color,
+        });
+        // Bottom
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, (y + h - 2) as i32, w as u32, 2),
+            color: border_color,
+        });
+        // Left
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, 2, h as u32),
+            color: border_color,
+        });
+        // Right
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new((x + w - 2) as i32, y as i32, 2, h as u32),
+            color: border_color,
+        });
+
+        // Draw ID or Title in the center
+        let label = alloc::format!("ID: {:?}\nActive: {}", surface.window.id, is_active);
+        scene.push(SceneItem::DrawTextBlock {
+            rect: Rect::new(x as i32 + 4, y as i32 + 4, (w - 8) as u32, (h - 8) as u32),
+            text: label,
+            color: border_color,
+            scroll_offset: 0,
+        });
     }
 
     fn draw_max_mode(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
