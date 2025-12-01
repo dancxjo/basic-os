@@ -15,15 +15,13 @@ use core::convert::TryInto;
 use unifont::get_glyph;
 use userland::graph;
 use userland::graph::GraphPropsRequest;
-use userland::widget_abi::{
-    GraphHandle, SharedFramebuffer, WidgetAbi, WidgetContext, WidgetEventRx,
-};
+use userland::widget_abi::WidgetAbi;
 use userland::{
     canon, load_thing, println, AbiRequest, AppEvent, FramebufferGeometry, NodePattern, Surface,
     Thingable, Value, WatchId, WatchManager, Window,
 };
 use uuid::Uuid;
-use widget_button::ButtonWidget;
+use widget_button::{ButtonWidget, State as ButtonState};
 
 mod framebuffer_backend;
 
@@ -36,7 +34,6 @@ const BORDER_3D_THICKNESS: i32 = 1;
 const BORDER_THICKNESS: i32 = BORDER_OUTER_THICKNESS + BORDER_3D_THICKNESS;
 const RESIZE_MARGIN: i32 = 6;
 const RESIZE_CORNER_SIZE: i32 = 8;
-const CORNER_RADIUS: i32 = 0;
 const MIN_WINDOW_WIDTH: i32 = 140;
 const MIN_WINDOW_HEIGHT: i32 = 100;
 const CLOSE_BUTTON_SIZE: i32 = 28;
@@ -55,6 +52,39 @@ const ROLE_TOOLBAR: &str = "container.toolbar";
 const ROLE_TOOLBAR_BUTTON: &str = "control.toolbar_button";
 const ROLE_CONTAINER_VERTICAL: &str = "container.vertical";
 const ROLE_EDITOR_ROOT: &str = "container.editor_root";
+
+use core::sync::atomic::{AtomicU64, Ordering};
+static UUID_COUNTER: AtomicU64 = AtomicU64::new(0x10000);
+
+fn next_uuid() -> Uuid {
+    let id = UUID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    Uuid::from_u128(id as u128)
+}
+
+const COMPOSITOR_WIDGET: userland::Symbol = canon::canon(b'C', b'M', b'W');
+
+fn create_close_button() -> (Uuid, ButtonState) {
+    let widget_id = next_uuid();
+
+    // Create Thing in graph
+    let mut props = BTreeMap::new();
+    props.insert(canon::KIND, Value::Symbol(COMPOSITOR_WIDGET));
+    props.insert(canon::TEXT, Value::Text("✕".to_string()));
+    props.insert(canon::ICON_NAME, Value::Text("close".to_string()));
+    props.insert(canon::TARGET, Value::Text("close_window".to_string()));
+
+    graph::fiat(Some(widget_id), COMPOSITOR_WIDGET, props);
+
+    let state = ButtonState {
+        label: "✕".to_string(),
+        target: "close_window".to_string(),
+        pressed: false,
+        icon_char: '\u{2715}',
+        show_label: false,
+    };
+
+    (widget_id, state)
+}
 
 #[derive(Clone, Copy)]
 pub struct Theme {
@@ -87,10 +117,6 @@ const THEME: Theme = Theme {
 const BTN_FACE: Rgba = Rgba::new(0xff, 0xE6, 0xED, 0xF7);
 const BTN_BORDER: Rgba = Rgba::new(0xff, 0x5A, 0x6A, 0x8A);
 const BTN_GLYPH: Rgba = Rgba::new(0xff, 0xB8, 0x51, 0x51);
-const CLOSE_BUTTON_FACE: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);
-const CLOSE_BUTTON_BORDER: Rgba = Rgba::new(0xff, 0x2A, 0x2E, 0x33);
-const CLOSE_BUTTON_GLYPH: Rgba = Rgba::new(0xff, 0xB2, 0x1A, 0x1A);
-const CLOSE_BUTTON_GLYPH_INACTIVE: Rgba = Rgba::new(0xff, 0x66, 0x66, 0x66);
 // Scrollbar colors maintain >=3:1 contrast per WCAG 2.2 SC 1.4.3 (W3C, Oct 2023).
 const SCROLLBAR_TRACK_COLOR: Rgba = Rgba::new(0xff, 0xE2, 0xE6, 0xF0);
 const SCROLLBAR_THUMB_COLOR: Rgba = Rgba::new(0xff, 0x7C, 0x8B, 0xAB);
@@ -150,6 +176,7 @@ enum DragKind {
         max_scroll: i32,
         start_cursor_y: i32,
     },
+    CloseButton,
 }
 
 struct WindowLayout {
@@ -610,6 +637,9 @@ struct WindowSurface {
     scroll_y: i32,
     scrollbar_widget_id: Option<Uuid>,
     caret: Caret,
+    close_button_id: Uuid,
+    close_button_state: ButtonState,
+    close_button_bitmap: Option<Arc<Bitmap>>,
 }
 
 #[derive(Clone)]
@@ -1657,32 +1687,40 @@ where
         });
     }
 
-    fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, is_active: bool) {
+    fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, surface: &WindowSurface) {
         let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(layout);
 
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32),
-            color: CLOSE_BUTTON_FACE,
-        });
-        self.draw_rect_outline(scene, btn_x, btn_y, btn_w, btn_h, CLOSE_BUTTON_BORDER);
+        // Create temporary buffer
+        let mut buffer = vec![0u8; (btn_w * btn_h * 4) as usize];
+        let rect = userland::widget_abi::Rect {
+            x: 0,
+            y: 0,
+            width: btn_w as u32,
+            height: btn_h as u32,
+        };
 
-        if btn_w > 0 && btn_h > 0 {
-            let glyph_origin = (
-                btn_x + ((btn_w - FONT_HEIGHT as i32).max(0) / 2),
-                btn_y + ((btn_h - FONT_HEIGHT as i32).max(0) / 2),
-            );
-            let glyph_color = if is_active {
-                CLOSE_BUTTON_GLYPH
-            } else {
-                CLOSE_BUTTON_GLYPH_INACTIVE
-            };
-            scene.push(SceneItem::DrawText {
-                origin: glyph_origin,
-                text: "✕".to_string(),
-                color: glyph_color,
-                max_width: Some(btn_w as u32),
-            });
-        }
+        ButtonWidget::draw(&surface.close_button_state, &mut buffer, rect);
+
+        // Convert to u32 pixels for Bitmap
+        let pixels: Vec<u32> = buffer
+            .chunks(4)
+            .map(|c| {
+                let r = c[0] as u32;
+                let g = c[1] as u32;
+                let b = c[2] as u32;
+                let a = c[3] as u32;
+                (a << 24) | (r << 16) | (g << 8) | b
+            })
+            .collect();
+
+        let bitmap = Arc::new(Bitmap::new(btn_w as usize, btn_h as usize, pixels));
+
+        scene.push(SceneItem::BlitImage {
+            rect: Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32),
+            image: bitmap,
+            repeat: false,
+            offset: (0, 0),
+        });
     }
 
     fn draw_surface_content(
@@ -1752,14 +1790,20 @@ where
         };
 
         let window = load_thing::<Window>(window_id).unwrap_or_else(|| default_window(window_id));
-        let entry = self.windows.entry(window_id).or_insert(WindowSurface {
-            window: window.clone(),
-            surface_id: None,
-            text: String::new(),
-            bitmap: None,
-            scroll_y: 0,
-            scrollbar_widget_id: None,
-            caret: Caret::default(),
+        let entry = self.windows.entry(window_id).or_insert_with(|| {
+            let (btn_id, btn_state) = create_close_button();
+            WindowSurface {
+                window: window.clone(),
+                surface_id: None,
+                text: String::new(),
+                bitmap: None,
+                scroll_y: 0,
+                scrollbar_widget_id: None,
+                caret: Caret::default(),
+                close_button_id: btn_id,
+                close_button_state: btn_state,
+                close_button_bitmap: None,
+            }
         });
         entry.window = window;
         entry.surface_id = Some(surface.id);
@@ -1848,6 +1892,11 @@ where
                     self.continue_drag();
                     self.continue_widget_interaction();
                 } else if left_released {
+                    if let Some(drag) = &self.drag_state {
+                        if let DragKind::CloseButton = drag.kind {
+                            self.on_close_button_up(drag.window_id);
+                        }
+                    }
                     self.drag_state = None;
                     self.end_widget_interaction();
                 } else {
@@ -1855,6 +1904,35 @@ where
                 }
 
                 self.update_cursor_kind();
+            }
+        }
+    }
+
+    fn on_close_button_up(&mut self, window_id: Uuid) {
+        // Reset pressed state
+        if let Some(surface) = self.windows.get_mut(&window_id) {
+            surface.close_button_state.pressed = false;
+        }
+
+        // Check if still over button
+        let (win_x, win_y, win_w, win_h) = if let Some(surface) = self.windows.get(&window_id) {
+            (
+                surface.window.x as i32,
+                surface.window.y as i32,
+                surface.window.width as i32,
+                surface.window.height as i32,
+            )
+        } else {
+            return;
+        };
+
+        if let Some(layout) = compute_window_layout(win_x, win_y, win_w, win_h) {
+            let close_rect = close_button_rect(&layout);
+            if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
+                println!("Close button clicked for window {}", window_id);
+                let mut props = BTreeMap::new();
+                props.insert(canon::VISIBLE, Value::Bool(false));
+                self.update_window_props(window_id, props);
             }
         }
     }
@@ -2051,21 +2129,25 @@ where
         if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
             self.set_active_window(Some(win_id));
 
-            let Some(surface) = self.windows.get(&win_id) else {
-                return;
+            let (win_width, win_height) = {
+                let Some(surface) = self.windows.get(&win_id) else {
+                    return;
+                };
+                (surface.window.width as i32, surface.window.height as i32)
             };
-            let win_width = surface.window.width as i32;
-            let win_height = surface.window.height as i32;
             let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height) else {
                 return;
             };
 
             let close_rect = close_button_rect(&layout);
             if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
-                println!("Close button clicked for window {}", win_id);
-                let mut props = BTreeMap::new();
-                props.insert(canon::VISIBLE, Value::Bool(false));
-                self.update_window_props(win_id, props);
+                if let Some(surface) = self.windows.get_mut(&win_id) {
+                    surface.close_button_state.pressed = true;
+                }
+                self.drag_state = Some(DragState {
+                    window_id: win_id,
+                    kind: DragKind::CloseButton,
+                });
                 return;
             }
 
@@ -2096,7 +2178,12 @@ where
                 return;
             }
 
-            let metrics = ContentMetrics::new(surface, &layout);
+            let metrics = {
+                let Some(surface) = self.windows.get(&win_id) else {
+                    return;
+                };
+                ContentMetrics::new(surface, &layout)
+            };
             if metrics.max_scroll > 0 {
                 if let (Some(track), Some(thumb), Some(offset)) = (
                     metrics.scrollbar_track_rect,
@@ -2270,6 +2357,7 @@ where
                 let new_scroll = ((ratio * *max_scroll as f32) + 0.5) as i32;
                 self.set_scroll_offset(drag.window_id, new_scroll);
             }
+            DragKind::CloseButton => {}
         }
     }
 
@@ -2399,6 +2487,7 @@ where
                 DragKind::Move { .. } => CursorKind::Move,
                 DragKind::Resize { edges, .. } => Self::cursor_kind_for_edges(edges),
                 DragKind::ScrollThumb { .. } => CursorKind::Move,
+                DragKind::CloseButton => CursorKind::Arrow,
             };
         }
 
@@ -2478,6 +2567,7 @@ where
         if let Some(entry) = self.windows.get_mut(&window_id) {
             entry.window = window;
         } else {
+            let (btn_id, btn_state) = create_close_button();
             self.windows.insert(
                 window_id,
                 WindowSurface {
@@ -2488,6 +2578,9 @@ where
                     scroll_y: 0,
                     scrollbar_widget_id: None,
                     caret: Caret::default(),
+                    close_button_id: btn_id,
+                    close_button_state: btn_state,
+                    close_button_bitmap: None,
                 },
             );
         }
@@ -2779,7 +2872,7 @@ where
         });
 
         // 6. Control Buttons
-        self.draw_close_button(scene, &layout, is_active);
+        self.draw_close_button(scene, &layout, surface);
 
         // 5. Title Text
         let title_max_w = (layout.title_w - TITLE_TEXT_LEFT_PAD - 4).max(0) as u32;
@@ -2862,7 +2955,61 @@ where
             }
         }
 
+        self.draw_scrollbar_overlay(scene, surface.window.id, &metrics);
+
         scene.push(SceneItem::ClipPop);
+    }
+
+    fn draw_scrollbar_overlay(&self, scene: &mut Scene, window_id: Uuid, metrics: &ContentMetrics) {
+        let track_rect = match metrics.scrollbar_track_rect {
+            Some(rect) => rect,
+            None => return,
+        };
+
+        scene.push(SceneItem::FillRect {
+            rect: track_rect,
+            color: SCROLLBAR_TRACK_COLOR,
+        });
+
+        let thumb_rect = match metrics.scrollbar_thumb_rect {
+            Some(rect) => rect,
+            None => return,
+        };
+
+        let dragging_thumb = matches!(
+            &self.drag_state,
+            Some(DragState {
+                kind: DragKind::ScrollThumb { .. },
+                window_id: drag_window,
+            }) if *drag_window == window_id
+        );
+
+        let thumb_color = if dragging_thumb {
+            SCROLLBAR_THUMB_HILIGHT
+        } else {
+            SCROLLBAR_THUMB_COLOR
+        };
+
+        scene.push(SceneItem::FillRect {
+            rect: thumb_rect,
+            color: thumb_color,
+        });
+
+        if thumb_rect.height > 1 {
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(thumb_rect.x, thumb_rect.y, thumb_rect.width, 1),
+                color: SCROLLBAR_THUMB_HILIGHT,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(
+                    thumb_rect.x,
+                    thumb_rect.y + thumb_rect.height as i32 - 1,
+                    thumb_rect.width,
+                    1,
+                ),
+                color: SCROLLBAR_THUMB_SHADOW,
+            });
+        }
     }
 
     fn draw_cursor(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
