@@ -3,23 +3,23 @@
 extern crate alloc;
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use thing_abi::GraphPropsGetRequest;
 use userland::graph::get_props;
 
 use userland::widget_abi::*;
 use userland::{canon, Value};
 
-pub struct ToolbarButtonWidget;
+pub struct ButtonWidget;
 
 pub struct State {
     label: String,
     target: String,
     pressed: bool,
     icon_char: char,
+    show_label: bool,
 }
 
-impl WidgetAbi for ToolbarButtonWidget {
+impl WidgetAbi for ButtonWidget {
     type State = State;
 
     fn init(ctx: &WidgetContext) -> Self::State {
@@ -27,10 +27,14 @@ impl WidgetAbi for ToolbarButtonWidget {
         let mut label = String::from("Btn");
         let mut target = String::new();
         let mut icon_name = String::new();
+        let mut show_label = true;
+
+        // Define a local symbol for SHOW_LABEL until it's standardized
+        let show_label_sym = canon::canon(b'S', b'H', b'L');
 
         let req = GraphPropsGetRequest {
             node: ctx.widget_id,
-            keys: alloc::vec![canon::TEXT, canon::TARGET, canon::ICON_NAME],
+            keys: alloc::vec![canon::TEXT, canon::TARGET, canon::ICON_NAME, show_label_sym],
         };
 
         if let Some(props) = get_props(req) {
@@ -42,6 +46,9 @@ impl WidgetAbi for ToolbarButtonWidget {
             }
             if let Some(Value::Text(t)) = props.get(&canon::ICON_NAME) {
                 icon_name = t.clone();
+            }
+            if let Some(Value::Bool(b)) = props.get(&show_label_sym) {
+                show_label = *b;
             }
         }
 
@@ -57,6 +64,7 @@ impl WidgetAbi for ToolbarButtonWidget {
             target,
             pressed: false,
             icon_char,
+            show_label,
         }
     }
 
@@ -92,12 +100,14 @@ impl WidgetAbi for ToolbarButtonWidget {
             0xFF_FF_FF_FF,
         );
 
-        // Draw label
-        let mut x = 24;
-        let y = (rect.height as i32 - 16) / 2;
-        for c in state.label.chars() {
-            draw_char(fb, rect, x, y, c, 0xFF_FF_FF_FF);
-            x += 8; // Assuming 8px width for most chars, unifont is 8 or 16
+        // Draw label if enabled
+        if state.show_label {
+            let mut x = 24;
+            let y = (rect.height as i32 - 16) / 2;
+            for c in state.label.chars() {
+                draw_char(fb, rect, x, y, c, 0xFF_FF_FF_FF);
+                x += 8; // Assuming 8px width for most chars, unifont is 8 or 16
+            }
         }
     }
 

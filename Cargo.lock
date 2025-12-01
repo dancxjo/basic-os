@@ -1836,17 +1836,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget_button"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
+]
+
+[[package]]
 name = "widget_host"
 version = "0.1.0"
 dependencies = [
  "thing_abi",
  "userland",
  "uuid",
+ "widget_button",
  "widget_launcher_entry",
  "widget_listbox_default",
  "widget_scrollbar_thumb",
  "widget_toolbar",
- "widget_toolbar_button",
 ]
 
 [[package]]
@@ -1879,15 +1888,6 @@ name = "widget_toolbar"
 version = "0.1.0"
 dependencies = [
  "thing_abi",
- "userland",
-]
-
-[[package]]
-name = "widget_toolbar_button"
-version = "0.1.0"
-dependencies = [
- "thing_abi",
- "unifont",
  "userland",
 ]
 

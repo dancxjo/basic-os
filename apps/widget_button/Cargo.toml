@@ -1,5 +1,5 @@
 [package]
-name = "widget_toolbar_button"
+name = "widget_button"
 version = "0.1.0"
 edition = "2021"
 

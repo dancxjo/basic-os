@@ -11,17 +11,17 @@ use userland::widget_abi::{
     WidgetEventRx,
 };
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
+use widget_button::ButtonWidget;
 use widget_launcher_entry::LauncherEntryWidget;
 use widget_listbox_default::ListboxDefaultWidget;
 use widget_scrollbar_thumb::ScrollbarThumbWidget;
 use widget_toolbar::ToolbarWidget;
-use widget_toolbar_button::ToolbarButtonWidget;
 
 enum WidgetState {
     Launcher(<LauncherEntryWidget as WidgetAbi>::State),
     Scrollbar(<ScrollbarThumbWidget as WidgetAbi>::State),
     Toolbar(<ToolbarWidget as WidgetAbi>::State),
-    ToolbarButton(<ToolbarButtonWidget as WidgetAbi>::State),
+    Button(<ButtonWidget as WidgetAbi>::State),
     ListboxDefault(<ListboxDefaultWidget as WidgetAbi>::State),
 }
 
@@ -98,9 +98,9 @@ impl App for WidgetHost {
                             Some("toolbar") => {
                                 Some(WidgetState::Toolbar(ToolbarWidget::init(&context)))
                             }
-                            Some("toolbar_button") => Some(WidgetState::ToolbarButton(
-                                ToolbarButtonWidget::init(&context),
-                            )),
+                            Some("toolbar_button") | Some("button") => {
+                                Some(WidgetState::Button(ButtonWidget::init(&context)))
+                            }
                             Some("listbox_default") | Some("list") => Some(
                                 WidgetState::ListboxDefault(ListboxDefaultWidget::init(&context)),
                             ),
@@ -166,9 +166,7 @@ impl App for WidgetHost {
                                     ScrollbarThumbWidget::handle_event(s, e)
                                 }
                                 WidgetState::Toolbar(s) => ToolbarWidget::handle_event(s, e),
-                                WidgetState::ToolbarButton(s) => {
-                                    ToolbarButtonWidget::handle_event(s, e)
-                                }
+                                WidgetState::Button(s) => ButtonWidget::handle_event(s, e),
                                 WidgetState::ListboxDefault(s) => {
                                     ListboxDefaultWidget::handle_event(s, e)
                                 }
@@ -205,9 +203,7 @@ impl App for WidgetHost {
                                         ScrollbarThumbWidget::handle_event(s, e)
                                     }
                                     WidgetState::Toolbar(s) => ToolbarWidget::handle_event(s, e),
-                                    WidgetState::ToolbarButton(s) => {
-                                        ToolbarButtonWidget::handle_event(s, e)
-                                    }
+                                    WidgetState::Button(s) => ButtonWidget::handle_event(s, e),
                                     WidgetState::ListboxDefault(s) => {
                                         ListboxDefaultWidget::handle_event(s, e)
                                     }
@@ -239,9 +235,7 @@ impl App for WidgetHost {
                     ScrollbarThumbWidget::draw(s, &mut instance.framebuffer, rect)
                 }
                 WidgetState::Toolbar(s) => ToolbarWidget::draw(s, &mut instance.framebuffer, rect),
-                WidgetState::ToolbarButton(s) => {
-                    ToolbarButtonWidget::draw(s, &mut instance.framebuffer, rect)
-                }
+                WidgetState::Button(s) => ButtonWidget::draw(s, &mut instance.framebuffer, rect),
                 WidgetState::ListboxDefault(s) => {
                     ListboxDefaultWidget::draw(s, &mut instance.framebuffer, rect)
                 }
