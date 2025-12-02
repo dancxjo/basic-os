@@ -17,7 +17,9 @@ tick_handler:
 
 .kernel_entry:
     # We are in Kernel mode. CPU pushed 3 words.
-    # We need to expand to 5 words.
+    # Stack: [RIP][CS][RFLAGS]
+    # We need to expand to 5 words to match IretFrame layout.
+    # Target Stack: [RIP][CS][RFLAGS][RSP][SS]
     
     subq $16, %rsp
     # Stack: [Empty][Empty][RIP][CS][RFLAGS]
@@ -33,7 +35,8 @@ tick_handler:
     # We check if RAX is in this range.
     movq %rax, %rcx
     shrq $16, %rcx
-    cmpq $0xffff88001000, %rcx
+    movabsq $0xffff88001000, %rax
+    cmpq %rax, %rcx
     jne .rip_ok
     
     # RIP is on stack! Print 'S'
@@ -44,6 +47,7 @@ tick_handler:
 .rip_ok:
     # ---------------------------------------
 
+    movq 24(%rsp), %rax  # Reload RIP (8+16)
     movq %rax, 8(%rsp)
     
     movq 32(%rsp), %rax  # Load CS (8+24)
@@ -63,6 +67,7 @@ tick_handler:
     popq %rax # Restore RAX
     
     # Now stack has 5 words: [RIP][CS][RFLAGS][RSP][SS]
+    # This matches the IretFrame part of FullContext.
     jmp .push_gprs
 
 .user_entry:
@@ -71,6 +76,13 @@ tick_handler:
 
 .push_gprs:
     # Save general-purpose registers
+    # This constructs the GeneralRegisters part of FullContext.
+    # Layout:
+    #   [rsp+0]   = R15
+    #   ...
+    #   [rsp+112] = RAX
+    #   [rsp+120] = RIP (start of IretFrame)
+    # Total size: 160 bytes (FullContext)
     pushq %rax
     pushq %rbx
     pushq %rcx

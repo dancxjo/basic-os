@@ -252,11 +252,11 @@ impl Scheduler {
 
 pub fn start_first() -> ! {
     unsafe extern "C" {
-        fn restore_context(saved: *const IretFrame) -> !;
+        fn restore_context(saved: *const FullContext) -> !;
     }
 
     info!("Starting first task");
-    let (frame_ptr, stack_top) = {
+    let (ctx_ptr, stack_top) = {
         let scheduler = SCHEDULER.lock();
         if let Some(task) = scheduler.tasks[0].as_ref() {
             unsafe {
@@ -271,7 +271,7 @@ pub fn start_first() -> ! {
                 task.mode
             );
             serial_print!("]");
-            (&task.context.frame as *const IretFrame, task.stack_top)
+            (&task.context as *const FullContext, task.stack_top)
         } else {
             panic!("No task in slot 0 to start");
         }
@@ -280,7 +280,7 @@ pub fn start_first() -> ! {
     // Ensure the kernel stack is set for the first task
     set_kernel_stack(stack_top);
 
-    unsafe { restore_context(frame_ptr) }
+    unsafe { restore_context(ctx_ptr) }
 }
 
 /// Global scheduler instance.
@@ -293,7 +293,7 @@ pub static mut CURRENT_TASK: *mut Task = core::ptr::null_mut();
 pub static SCHED_SINGLE_TASK: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "C" {
-    fn restore_context(ctx: *const IretFrame) -> !;
+    fn restore_context(ctx: *const FullContext) -> !;
 }
 
 #[unsafe(no_mangle)]
@@ -418,19 +418,19 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     }
                 }
 
-                restore_context(&(*task_ptr).context.frame)
+                restore_context(&(*task_ptr).context)
             }
             None => {
                 end_of_interrupt(irq);
-                let frame_ptr = if !current.is_null() {
-                    &(*current).context.frame as *const IretFrame
+                let ctx_ptr = if !current.is_null() {
+                    &(*current).context as *const FullContext
                 } else {
                     // error!("No current task; esperante.");
                     crate::klog_irq!(b'N');
                     rust_schedule_and_switch(current_rsp, irq);
                 };
                 CURRENT_TASK = current;
-                restore_context(frame_ptr)
+                restore_context(ctx_ptr)
             }
         }
     }
