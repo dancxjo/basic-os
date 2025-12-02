@@ -1,3 +1,4 @@
+use crate::mm::pools::PAGE_TABLE_ALLOCATOR;
 use core::ops::Range;
 
 use x86_64::{
@@ -8,7 +9,7 @@ use x86_64::{
 pub fn mirror_kernel_region(
     mapper: &mut impl Mapper<Size4KiB>,
     active_mapper: &mut (impl Mapper<Size4KiB> + x86_64::structures::paging::Translate),
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    _frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     virt_range: Range<VirtAddr>,
 ) {
     use x86_64::structures::paging::{Page, PhysFrame};
@@ -24,7 +25,7 @@ pub fn mirror_kernel_region(
                     page,
                     frame,
                     PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                    frame_allocator,
+                    &mut *PAGE_TABLE_ALLOCATOR.lock(),
                 ) {
                     Ok(flusher) => flusher.flush(),
                     Err(

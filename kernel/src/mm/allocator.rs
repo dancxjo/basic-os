@@ -89,42 +89,28 @@ pub struct BootFrameAllocator {
 
 impl BootFrameAllocator {
     pub fn new() -> Self {
-        let regions = collect_memory_regions();
+        use crate::mm::pools::{MemoryRole, POOL_MANAGER, init_pools};
+
+        init_pools();
+        let pm = POOL_MANAGER.lock();
+
         let mut usable_ranges: [Option<Range<usize>>; 32] = Default::default();
         let mut range_count = 0;
 
-        for r in regions
-            .iter()
-            .filter(|r| r.kind == "usable" && r.len >= 0x200000)
-        {
-            // Crude fix: Exclude low memory (below 64MB) to avoid stomping on kernel/bootloader structures
-            if r.base < 0x4000000 {
-                if r.base + r.len <= 0x4000000 {
-                    continue;
-                }
-                // Partial overlap
-                let new_base = 0x4000000;
-                let new_len = (r.base + r.len) - new_base;
-                if new_len < 0x200000 {
-                    continue;
-                }
-                if range_count >= usable_ranges.len() {
+        for pool in pm.pools[..pm.count].iter() {
+            if pool.role == MemoryRole::GeneralFrames {
+                if range_count >= 32 {
                     break;
                 }
-                usable_ranges[range_count] =
-                    Some((new_base as usize)..(new_base + new_len) as usize);
+                usable_ranges[range_count] = Some(pool.start as usize..pool.end as usize);
                 range_count += 1;
-                continue;
             }
-
-            if range_count >= usable_ranges.len() {
-                break;
-            }
-            usable_ranges[range_count] = Some((r.base as usize)..(r.base + r.len) as usize);
-            range_count += 1;
         }
 
-        assert!(range_count > 0, "No usable memory regions found!");
+        assert!(
+            range_count > 0,
+            "No usable memory regions found for GeneralFrames!"
+        );
 
         usable_ranges[..range_count].sort_by_key(|range| {
             usize::MAX - (range.as_ref().unwrap().end - range.as_ref().unwrap().start)
@@ -228,7 +214,7 @@ pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAl
                     page,
                     frame,
                     PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                    frame_allocator,
+                    &mut *crate::mm::pools::PAGE_TABLE_ALLOCATOR.lock(),
                 )
                 .expect("Heap map_to failed")
                 .flush();

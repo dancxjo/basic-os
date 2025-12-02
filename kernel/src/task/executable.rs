@@ -3,6 +3,7 @@ use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
 use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
+use crate::mm::pools::PAGE_TABLE_ALLOCATOR;
 use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
 use crate::task::scheduler::Task;
 use core::ptr;
@@ -30,7 +31,8 @@ pub fn create_user_page_table(
     &'static mut PageTable,
     x86_64::structures::paging::OffsetPageTable<'static>,
 ) {
-    let l4_frame = frame_allocator
+    let l4_frame = PAGE_TABLE_ALLOCATOR
+        .lock()
         .allocate_frame()
         .expect("No frame for user L4 page table");
     let phys = l4_frame.start_address();
@@ -161,7 +163,7 @@ pub fn load_elf<'a>(
                     PageTableFlags::PRESENT
                         | PageTableFlags::USER_ACCESSIBLE
                         | PageTableFlags::WRITABLE,
-                    frame_allocator,
+                    &mut *PAGE_TABLE_ALLOCATOR.lock(),
                 )
                 .map_err(|_| "Failed to map user stack page")?
                 .flush();
@@ -217,7 +219,7 @@ pub fn load_elf<'a>(
 
             unsafe {
                 mapper
-                    .map_to(page, frame, flags, frame_allocator)
+                    .map_to(page, frame, flags, &mut *PAGE_TABLE_ALLOCATOR.lock())
                     .map_err(|e| {
                         info!(
                             "map_to failed for page {:#x} -> frame {:#x}: {:?}",

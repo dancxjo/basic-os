@@ -4,6 +4,7 @@ use x86_64::{
 };
 
 use crate::mm::allocator::BootFrameAllocator;
+use crate::mm::pools::PAGE_TABLE_ALLOCATOR;
 
 pub const KERNEL_STACK_PAGES: usize = 16;
 const KERNEL_STACK_SIZE: usize = 4096 * KERNEL_STACK_PAGES;
@@ -36,7 +37,7 @@ pub unsafe fn init_kernel_stack(
                     page,
                     frame,
                     PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                    frame_allocator,
+                    &mut *PAGE_TABLE_ALLOCATOR.lock(),
                 )
                 .expect("map_to failed (stack)")
                 .flush()
