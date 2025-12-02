@@ -144,7 +144,9 @@ pub extern "C" fn start_user_task() {
     if module.bundle_type == BundleType::Driver {
         labels.push(canon::DRIVER);
     }
+    info!("Creating task node for {}", module.name);
     let task_id = graph::create_task(module.bundle, module.name, labels);
+    info!("Task node created: {}", task_id);
 
     if module.bundle_type == BundleType::Driver {
         if let Some((device_id, _)) = driver_caps_for_name(module.name) {
@@ -177,10 +179,18 @@ pub extern "C" fn start_user_task() {
         module_bytes.len()
     );
 
-    let frame_allocator = BootFrameAllocator::global();
-    let (new_l4, mut new_mapper) = create_user_page_table(frame_allocator, get_hhdm_offset());
-    let loaded = load_elf(module_bytes, new_l4, &mut new_mapper, frame_allocator)
-        .expect("Failed to load ELF");
+    let (new_l4, mut new_mapper, loaded) = {
+        let mut system_guard = crate::system::SYSTEM.lock();
+        let system = system_guard.as_mut().expect("System not initialized");
+        let mut frame_allocator = system.frame_allocator.lock();
+        let mut active_mapper = system.mapper.lock();
+
+        let (new_l4, mut new_mapper) = create_user_page_table(&mut *frame_allocator, &mut *active_mapper, get_hhdm_offset());
+        let loaded = load_elf(module_bytes, new_l4, &mut new_mapper, &mut *frame_allocator)
+            .expect("Failed to load ELF");
+        (new_l4, new_mapper, loaded)
+    };
+
     info!(
         "User entry prepared for {}: rip={:#x} stack_top={:#x}",
         module.name,

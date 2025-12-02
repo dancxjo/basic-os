@@ -1,5 +1,6 @@
 use core::mem::MaybeUninit;
 use core::ops::Range;
+use core::sync::atomic::{AtomicBool, Ordering};
 use linked_list_allocator::LockedHeap;
 use x86_64::{
     PhysAddr, VirtAddr,
@@ -10,30 +11,58 @@ use x86_64::{
     },
 };
 
+use crate::arch::x86_64::memory::{kernel_base, kernel_end};
 use crate::bootloader::collect_memory_regions;
+use spin::Mutex;
 
 // Constants for heap placement
 
 pub const HEAP_START: u64 = 0xFFFF_A000_0000_0000;
 pub const HEAP_SIZE: usize = 32 * 1024 * 1024;
 
+const SANITY_FORBIDDEN_RANGE: Range<u64> = 0x0010_0000..0x0100_0000;
+const SANITY_DUMP_COUNT: usize = 8;
+
+struct SanityCapture {
+    frames: [Option<PhysAddr>; SANITY_DUMP_COUNT],
+    count: usize,
+    logged: bool,
+}
+
+impl SanityCapture {
+    const fn new() -> Self {
+        Self {
+            frames: [None; SANITY_DUMP_COUNT],
+            count: 0,
+            logged: false,
+        }
+    }
+
+    fn record(&mut self, addr: PhysAddr) {
+        if self.count >= SANITY_DUMP_COUNT {
+            return;
+        }
+        self.frames[self.count] = Some(addr);
+        self.count += 1;
+        if self.count == SANITY_DUMP_COUNT && !self.logged {
+            self.logged = true;
+            // log_sanity_snapshot(&self.frames);
+        }
+    }
+}
+
+static SANITY_CAPTURE: Mutex<SanityCapture> = Mutex::new(SanityCapture::new());
+
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-pub(crate) static mut MAPPER: MaybeUninit<OffsetPageTable> = MaybeUninit::uninit();
-static mut FRAME_ALLOCATOR: MaybeUninit<BootFrameAllocator> = MaybeUninit::uninit();
+// pub(crate) static mut MAPPER: MaybeUninit<OffsetPageTable> = MaybeUninit::uninit();
+static ALLOCATOR_LOGGING_SAFE: AtomicBool = AtomicBool::new(false);
 
 /// Initialize paging and return the active OffsetPageTable.
-pub unsafe fn init_paging(
-    physical_memory_offset: VirtAddr,
-) -> &'static mut OffsetPageTable<'static> {
+pub unsafe fn init_paging(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
     let l4_table = unsafe { active_level_4_table(physical_memory_offset) };
-    unsafe {
-        #[allow(static_mut_refs)]
-        MAPPER.write(OffsetPageTable::new(l4_table, physical_memory_offset));
-        #[allow(static_mut_refs)]
-        MAPPER.assume_init_mut()
-    }
+    OffsetPageTable::new(l4_table, physical_memory_offset)
 }
 
 unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
@@ -52,16 +81,7 @@ pub struct BootFrameAllocator {
 }
 
 impl BootFrameAllocator {
-    pub fn init() -> &'static mut Self {
-        unsafe {
-            #[allow(static_mut_refs)]
-            FRAME_ALLOCATOR.write(Self::new());
-            #[allow(static_mut_refs)]
-            FRAME_ALLOCATOR.assume_init_mut()
-        }
-    }
-
-    fn new() -> Self {
+    pub fn new() -> Self {
         let regions = collect_memory_regions();
         let mut usable_ranges: [Option<Range<usize>>; 32] = Default::default();
         let mut range_count = 0;
@@ -70,6 +90,26 @@ impl BootFrameAllocator {
             .iter()
             .filter(|r| r.kind == "usable" && r.len >= 0x200000)
         {
+            // Crude fix: Exclude low memory (below 64MB) to avoid stomping on kernel/bootloader structures
+            if r.base < 0x4000000 {
+                if r.base + r.len <= 0x4000000 {
+                    continue;
+                }
+                // Partial overlap
+                let new_base = 0x4000000;
+                let new_len = (r.base + r.len) - new_base;
+                if new_len < 0x200000 {
+                    continue;
+                }
+                if range_count >= usable_ranges.len() {
+                    break;
+                }
+                usable_ranges[range_count] =
+                    Some((new_base as usize)..(new_base + new_len) as usize);
+                range_count += 1;
+                continue;
+            }
+
             if range_count >= usable_ranges.len() {
                 break;
             }
@@ -89,6 +129,10 @@ impl BootFrameAllocator {
             "BootFrameAllocator initialized with {} usable ranges",
             range_count
         );
+        for i in 0..range_count {
+            let r = usable_ranges[i].as_ref().unwrap();
+            log::info!("  Range {}: {:#x} - {:#x}", i, r.start, r.end);
+        }
 
         Self {
             usable_ranges,
@@ -127,27 +171,18 @@ impl BootFrameAllocator {
             }
         }
     }
-    /// Manually expose frame allocator for other systems
-    pub fn global() -> &'static mut Self {
-        #[allow(static_mut_refs)]
-        unsafe {
-            FRAME_ALLOCATOR.assume_init_mut()
-        }
-    }
-}
-
-/// Obtain the global page-table mapper initialized during boot.
-pub fn global_mapper() -> &'static mut OffsetPageTable<'static> {
-    #[allow(static_mut_refs)]
-    unsafe {
-        MAPPER.assume_init_mut()
-    }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
         let addr = self.allocate_frame_internal()?;
-        PhysFrame::from_start_address(PhysAddr::new(addr as u64)).ok()
+        let frame = PhysFrame::from_start_address(PhysAddr::new(addr as u64)).ok();
+        if allocator_logging_enabled() {
+            if let Some(f) = frame {
+                log::trace!("Allocated frame: {:#x}", f.start_address().as_u64());
+            }
+        }
+        frame
     }
 }
 
@@ -205,4 +240,14 @@ pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAl
         HEAP_START,
         HEAP_START + HEAP_SIZE as u64
     );
+
+    enable_allocator_logging();
+}
+
+fn allocator_logging_enabled() -> bool {
+    ALLOCATOR_LOGGING_SAFE.load(Ordering::Relaxed)
+}
+
+fn enable_allocator_logging() {
+    ALLOCATOR_LOGGING_SAFE.store(true, Ordering::SeqCst);
 }

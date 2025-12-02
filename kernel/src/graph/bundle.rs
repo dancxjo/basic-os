@@ -6,6 +6,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::sync::atomic::{AtomicU64, Ordering};
+use log::info;
 use thing_abi::Value;
 use uuid::Uuid;
 
@@ -112,19 +113,23 @@ pub fn create_task(package_id: BundleId, name: &str, extra_labels: Vec<Symbol>) 
     };
 
     // The task owns itself
+    info!("Calling fiat_for_bundle in create_task");
     fiat_for_bundle(task_id, req);
+    info!("Returned from fiat_for_bundle in create_task");
 
     // Link Task -> Package
+    info!("Calling that_for_bundle in create_task");
     crate::graph::that_for_bundle(
         task_id,
         crate::graph::types::GraphThatRequest {
             src: task_id.0,
-            pred: canon::PACKAGE.into(),
+            pred: canon::INSTANCE_OF.into(),
             dst: package_id.0,
             revision_hint: 0,
             props: BTreeMap::new(),
         },
     );
+    info!("Returned from that_for_bundle in create_task");
 
     task_id
 }

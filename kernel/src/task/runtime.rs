@@ -1,5 +1,5 @@
 use crate::graph::{BundleId, BundleType, KERNEL_BUNDLE_ID};
-use crate::mm::allocator::{BootFrameAllocator, global_mapper};
+use x86_64::structures::paging::{FrameAllocator, Mapper, Size4KiB, Translate};
 use crate::task::context::TaskMode;
 use crate::task::scheduler::{SCHEDULER, Scheduler};
 
@@ -22,10 +22,15 @@ fn with_scheduler<R>(f: impl FnOnce(&mut Scheduler) -> R) -> R {
     f(&mut sched)
 }
 
-/// Spawn a new kernel-mode task using the global mapper/frame allocator.
-pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
-    let mapper = global_mapper();
-    let frame_allocator = BootFrameAllocator::global();
+/// Spawn a new kernel-mode task using the provided mapper/frame allocator.
+pub fn spawn_kernel_with_allocator<M>(
+    entry: extern "C" fn(),
+    mapper: &mut M,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) -> TaskHandle
+where
+    M: Mapper<Size4KiB> + Translate,
+{
     with_scheduler(|sched| {
         let id = sched.tasks.len();
         sched.spawn(entry, TaskMode::Kernel, mapper, frame_allocator);
@@ -33,6 +38,16 @@ pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
             id: TaskId::from(id),
         }
     })
+}
+
+/// Spawn a new kernel-mode task using the global mapper/frame allocator.
+pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
+    let mut system_guard = crate::system::SYSTEM.lock();
+    let system = system_guard.as_mut().expect("System not initialized");
+    let mut mapper = system.mapper.lock();
+    let mut frame_allocator = system.frame_allocator.lock();
+
+    spawn_kernel_with_allocator(entry, &mut *mapper, &mut *frame_allocator)
 }
 
 /// Spawn a new kernel-mode task with an associated bundle.

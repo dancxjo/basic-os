@@ -3,10 +3,10 @@
 extern crate alloc;
 
 use alloc::string::{String, ToString};
+use thing_abi::Map;
+use userland::graph::{GraphThing, Thingable};
 use userland::widget_abi::*;
 use userland::{canon, graph};
-use userland::graph::{Thingable, GraphThing};
-use thing_abi::Map;
 
 pub struct ThingWidget;
 
@@ -19,9 +19,13 @@ struct GenericThing {
 }
 
 impl Thingable for GenericThing {
-    fn kind() -> &'static str { "any" }
+    fn kind() -> &'static str {
+        "any"
+    }
     fn load(thing: &GraphThing) -> Option<Self> {
-        Some(Self { fields: thing.fields.clone() })
+        Some(Self {
+            fields: thing.fields.clone(),
+        })
     }
 }
 

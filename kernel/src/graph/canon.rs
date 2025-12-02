@@ -139,6 +139,7 @@ pub const MODE: Symbol = canon(b'M', b'O', b'D');
 pub const PACKAGE: Symbol = canon(b'P', b'K', b'G');
 pub const TASK: Symbol = canon(b'T', b'S', b'K');
 pub const DRIVES: Symbol = canon(b'D', b'R', b'V');
+pub const INSTANCE_OF: Symbol = canon(b'I', b'N', b'S');
 
 pub fn from_str(s: &str) -> Option<Symbol> {
     const TBL: &[(Symbol, &str)] = &[

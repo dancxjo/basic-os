@@ -24,6 +24,7 @@ pub struct LoadedElf {
 
 pub fn create_user_page_table(
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    active_mapper: &mut (impl Mapper<Size4KiB> + Translate),
     hhdm_offset: VirtAddr,
 ) -> (
     &'static mut PageTable,
@@ -70,16 +71,19 @@ pub fn create_user_page_table(
     // remain accessible when the address space is switched.
     mirror_kernel_region(
         &mut offset_page_table,
+        active_mapper,
         frame_allocator,
         (kernel_base()..kernel_end()).into(),
     );
     mirror_kernel_region(
         &mut offset_page_table,
+        active_mapper,
         frame_allocator,
         (VirtAddr::new(HEAP_START)..VirtAddr::new(HEAP_START + HEAP_SIZE as u64)).into(),
     );
     mirror_kernel_region(
         &mut offset_page_table,
+        active_mapper,
         frame_allocator,
         (VirtAddr::new(KERNEL_STACK_VIRT_BASE)
             ..VirtAddr::new(KERNEL_STACK_VIRT_BASE + (KERNEL_STACK_PAGES as u64 * 4096)))
@@ -92,6 +96,7 @@ pub fn create_user_page_table(
     let task_stack_size = Task::stack_size(); // Keep mirrored size in sync with scheduler stacks.
     mirror_kernel_region(
         &mut offset_page_table,
+        active_mapper,
         frame_allocator,
         (VirtAddr::new(TASK_STACK_REGION_BASE)
             ..VirtAddr::new(TASK_STACK_REGION_BASE + MAX_TASKS_TO_MAP * task_stack_size))
@@ -102,6 +107,7 @@ pub fn create_user_page_table(
     const APIC_BASE: u64 = 0xfee0_0000;
     mirror_kernel_region(
         &mut offset_page_table,
+        active_mapper,
         frame_allocator,
         (VirtAddr::new(APIC_BASE)..VirtAddr::new(APIC_BASE + 0x1000)).into(),
     );
@@ -109,6 +115,7 @@ pub fn create_user_page_table(
     const HPET_BASE: u64 = 0xfed0_0000;
     mirror_kernel_region(
         &mut offset_page_table,
+        active_mapper,
         frame_allocator,
         (VirtAddr::new(HPET_BASE)..VirtAddr::new(HPET_BASE + 0x1000)).into(),
     );
@@ -293,6 +300,31 @@ pub unsafe fn jump_to_context(ctx: &FullContext, new_table: PhysFrame) -> ! {
         ctx.frame.cs,
         ctx.frame.ss
     );
+
+    // Validate RIP
+    let rip = ctx.frame.rip;
+    let is_canonical = |v: u64| {
+        let sign = v >> 47;
+        sign == 0 || sign == 0x1ffff
+    };
+    assert!(is_canonical(rip), "Non-canonical RIP: {:#x}", rip);
+
+    if ctx.frame.cs == 0x8 {
+        // Kernel mode
+        assert!(
+            rip >= 0xffffffff80000000 && rip < 0xffffffff90000000,
+            "RIP out of kernel text region: {:#x}",
+            rip
+        );
+    } else {
+        // User mode (approximate check)
+        assert!(
+            rip < 0x0000800000000000,
+            "RIP out of user text region: {:#x}",
+            rip
+        );
+    }
+
     unsafe {
         Cr3::write(new_table, Cr3::read().1);
     }

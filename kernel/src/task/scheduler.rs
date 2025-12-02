@@ -31,7 +31,9 @@ use core::ptr;
 use core::sync::atomic::{AtomicBool, Ordering};
 use log::{error, info};
 use spin::Mutex;
-use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, PhysFrame};
+use x86_64::structures::paging::{
+    FrameAllocator, Mapper, OffsetPageTable, PhysFrame, Size4KiB, Translate,
+};
 use x86_64::{PhysAddr, registers::control::Cr3};
 
 use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
@@ -66,8 +68,8 @@ impl Task {
         entry: extern "C" fn(),
         index: usize,
         mode: TaskMode,
-        mapper: &mut OffsetPageTable,
-        frame_allocator: &mut BootFrameAllocator,
+        mapper: &mut (impl Mapper<Size4KiB> + Translate),
+        frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     ) -> Self {
         let mut task = Self {
             entry_point: entry,
@@ -108,8 +110,8 @@ impl Task {
 
     pub fn allocate_stack_if_needed(
         &mut self,
-        mapper: &mut OffsetPageTable,
-        frame_allocator: &mut BootFrameAllocator,
+        mapper: &mut (impl Mapper<Size4KiB> + Translate),
+        frame_allocator: &mut impl FrameAllocator<Size4KiB>,
         index: usize,
     ) {
         if self.stack_top == 0 {
@@ -197,8 +199,8 @@ impl Scheduler {
         &mut self,
         entry: extern "C" fn(),
         mode: TaskMode,
-        mapper: &mut OffsetPageTable,
-        frame_allocator: &mut BootFrameAllocator,
+        mapper: &mut (impl Mapper<Size4KiB> + Translate),
+        frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     ) {
         let task = Task::new(entry, self.tasks.len(), mode, mapper, frame_allocator);
         info!("Task {} spawned", self.tasks.len());
@@ -280,7 +282,27 @@ pub fn start_first() -> ! {
     // Ensure the kernel stack is set for the first task
     set_kernel_stack(stack_top);
 
-    unsafe { restore_context(ctx_ptr) }
+    unsafe {
+        let rip = (*ctx_ptr).frame.rip;
+        let is_canonical = |v: u64| {
+            let sign = v >> 47;
+            sign == 0 || sign == 0x1ffff
+        };
+        assert!(
+            is_canonical(rip),
+            "Non-canonical RIP in start_first: {:#x}",
+            rip
+        );
+        if (*ctx_ptr).frame.cs == 0x8 {
+            assert!(
+                rip >= 0xffffffff80000000 && rip < 0xffffffff90000000,
+                "RIP out of kernel text region in start_first: {:#x}",
+                rip
+            );
+        }
+
+        restore_context(ctx_ptr)
+    }
 }
 
 /// Global scheduler instance.
@@ -418,6 +440,24 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     }
                 }
 
+                // Validate RIP before restoring
+                let rip = (*task_ptr).context.frame.rip;
+                let is_canonical = |v: u64| {
+                    let sign = v >> 47;
+                    sign == 0 || sign == 0x1ffff
+                };
+                if !is_canonical(rip) {
+                    panic!("Non-canonical RIP in scheduler (next task): {:#x}", rip);
+                }
+                if (*task_ptr).context.frame.cs == 0x8 {
+                    if rip < 0xffffffff80000000 || rip >= 0xffffffff90000000 {
+                        panic!(
+                            "RIP out of kernel text region in scheduler (next task): {:#x}",
+                            rip
+                        );
+                    }
+                }
+
                 restore_context(&(*task_ptr).context)
             }
             None => {
@@ -430,6 +470,22 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     rust_schedule_and_switch(current_rsp, irq);
                 };
                 CURRENT_TASK = current;
+
+                // Validate RIP before restoring
+                let rip = (*ctx_ptr).frame.rip;
+                let is_canonical = |v: u64| {
+                    let sign = v >> 47;
+                    sign == 0 || sign == 0x1ffff
+                };
+                if !is_canonical(rip) {
+                    panic!("Non-canonical RIP in scheduler: {:#x}", rip);
+                }
+                if (*ctx_ptr).frame.cs == 0x8 {
+                    if rip < 0xffffffff80000000 || rip >= 0xffffffff90000000 {
+                        panic!("RIP out of kernel text region in scheduler: {:#x}", rip);
+                    }
+                }
+
                 restore_context(ctx_ptr)
             }
         }

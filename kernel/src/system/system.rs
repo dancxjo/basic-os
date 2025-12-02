@@ -21,6 +21,8 @@ use spin::Mutex as SpinMutex;
 pub(crate) static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 
 pub struct System {
+    pub frame_allocator: SpinMutex<BootFrameAllocator>,
+    pub mapper: SpinMutex<OffsetPageTable<'static>>,
     framebuffer: Arc<SpinMutex<Framebuffer>>,
     clock: &'static SpinMutex<Clock>,
     // scheduler: Arc<SpinMutex<crate::scheduler::Scheduler>>,
@@ -30,15 +32,17 @@ impl System {
     pub fn boot() -> Self {
         info!("Ready? Set? Go!");
 
-        let (mut _mapper, mut _frame_allocator) = init_memory_and_heap();
+        let (mut mapper, mut frame_allocator) = init_memory_and_heap();
         init_graph_and_syscalls();
         init_interrupts_and_idt();
         let framebuffer = init_framebuffer_and_devices();
         let _clock = init_clock();
         info!("ThingOS initialized.");
-        init_user_tasks();
+        init_user_tasks(&mut mapper, &mut frame_allocator);
 
         Self {
+            frame_allocator: SpinMutex::new(frame_allocator),
+            mapper: SpinMutex::new(mapper),
             framebuffer,
             clock: _clock,
             // scheduler,
@@ -75,15 +79,15 @@ pub extern "C" fn task_entry_trampoline() {
 }
 
 fn init_memory_and_heap() -> (
-    &'static mut OffsetPageTable<'static>,
-    &'static mut BootFrameAllocator,
+    OffsetPageTable<'static>,
+    BootFrameAllocator,
 ) {
     let mut mapper = bootstrap_step!("paging", {
         let physical_memory_offset = get_hhdm_offset();
         unsafe { init_paging(physical_memory_offset) }
     });
 
-    let mut frame_allocator = BootFrameAllocator::init();
+    let mut frame_allocator = BootFrameAllocator::new();
 
     bootstrap_step!("stack", {
         unsafe { init_kernel_stack(&mut mapper, &mut frame_allocator) };
@@ -162,7 +166,10 @@ fn init_clock() -> &'static SpinMutex<Clock> {
     clock
 }
 
-fn init_user_tasks() {
+fn init_user_tasks(
+    mapper: &mut OffsetPageTable<'static>,
+    frame_allocator: &mut BootFrameAllocator,
+) {
     bootstrap_step!("executable", {
         launcher::init_user_modules();
         let count = launcher::user_module_count();
@@ -172,7 +179,7 @@ fn init_user_tasks() {
         for _ in 0..count {
             let trampoline: extern "C" fn() =
                 unsafe { core::mem::transmute(task_entry_trampoline as unsafe extern "C" fn()) };
-            runtime::spawn_kernel(trampoline);
+            runtime::spawn_kernel_with_allocator(trampoline, mapper, frame_allocator);
         }
     });
 }

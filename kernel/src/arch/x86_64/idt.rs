@@ -58,6 +58,21 @@ extern "x86-interrupt" fn page_fault_handler(
         error!("During: INSTRUCTION FETCH");
     }
 
+    // Check for bad RIP
+    let rip = stack_frame.instruction_pointer.as_u64();
+    if rip < 0x1000 {
+        error!("!!! BAD RIP DETECTED: {:#x} !!!", rip);
+        error!("This is likely a corrupted function pointer or return address.");
+        error!("Dumping stack top:");
+        let rsp = stack_frame.stack_pointer.as_u64();
+        unsafe {
+            let stack_ptr = rsp as *const u64;
+            for i in 0..8 {
+                error!("  rsp+{}: {:#x}", i * 8, *stack_ptr.add(i));
+            }
+        }
+    }
+
     crate::trace::dump_trace();
     panic!("Unhandled page fault");
 }

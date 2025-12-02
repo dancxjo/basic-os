@@ -6,6 +6,7 @@ use crate::graph::types::*;
 use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
+use log::info;
 use spin::Mutex;
 use thing_abi::{Value, WatchQuery};
 use uuid::Uuid;
@@ -48,6 +49,7 @@ pub fn that(request: GraphThatRequest) -> u64 {
 }
 
 pub fn that_for_bundle(owner: BundleId, request: GraphThatRequest) -> u64 {
+    info!("that_for_bundle called with owner={}", owner.0);
     with_store(|store| store.that(owner, request))
 }
 
