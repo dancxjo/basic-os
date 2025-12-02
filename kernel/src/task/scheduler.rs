@@ -126,7 +126,12 @@ impl Task {
                     .expect("Out of physical frames for task stack");
 
                 if i == 0 || i == Self::STACK_PAGES - 1 {
-                    info!("Mapping stack page {} at {:?} to {:?}", i, page.start_address(), frame.start_address());
+                    info!(
+                        "Mapping stack page {} at {:?} to {:?}",
+                        i,
+                        page.start_address(),
+                        frame.start_address()
+                    );
                 }
 
                 unsafe {
@@ -139,7 +144,7 @@ impl Task {
                         )
                         .expect("map_to failed (task stack)")
                         .flush();
-                    
+
                     // Verify mapping by writing to the start of the page
                     let ptr = page.start_address().as_mut_ptr::<u64>();
                     ptr.write_volatile(0xCAFEBABE);
