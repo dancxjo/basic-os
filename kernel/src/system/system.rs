@@ -61,14 +61,43 @@ pub fn init_and_run_system() -> ! {
     guard.as_mut().unwrap().run()
 }
 
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
 pub extern "C" fn task_entry_trampoline() {
     unsafe {
-        core::arch::asm!(
+        core::arch::naked_asm!(
+            // Print 'T'
+            "mov dx, 0x3F8",
+            "mov al, 0x54",
+            "out dx, al",
+
+            // Check RSP
+            "test rsp, rsp",
+            "jz 2f",
+
+            // Not zero, print 'N'
+            "mov al, 0x4E",
+            "out dx, al",
+            "jmp 3f",
+
+            "2:",
+            // Zero, print 'Z'
+            "mov al, 0x5A",
+            "out dx, al",
+
+            "3:",
+            // Test stack
+            "push rax",
+            "pop rax",
+
+            // Print 'K'
+            "mov al, 0x4B",
+            "out dx, al",
+
             "xor rdi, rdi", // clear
             "xor rsi, rsi",
             "call start_user_task",
-            options(noreturn)
+            "ud2",
         );
     }
 }
@@ -169,7 +198,8 @@ fn init_user_tasks() {
             info!("No user modules to launch.");
         }
         for _ in 0..count {
-            runtime::spawn_kernel(launcher::start_user_task);
+            let trampoline: extern "C" fn() = unsafe { core::mem::transmute(task_entry_trampoline as unsafe extern "C" fn()) };
+            runtime::spawn_kernel(trampoline);
         }
     });
 }

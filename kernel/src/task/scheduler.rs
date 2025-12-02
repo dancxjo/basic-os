@@ -34,7 +34,7 @@ use spin::Mutex;
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, PhysFrame};
 use x86_64::{PhysAddr, registers::control::Cr3};
 
-use crate::task::context::{FullContext, TaskMode, prepare_context};
+use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
 
 /// Represents a schedulable task with its execution context and stack.
 ///
@@ -58,7 +58,7 @@ pub struct Task {
 }
 
 impl Task {
-    const STACK_PAGES: u64 = 64; // Increased from 32 to 64 (256KB)
+    const STACK_PAGES: u64 = 16; // Reduced from 64 to 16 to debug double fault
     const STACK_SIZE: u64 = 4096 * Self::STACK_PAGES;
     const MAGIC: u64 = 0x5441534B5F4D4147;
 
@@ -120,10 +120,14 @@ impl Task {
             let start = VirtAddr::new(base_virt);
             let mut page = Page::containing_address(start);
 
-            for _ in 0..Self::STACK_PAGES {
+            for i in 0..Self::STACK_PAGES {
                 let frame = frame_allocator
                     .allocate_frame()
                     .expect("Out of physical frames for task stack");
+
+                if i == 0 || i == Self::STACK_PAGES - 1 {
+                    info!("Mapping stack page {} at {:?} to {:?}", i, page.start_address(), frame.start_address());
+                }
 
                 unsafe {
                     mapper
@@ -135,6 +139,10 @@ impl Task {
                         )
                         .expect("map_to failed (task stack)")
                         .flush();
+                    
+                    // Verify mapping by writing to the start of the page
+                    let ptr = page.start_address().as_mut_ptr::<u64>();
+                    ptr.write_volatile(0xCAFEBABE);
                 }
 
                 page = page + 1;
@@ -239,11 +247,11 @@ impl Scheduler {
 
 pub fn start_first() -> ! {
     unsafe extern "C" {
-        fn restore_context(saved: *const u8) -> !;
+        fn restore_context(saved: *const IretFrame) -> !;
     }
 
     info!("Starting first task");
-    let (ctx, stack_top) = {
+    let (frame_ptr, stack_top) = {
         let scheduler = SCHEDULER.lock();
         if let Some(task) = scheduler.tasks[0].as_ref() {
             unsafe {
@@ -258,7 +266,7 @@ pub fn start_first() -> ! {
                 task.mode
             );
             serial_print!("]");
-            (task.context_ptr(), task.stack_top)
+            (&task.context.frame as *const IretFrame, task.stack_top)
         } else {
             panic!("No task in slot 0 to start");
         }
@@ -267,7 +275,7 @@ pub fn start_first() -> ! {
     // Ensure the kernel stack is set for the first task
     set_kernel_stack(stack_top);
 
-    unsafe { restore_context(ctx) }
+    unsafe { restore_context(frame_ptr) }
 }
 
 pub static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new(crate::clock::ticks_since_boot));
@@ -277,7 +285,7 @@ pub static mut CURRENT_TASK: *mut Task = core::ptr::null_mut();
 pub static SCHED_SINGLE_TASK: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "C" {
-    fn restore_context(ctx: *const u8) -> !;
+    fn restore_context(ctx: *const IretFrame) -> !;
 }
 
 #[unsafe(no_mangle)]
@@ -285,7 +293,6 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
     if (current_rsp as u64) % 8 != 0 {
         panic!("Unaligned RSP: {:p}", current_rsp);
     }
-    crate::klog_raw!("S");
 
     unsafe {
         if !CURRENT_TASK.is_null() {
@@ -311,6 +318,10 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
             let words_pushed = 15 + 5; // Always 5 words (RIP, CS, RFLAGS, RSP, SS) + 15 regs
             let context_size = words_pushed * core::mem::size_of::<u64>();
             let dst = task.context_mut_ptr();
+
+            if (dst as u64) % 8 != 0 {
+                panic!("Unaligned context ptr: {:p}", dst);
+            }
 
             if current_rsp != dst {
                 ptr::copy_nonoverlapping(current_rsp, dst, context_size);
@@ -392,13 +403,6 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     (*task_ptr).cr3,
                 );
 
-                // serial_print!("[{:p}:{:p}]> ", task_ptr, (*task_ptr).context_ptr());
-                crate::klog_raw!("[");
-                crate::drivers::serial::raw_write_hex(task_ptr as u64);
-                crate::klog_raw!(":");
-                crate::drivers::serial::raw_write_hex((*task_ptr).context_ptr() as u64);
-                crate::klog_raw!("]> ");
-
                 set_kernel_stack((*task_ptr).stack_top);
 
                 // Switch CR3
@@ -421,20 +425,18 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     }
                 }
 
-                restore_context((*task_ptr).context_ptr())
+                restore_context(&(*task_ptr).context.frame)
             }
             None => {
-                crate::klog_raw!("!");
-
                 end_of_interrupt(irq);
-                let ctx = if !current.is_null() {
-                    (*current).context_ptr()
+                let frame_ptr = if !current.is_null() {
+                    &(*current).context.frame as *const IretFrame
                 } else {
                     error!("No current task; esperante.");
                     rust_schedule_and_switch(current_rsp, irq);
                 };
                 CURRENT_TASK = current;
-                restore_context(ctx)
+                restore_context(frame_ptr)
             }
         }
     }

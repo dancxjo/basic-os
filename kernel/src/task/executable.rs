@@ -3,7 +3,7 @@ use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE};
 use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
-use crate::task::context::{FullContext, TaskMode, prepare_context};
+use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
 use crate::task::scheduler::Task;
 use core::ptr;
 use goblin::elf::Elf;
@@ -297,9 +297,9 @@ pub unsafe fn jump_to_context(ctx: &FullContext, new_table: PhysFrame) -> ! {
         Cr3::write(new_table, Cr3::read().1);
     }
     unsafe extern "C" {
-        fn restore_context(saved: *const u8) -> !;
+        fn restore_context(saved: *const IretFrame) -> !;
     }
-    unsafe { restore_context(ctx as *const _ as *const u8) };
+    unsafe { restore_context(&ctx.frame) };
 }
 
 pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: PhysFrame) -> ! {

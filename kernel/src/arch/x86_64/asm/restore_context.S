@@ -5,99 +5,69 @@
 .type restore_context, @function
 
 # ----------------------------------------
-# print_al: print character in AL to COM1
-# ----------------------------------------
-print_al:
-    movw $0x3F8, %dx
-    outb %al, %dx
-    ret
-
-# ----------------------------------------
-# print_qword: print 64-bit value in RSI (16 hex digits)
-# ----------------------------------------
-print_qword:
-    mov $60, %rcx         # shift count: highest nibble first
-.print_nibble:
-    movq %rsi, %rax
-    shr %cl, %rax
-    and $0xF, %al
-    cmp $10, %al
-    jb .digit
-    add $'A' - 10, %al
-    jmp .emit
-.digit:
-    add $'0', %al
-.emit:
-    call print_al
-    sub $4, %rcx
-    jns .print_nibble
-    ret
-
-# ----------------------------------------
 # restore_context
 # Input:
-#   %rdi = pointer to GeneralRegisters struct (context_ptr)
+#   %rdi = pointer to IretFrame (inside FullContext)
 # Behavior:
-#   - loads saved registers from context
+#   - loads saved registers from context (at %rdi - 120)
 #   - restores stack
 #   - executes iretq
 # ----------------------------------------
 restore_context:
-    # DEBUG: Entry
-    pushq %rax
-    pushq %rdx
-    movb $'R', %al
-    call print_al
-    popq %rdx
-    popq %rax
-
-    # %rdi points to FullContext
+    # %rdi points to IretFrame
+    
+    # Set RSP to start of FullContext (regs)
+    # IretFrame is at offset 120 in FullContext
     movq %rdi, %rsp
+    subq $120, %rsp
 
-    # Check CS (offset 128) to see if we are returning to User Mode
-    movq 128(%rsp), %rax
+    # Check CS (offset 8 in IretFrame) to see if we are returning to User Mode
+    movq 8(%rdi), %rax
     testq $3, %rax
     jnz .user_return
 
 .kernel_return:
     # Returning to Kernel Mode (CS & 3 == 0).
-    # iretq will NOT pop RSP/SS, so we must switch stack manually.
+    # We switch to the Target Stack manually to ensure each task runs on its own stack.
+    # We construct a 5-word frame [RIP, CS, RFLAGS, RSP, SS] to be safe.
     
-    # Load Target RSP from Context (offset 144)
-    movq 144(%rsp), %rax
+    # Load Target RSP from IretFrame (offset 24) into RAX
+    movq 24(%rdi), %rax
+    
+    # We need to construct [RIP, CS, RFLAGS, RSP, SS] on the Target Stack.
+    # Target Stack Top is in RAX.
+    # [RAX - 8]  = SS
+    # [RAX - 16] = RSP (Target RSP)
+    # [RAX - 24] = RFLAGS
+    # [RAX - 32] = CS
+    # [RAX - 40] = RIP
+    # [RAX - 48] = Saved RAX (temp)
 
-    # DEBUG: Print RSP
-    pushq %rax
-    pushq %rsi
-    movq %rax, %rsi
-    call print_qword
-    popq %rsi
-    popq %rax
-
-    
-    # We need to construct [RIP, CS, RFLAGS] on the Target Stack.
-    # We also push RAX temporarily so we can restore it after stack switch.
-    
-    # Push RFLAGS (offset 136)
-    movq 136(%rsp), %rbx
+    # Copy SS (offset 32 in IretFrame)
+    movq 32(%rdi), %rbx
     movq %rbx, -8(%rax)
-    
-    # Push CS (offset 128)
-    movq 128(%rsp), %rbx
-    movq %rbx, -16(%rax)
-    
-    # Push RIP (offset 120)
-    movq 120(%rsp), %rbx
+
+    # Copy RSP (offset 24 in IretFrame) - use RAX
+    movq %rax, -16(%rax)
+
+    # Copy RFLAGS (offset 16 in IretFrame)
+    movq 16(%rdi), %rbx
     movq %rbx, -24(%rax)
     
-    # Push RAX (offset 112)
-    movq 112(%rsp), %rbx
+    # Copy CS (offset 8 in IretFrame)
+    movq 8(%rdi), %rbx
     movq %rbx, -32(%rax)
     
-    # Adjust Target RSP to point to the new top (RAX)
-    subq $32, %rax
+    # Copy RIP (offset 0 in IretFrame)
+    movq 0(%rdi), %rbx
+    movq %rbx, -40(%rax)
     
-    # Restore GPRs (except RAX)
+    # Copy Saved RAX (offset 112 in FullContext / regs)
+    # This is still relative to RSP (which points to FullContext)
+    movq 112(%rsp), %rbx
+    movq %rbx, -48(%rax)
+    
+    # Restore GPRs (except RAX) from the Context struct
     popq %r15
     popq %r14
     popq %r13
@@ -113,16 +83,17 @@ restore_context:
     popq %rcx
     popq %rbx
     
-    # Skip RAX on the Context stack (we pushed it to Target Stack)
+    # Skip RAX on the Context stack (we manually copied it to Target Stack)
     addq $8, %rsp
     
-    # Switch to Target Stack
-    movq %rax, %rsp
+    # Switch to Target Stack (pointing to Saved RAX)
+    leaq -48(%rax), %rsp
     
     # Restore RAX
     popq %rax
     
-    # Stack is now [RIP, CS, RFLAGS]
+    # Stack is now [RIP, CS, RFLAGS, RSP, SS]
+    # RSP is (TargetRSP - 40)
     iretq
 
 .user_return:
@@ -147,11 +118,3 @@ restore_context:
     
     # Stack is now [RIP, CS, RFLAGS, RSP, SS]
     iretq
-
-.halt:
-    movb $'#', %al
-    call print_al
-    cli
-.hang:
-    hlt
-    jmp .hang

@@ -108,7 +108,11 @@ pub fn spawn_module(name: &str) -> bool {
         }
     }
 
-    runtime::spawn_kernel(start_user_task);
+    unsafe extern "C" {
+        fn task_entry_trampoline();
+    }
+    let trampoline: extern "C" fn() = unsafe { core::mem::transmute(task_entry_trampoline as unsafe extern "C" fn()) };
+    runtime::spawn_kernel(trampoline);
     true
 }
 

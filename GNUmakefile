@@ -21,7 +21,7 @@ else ifeq ($(KARCH),loongarch64)
 endif
 
 # Default user QEMU flags. These are appended to the QEMU command calls.
-$(call USER_VARIABLE,QEMUFLAGS,-m 4G -serial mon\:stdio)
+$(call USER_VARIABLE,QEMUFLAGS,-m 2G -serial mon\:stdio)
 # $(call USER_VARIABLE,QEMUFLAGS,-m 4G)
 
 override IMAGE_NAME := template-$(KARCH)
