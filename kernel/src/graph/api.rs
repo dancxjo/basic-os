@@ -10,7 +10,6 @@ use log::info;
 use spin::Mutex;
 use thing_abi::{Value, WatchQuery};
 use uuid::Uuid;
-use x86_64::instructions::interrupts;
 
 static STORE: Mutex<Option<Store>> = Mutex::new(None);
 
