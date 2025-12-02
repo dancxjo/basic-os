@@ -1,7 +1,7 @@
 use crate::arch::x86_64::interrupts::end_of_interrupt;
 use crate::drivers::device::{self, DeviceKind, KEYBOARD_DEVICE_NAME};
 use crate::drivers::input::InputBuffer;
-use crate::graph::{self, canon};
+use crate::graph::canon;
 use alloc::collections::BTreeMap;
 use log::warn;
 use thing_abi::Value;

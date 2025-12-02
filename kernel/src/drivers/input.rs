@@ -6,7 +6,6 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::Mutex;
-use x86_64::instructions::interrupts;
 
 /// Simple lock-free ring buffer for interrupt handlers.
 ///

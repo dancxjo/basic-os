@@ -3,7 +3,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use spin::Mutex as SpinMutex;
 use uuid::Uuid;
-use x86_64::instructions::interrupts;
 
 use crate::graph::{self, BundleId, GraphFiatRequest, canon};
 use thing_abi::Value;

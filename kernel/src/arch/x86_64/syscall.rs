@@ -5,7 +5,7 @@ use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
 use crate::drivers::irq_dma;
 use crate::graph::{
     self, GrantCapabilityRequest, GraphFiatRequest, GraphFindByKind, GraphGetRequest,
-    GraphLinkRequest, GraphPropsGetRequest, GraphPropsRequest, GraphThatRequest, NodePattern,
+    GraphLinkRequest, GraphPropsGetRequest, GraphPropsRequest, NodePattern,
 };
 use crate::serial_println;
 use crate::task::runtime::current_bundle;

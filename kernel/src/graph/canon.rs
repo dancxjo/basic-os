@@ -2,6 +2,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+#[allow(unused_imports)] // Re-exported for downstream modules.
 pub use thing_abi::{Symbol, canon, cc, from_char, from_u16};
 
 // Common symbols used by early drivers and journal dumps.

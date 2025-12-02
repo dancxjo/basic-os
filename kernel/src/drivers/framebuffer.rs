@@ -1,16 +1,13 @@
-use alloc::sync::Arc;
-use alloc::{collections::BTreeMap, string::ToString};
-use core::cmp::{max, min};
+use alloc::{collections::BTreeMap, sync::Arc};
+use core::cmp::min;
 use core::ops::Range;
-use font8x8::{BASIC_FONTS, UnicodeFonts};
 use limine::request::FramebufferRequest;
 use spin::Mutex as SpinMutex;
 use x86_64::VirtAddr;
 
 use crate::drivers::device::{self, DeviceKind};
-use crate::graph::{self, GraphFiatRequest, canon};
+use crate::graph::canon;
 use thing_abi::Value;
-use uuid::Uuid;
 
 static FRAMEBUFFER_VIRT_RANGE: SpinMutex<Option<Range<VirtAddr>>> = SpinMutex::new(None);
 static FRAMEBUFFER_REGION: SpinMutex<Option<(u64, usize)>> = SpinMutex::new(None);
