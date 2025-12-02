@@ -1,9 +1,50 @@
 use crate::graph::{BundleId, BundleType, KERNEL_BUNDLE_ID};
-use x86_64::structures::paging::{FrameAllocator, Mapper, Size4KiB, Translate};
+use crate::mm::allocator::BootFrameAllocator;
 use crate::task::context::TaskMode;
 use crate::task::scheduler::{SCHEDULER, Scheduler};
-
+use spin::Mutex as SpinMutex;
 use thingos_kernel_std::prelude::*;
+use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Size4KiB, Translate};
+
+#[derive(Clone, Copy)]
+pub struct RuntimeSystem {
+    mapper: &'static SpinMutex<OffsetPageTable<'static>>,
+    frame_allocator: &'static SpinMutex<BootFrameAllocator>,
+}
+
+impl RuntimeSystem {
+    pub fn mapper(&self) -> &'static SpinMutex<OffsetPageTable<'static>> {
+        self.mapper
+    }
+
+    pub fn frame_allocator(&self) -> &'static SpinMutex<BootFrameAllocator> {
+        self.frame_allocator
+    }
+}
+
+pub struct SystemConfig {
+    pub mapper: &'static SpinMutex<OffsetPageTable<'static>>,
+    pub frame_allocator: &'static SpinMutex<BootFrameAllocator>,
+}
+
+static RUNTIME_SYSTEM: SpinMutex<Option<RuntimeSystem>> = SpinMutex::new(None);
+
+pub fn init_system(config: SystemConfig) {
+    let mut guard = RUNTIME_SYSTEM.lock();
+    if guard.is_some() {
+        panic!("Runtime system already initialized");
+    }
+    *guard = Some(RuntimeSystem {
+        mapper: config.mapper,
+        frame_allocator: config.frame_allocator,
+    });
+    log::info!("[INFO] Runtime system initialized");
+}
+
+pub fn system() -> RuntimeSystem {
+    let guard = RUNTIME_SYSTEM.lock();
+    guard.as_ref().copied().expect("System not initialized")
+}
 
 /// Handle to a spawned task. Currently just wraps an index in the scheduler.
 #[derive(Clone, Copy, Debug)]
@@ -42,10 +83,9 @@ where
 
 /// Spawn a new kernel-mode task using the global mapper/frame allocator.
 pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
-    let mut system_guard = crate::system::SYSTEM.lock();
-    let system = system_guard.as_mut().expect("System not initialized");
-    let mut mapper = system.mapper.lock();
-    let mut frame_allocator = system.frame_allocator.lock();
+    let runtime_system = system();
+    let mut mapper = runtime_system.mapper().lock();
+    let mut frame_allocator = runtime_system.frame_allocator().lock();
 
     spawn_kernel_with_allocator(entry, &mut *mapper, &mut *frame_allocator)
 }

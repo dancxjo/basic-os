@@ -2,16 +2,16 @@ use core::ops::Range;
 
 use x86_64::{
     VirtAddr,
-    structures::paging::{FrameAllocator, Mapper, PageTableFlags, Size4KiB, Translate},
+    structures::paging::{FrameAllocator, Mapper, PageTableFlags, Size4KiB},
 };
 
 pub fn mirror_kernel_region(
     mapper: &mut impl Mapper<Size4KiB>,
-    active_mapper: &mut (impl Mapper<Size4KiB> + Translate),
+    active_mapper: &mut (impl Mapper<Size4KiB> + x86_64::structures::paging::Translate),
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     virt_range: Range<VirtAddr>,
 ) {
-    use x86_64::structures::paging::{Page, PhysFrame, Translate};
+    use x86_64::structures::paging::{Page, PhysFrame};
 
     for addr in (virt_range.start.as_u64()..virt_range.end.as_u64()).step_by(4096) {
         let va = VirtAddr::new(addr);

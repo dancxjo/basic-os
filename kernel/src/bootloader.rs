@@ -27,15 +27,6 @@ static MODULE_CACHE: Mutex<Option<BTreeMap<&'static str, &'static [u8]>>> = Mute
 pub fn get_module(name: &str) -> Option<&'static [u8]> {
     ensure_module_cache();
     let guard = MODULE_CACHE.lock();
-    if let Some(cache) = guard.as_ref() {
-        // log::info!("Looking up module '{}' in cache (len={})", name, cache.len());
-        // Iterate manually to see if iteration crashes
-        /*
-        for (k, _) in cache.iter() {
-            // log::info!("  Candidate: {}", k);
-        }
-        */
-    }
     guard.as_ref().and_then(|cache| {
         cache
             .iter()

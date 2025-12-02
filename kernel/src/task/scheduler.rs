@@ -20,23 +20,20 @@
 //! - Tasks are spaced by stack size
 
 use crate::{
-    arch::x86_64::gdt::{SELECTORS, set_kernel_stack},
+    arch::x86_64::gdt::set_kernel_stack,
     arch::x86_64::interrupts::end_of_interrupt,
     graph::{BundleId, KERNEL_BUNDLE_ID},
-    mm::allocator::BootFrameAllocator,
     serial_print,
 };
 use alloc::vec::Vec;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, Ordering};
-use log::{error, info};
+use log::info;
 use spin::Mutex;
-use x86_64::structures::paging::{
-    FrameAllocator, Mapper, OffsetPageTable, PhysFrame, Size4KiB, Translate,
-};
+use x86_64::structures::paging::{FrameAllocator, Mapper, PhysFrame, Size4KiB, Translate};
 use x86_64::{PhysAddr, registers::control::Cr3};
 
-use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
+use crate::task::context::{FullContext, TaskMode, prepare_context};
 
 /// Represents a schedulable task with its execution context and stack.
 ///
@@ -357,9 +354,8 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 ptr::copy_nonoverlapping(current_rsp, dst, context_size);
             }
 
-            let saved = dst as *mut FullContext;
             let saved_ctx = current_rsp as *const FullContext;
-            if let Some(ctx) = unsafe { saved_ctx.as_ref() } {
+            if let Some(ctx) = saved_ctx.as_ref() {
                 let rip = ctx.frame.rip;
                 if rip >= BTREE_WATCH_FN_START && rip < BTREE_WATCH_FN_END {
                     /*log::error!(
@@ -389,20 +385,14 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 CURRENT_TASK = task_ptr;
 
                 end_of_interrupt(irq);
-                let next_mode = if (*task_ptr).context.frame.cs & 0x3 == 0x3 {
-                    TaskMode::User
-                } else {
-                    TaskMode::Kernel
-                };
                 if (*task_ptr).context.frame.rip >= BTREE_WATCH_FN_START
                     && (*task_ptr).context.frame.rip < BTREE_WATCH_FN_END
                 {
-                    let regs = &(*task_ptr).context.regs;
                     /*log::error!(
                         "Restoring context in btree watch fn: rip={:#x} rsi={:#x} rdi={:#x} rsp={:#x}",
                         (*task_ptr).context.frame.rip,
-                        regs.rsi,
-                        regs.rdi,
+                        (*task_ptr).context.regs.rsi,
+                        (*task_ptr).context.regs.rdi,
                         (*task_ptr).context.frame.rsp
                     );*/
                     crate::klog_irq!(b'E');

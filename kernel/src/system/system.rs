@@ -12,7 +12,7 @@ use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::{Framebuffer, register_framebuffer_device};
 use crate::drivers::{keyboard, mouse, serial};
-use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging};
+use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging, prime_allocator_sanity};
 use crate::task::{launcher, runtime};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -49,7 +49,7 @@ impl System {
         }
     }
 
-    pub fn run(&mut self) -> ! {
+    pub fn run() -> ! {
         info!("ThingOS running...");
         info!("System initialized. Entering main loop...");
         // Enable interrupts only after the full system (including the clock) is ready.
@@ -61,31 +61,36 @@ impl System {
 pub fn init_and_run_system() -> ! {
     let system = System::boot();
     let mut guard = SYSTEM.lock();
+    if guard.is_some() {
+        panic!("System already initialized");
+    }
     *guard = Some(system);
-    guard.as_mut().unwrap().run()
+    let guard = Box::leak(Box::new(guard));
+    let system_ref = guard.as_ref().unwrap();
+    runtime::init_system(runtime::SystemConfig {
+        mapper: &system_ref.mapper,
+        frame_allocator: &system_ref.frame_allocator,
+    });
+    System::run()
 }
 
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 pub extern "C" fn task_entry_trampoline() {
-    unsafe {
-        core::arch::naked_asm!(
-            "xor rdi, rdi", // clear
-            "xor rsi, rsi",
-            "call start_user_task",
-            "ud2",
-        );
-    }
+    core::arch::naked_asm!(
+        "xor rdi, rdi", // clear
+        "xor rsi, rsi",
+        "call start_user_task",
+        "ud2",
+    );
 }
 
-fn init_memory_and_heap() -> (
-    OffsetPageTable<'static>,
-    BootFrameAllocator,
-) {
+fn init_memory_and_heap() -> (OffsetPageTable<'static>, BootFrameAllocator) {
     let mut mapper = bootstrap_step!("paging", {
         let physical_memory_offset = get_hhdm_offset();
         unsafe { init_paging(physical_memory_offset) }
     });
+    prime_allocator_sanity(&mut mapper);
 
     let mut frame_allocator = BootFrameAllocator::new();
 

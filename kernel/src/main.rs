@@ -2,7 +2,6 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
-#![feature(naked_functions)]
 
 use logging::kernel_logger::init_logger;
 use system::init_and_run_system;

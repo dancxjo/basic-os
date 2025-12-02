@@ -1,4 +1,3 @@
-use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicBool, Ordering};
 use linked_list_allocator::LockedHeap;
@@ -46,12 +45,20 @@ impl SanityCapture {
         self.count += 1;
         if self.count == SANITY_DUMP_COUNT && !self.logged {
             self.logged = true;
-            // log_sanity_snapshot(&self.frames);
+            log_sanity_snapshot(&self.frames);
         }
     }
 }
 
 static SANITY_CAPTURE: Mutex<SanityCapture> = Mutex::new(SanityCapture::new());
+
+#[derive(Clone)]
+struct SanityBounds {
+    kernel_image: Option<Range<u64>>,
+    cr3_frame: u64,
+}
+
+static SANITY_BOUNDS: Mutex<Option<SanityBounds>> = Mutex::new(None);
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
@@ -62,7 +69,7 @@ static ALLOCATOR_LOGGING_SAFE: AtomicBool = AtomicBool::new(false);
 /// Initialize paging and return the active OffsetPageTable.
 pub unsafe fn init_paging(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
     let l4_table = unsafe { active_level_4_table(physical_memory_offset) };
-    OffsetPageTable::new(l4_table, physical_memory_offset)
+    unsafe { OffsetPageTable::new(l4_table, physical_memory_offset) }
 }
 
 unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
@@ -176,7 +183,10 @@ impl BootFrameAllocator {
 unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
         let addr = self.allocate_frame_internal()?;
-        let frame = PhysFrame::from_start_address(PhysAddr::new(addr as u64)).ok();
+        let phys_addr = PhysAddr::new(addr as u64);
+        check_reserved_ranges(phys_addr);
+        SANITY_CAPTURE.lock().record(phys_addr);
+        let frame = PhysFrame::from_start_address(phys_addr).ok();
         if allocator_logging_enabled() {
             if let Some(f) = frame {
                 log::trace!("Allocated frame: {:#x}", f.start_address().as_u64());
@@ -250,4 +260,125 @@ fn allocator_logging_enabled() -> bool {
 
 fn enable_allocator_logging() {
     ALLOCATOR_LOGGING_SAFE.store(true, Ordering::SeqCst);
+}
+
+pub fn prime_allocator_sanity(mapper: &mut OffsetPageTable<'static>) {
+    let kernel_range = translate_range(mapper, kernel_base(), kernel_end());
+    let bounds = SanityBounds {
+        kernel_image: kernel_range.clone(),
+        cr3_frame: Cr3::read().0.start_address().as_u64(),
+    };
+    {
+        let mut guard = SANITY_BOUNDS.lock();
+        *guard = Some(bounds.clone());
+    }
+
+    if let Some(range) = bounds.kernel_image.as_ref() {
+        log::info!(
+            "Allocator sanity: kernel phys range {:#x} - {:#x}",
+            range.start,
+            range.end
+        );
+    } else {
+        log::warn!("Allocator sanity: kernel phys range unavailable");
+    }
+    log::info!(
+        "Allocator sanity: active CR3 frame at {:#x}",
+        bounds.cr3_frame
+    );
+}
+
+fn get_sanity_bounds() -> Option<SanityBounds> {
+    SANITY_BOUNDS.lock().clone()
+}
+
+fn check_reserved_ranges(addr: PhysAddr) {
+    let value = addr.as_u64();
+    if SANITY_FORBIDDEN_RANGE.contains(&value) {
+        panic!(
+            "Allocated frame inside forbidden range: {:#x} - {:#x} (got {:#x})",
+            SANITY_FORBIDDEN_RANGE.start, SANITY_FORBIDDEN_RANGE.end, value
+        );
+    }
+
+    let Some(bounds) = get_sanity_bounds() else {
+        return;
+    };
+    let SanityBounds {
+        kernel_image,
+        cr3_frame,
+    } = bounds;
+
+    if let Some(range) = kernel_image {
+        if range.contains(&value) {
+            panic!(
+                "Allocator returned kernel image frame {:#x} (range {:#x} - {:#x})",
+                value, range.start, range.end
+            );
+        }
+    }
+
+    if value == cr3_frame {
+        panic!("Allocator returned active PML4 frame at {:#x}", cr3_frame);
+    }
+}
+
+fn log_sanity_snapshot(frames: &[Option<PhysAddr>; SANITY_DUMP_COUNT]) {
+    let bounds = get_sanity_bounds();
+    log::warn!("==== Boot frame allocator sanity snapshot ====");
+    log::warn!(
+        "Forbidden physical window: {:#x} - {:#x}",
+        SANITY_FORBIDDEN_RANGE.start,
+        SANITY_FORBIDDEN_RANGE.end
+    );
+    match bounds.as_ref().and_then(|b| b.kernel_image.as_ref()) {
+        Some(range) => log::warn!(
+            "Kernel image physical range: {:#x} - {:#x}",
+            range.start,
+            range.end
+        ),
+        None => log::warn!("Kernel image physical range: unavailable"),
+    }
+    if let Some(b) = bounds.as_ref() {
+        log::warn!("Active CR3 frame: {:#x}", b.cr3_frame);
+    } else {
+        log::warn!("Active CR3 frame: sanity bounds not initialized");
+    }
+
+    for (idx, entry) in frames.iter().enumerate() {
+        match entry {
+            Some(addr) => {
+                let value = addr.as_u64();
+                log::warn!("  frame[{}] = {:#x}", idx, value);
+                if let Some(range) = bounds.as_ref().and_then(|b| b.kernel_image.as_ref()) {
+                    if range.contains(&value) {
+                        log::error!("    ↳ overlaps kernel image!");
+                    }
+                }
+                if let Some(b) = bounds.as_ref() {
+                    if value == b.cr3_frame {
+                        log::error!("    ↳ overlaps active CR3 frame!");
+                    }
+                }
+                if SANITY_FORBIDDEN_RANGE.contains(&value) {
+                    log::error!("    ↳ inside forbidden physical window!");
+                }
+            }
+            None => log::warn!("  frame[{}] = <unused>", idx),
+        }
+    }
+}
+
+fn translate_range(
+    mapper: &mut OffsetPageTable<'static>,
+    start: VirtAddr,
+    end: VirtAddr,
+) -> Option<Range<u64>> {
+    if start >= end {
+        return None;
+    }
+    let start_phys = mapper.translate_addr(start)?;
+    let end_minus_one = VirtAddr::new(end.as_u64().saturating_sub(1));
+    let end_phys = mapper.translate_addr(end_minus_one)?;
+    Some(start_phys.as_u64()..(end_phys.as_u64() + 1))
 }

@@ -130,7 +130,7 @@ pub unsafe fn raw_write_hex(mut val: u64) {
         buf[2 + i] = hex[(val & 0xF) as usize];
         val >>= 4;
     }
-    raw_write(&buf);
+    unsafe { raw_write(&buf) };
 }
 
 fn write_serial(buf: &[u8]) -> usize {

@@ -8,7 +8,6 @@ use x86_64::structures::paging::PhysFrame;
 use crate::bootloader::{get_hhdm_offset, get_module, list_modules};
 use crate::drivers::device;
 use crate::graph::{self, BundleId, BundleType, canon};
-use crate::mm::allocator::BootFrameAllocator;
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::runtime;
 
@@ -124,13 +123,13 @@ pub fn user_module_count() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
     crate::klog_irq!(b'{');
-    unsafe {
-        let cr3 = x86_64::registers::control::Cr3::read()
+    let cr3 = unsafe {
+        x86_64::registers::control::Cr3::read()
             .0
             .start_address()
-            .as_u64();
-        info!("start_user_task called. CR3={:#x}", cr3);
-    }
+            .as_u64()
+    };
+    info!("start_user_task called. CR3={:#x}", cr3);
 
     info!("start_user_task reached, calling next_user_module...");
     let module = next_user_module().unwrap_or_else(|| {
@@ -179,16 +178,19 @@ pub extern "C" fn start_user_task() {
         module_bytes.len()
     );
 
-    let (new_l4, mut new_mapper, loaded) = {
-        let mut system_guard = crate::system::SYSTEM.lock();
-        let system = system_guard.as_mut().expect("System not initialized");
-        let mut frame_allocator = system.frame_allocator.lock();
-        let mut active_mapper = system.mapper.lock();
+    let (new_l4, loaded) = {
+        let runtime_system = runtime::system();
+        let mut frame_allocator = runtime_system.frame_allocator().lock();
+        let mut active_mapper = runtime_system.mapper().lock();
 
-        let (new_l4, mut new_mapper) = create_user_page_table(&mut *frame_allocator, &mut *active_mapper, get_hhdm_offset());
+        let (new_l4, mut new_mapper) = create_user_page_table(
+            &mut *frame_allocator,
+            &mut *active_mapper,
+            get_hhdm_offset(),
+        );
         let loaded = load_elf(module_bytes, new_l4, &mut new_mapper, &mut *frame_allocator)
             .expect("Failed to load ELF");
-        (new_l4, new_mapper, loaded)
+        (new_l4, loaded)
     };
 
     info!(
