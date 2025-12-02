@@ -171,6 +171,7 @@ pub extern "C" fn start_user_task() {
 
     // Verify module bytes are accessible
     let module_ptr = module_bytes.as_ptr();
+    assert_canonical(module_ptr as u64, "module_ptr");
     info!(
         "Module {} data at {:p} (len={:#x})",
         module.name,
@@ -182,6 +183,8 @@ pub extern "C" fn start_user_task() {
         let runtime_system = runtime::system();
         let mut frame_allocator = runtime_system.frame_allocator().lock();
         let mut active_mapper = runtime_system.mapper().lock();
+
+        assert_canonical(get_hhdm_offset().as_u64(), "hhdm_offset");
 
         let (new_l4, mut new_mapper) = create_user_page_table(
             &mut *frame_allocator,
@@ -308,5 +311,15 @@ fn grant_caps(bundle: BundleId, target: uuid::Uuid, caps: &[canon::Symbol]) {
         if graph::grant_initial_capability(bundle, target, *cap) {
             info!("Granted {:?} on {} to bundle {}", cap, target, bundle);
         }
+    }
+}
+
+fn assert_canonical(addr: u64, what: &str) {
+    // For 4-level paging
+    let bit47 = (addr >> 47) & 1;
+    let high = addr >> 48;
+    if (bit47 == 0 && high != 0) || (bit47 == 1 && high != 0xFFFF) {
+        log::error!("Non-canonical address for {}: {:#018x}", what, addr);
+        panic!("non-canonical address");
     }
 }

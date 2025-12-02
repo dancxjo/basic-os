@@ -122,6 +122,7 @@ fn init_graph_and_syscalls() {
 fn init_interrupts_and_idt() {
     bootstrap_step!("GDT", {
         init_gdt();
+        crate::arch::x86_64::gdt::debug_dump_gdt();
     });
 
     bootstrap_step!("IDT", {

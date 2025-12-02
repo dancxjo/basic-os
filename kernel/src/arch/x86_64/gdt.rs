@@ -100,8 +100,6 @@ pub fn init_gdt() {
         DS::set_reg(data_sel);
         SS::set_reg(data_sel);
 
-        // (Optional) Set ES/FS/GS if needed
-
         // --- Load TSS ---
         load_tss(tss_sel);
 
@@ -113,5 +111,21 @@ pub fn init_gdt() {
             user_data_sel.0,
             user_code_sel.0
         );
+    }
+}
+
+pub fn debug_dump_gdt() {
+    unsafe {
+        #[allow(static_mut_refs)]
+        if let Some(gdt) = GDT.as_ref() {
+            let ptr = gdt as *const _ as *const u64;
+            let e1 = *ptr.add(1);
+            let e2 = *ptr.add(2);
+            log::info!("GDT Dump:");
+            log::info!("  0x08 (Code): {:#018x}", e1);
+            log::info!("  0x10 (Data): {:#018x}", e2);
+        } else {
+            log::error!("GDT not initialized!");
+        }
     }
 }

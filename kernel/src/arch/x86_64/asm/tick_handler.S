@@ -33,6 +33,9 @@ tick_handler:
     # --- DEBUG: Check if RIP is on stack ---
     # Stack range: 0xffff880010000000 - 0xffff88001000ffff
     # We check if RAX is in this range.
+    pushq %rcx
+    pushq %rdx
+    
     movq %rax, %rcx
     shrq $16, %rcx
     movabsq $0xffff88001000, %rax
@@ -45,6 +48,8 @@ tick_handler:
     outb %al, %dx
     
 .rip_ok:
+    popq %rdx
+    popq %rcx
     # ---------------------------------------
 
     movq 24(%rsp), %rax  # Reload RIP (8+16)

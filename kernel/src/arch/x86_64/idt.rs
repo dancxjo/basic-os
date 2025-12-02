@@ -31,6 +31,12 @@ extern "x86-interrupt" fn page_fault_handler(
         faulting_address.as_u64(),
     );
 
+    let cr2 = faulting_address.as_u64();
+    error!(
+        "PAGE FAULT: cr2 = {:#018x}, error_code = {:?}",
+        cr2, error_code
+    );
+
     crate::klog_raw!("\nEXCEPTION: PAGE FAULT\r\n");
     // We can't easily print formatted strings with klog_raw!, so we rely on panic dumping trace.
     // But we can print some hex values if we want.
