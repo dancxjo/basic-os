@@ -123,6 +123,15 @@ pub fn user_module_count() -> usize {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
+    crate::klog_irq!(b'{');
+    unsafe {
+        let cr3 = x86_64::registers::control::Cr3::read()
+            .0
+            .start_address()
+            .as_u64();
+        info!("start_user_task called. CR3={:#x}", cr3);
+    }
+
     info!("start_user_task reached, calling next_user_module...");
     let module = next_user_module().unwrap_or_else(|| {
         info!("No remaining user modules to start; halting task.");
@@ -182,9 +191,12 @@ pub extern "C" fn start_user_task() {
         new_l4 as *const _ as u64 - get_hhdm_offset().as_u64(),
     ));
     runtime::set_current_cr3(new_table_frame.start_address().as_u64());
+
+    crate::klog_irq!(b'<');
     unsafe {
         jump_to_user(loaded.entry, loaded.stack_top, new_table_frame);
     }
+    crate::klog_irq!(b'!');
 }
 
 fn next_user_module() -> Option<UserModule> {

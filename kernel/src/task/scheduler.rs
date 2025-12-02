@@ -283,6 +283,9 @@ pub fn start_first() -> ! {
     unsafe { restore_context(frame_ptr) }
 }
 
+/// Global scheduler instance.
+/// WARNING: Do not use full logging macros from inside the scheduler lock or critical paths.
+/// Use klog_irq! only.
 pub static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new(crate::clock::ticks_since_boot));
 #[unsafe(no_mangle)]
 pub static mut CURRENT_TASK: *mut Task = core::ptr::null_mut();
@@ -295,6 +298,9 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> ! {
+    // WARNING: This function runs in interrupt context.
+    // Do not use full logging macros (info!, kinfo!, etc.) here; use klog_irq! only.
+
     if (current_rsp as u64) % 8 != 0 {
         panic!("Unaligned RSP: {:p}", current_rsp);
     }
@@ -313,10 +319,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 TaskMode::Kernel
             };
             if task.mode != incoming_mode {
-                /*info!(
-                    "Task mode transition: {:?} -> {:?} (irq={}, cs={:#x}, rsp={:#x})",
-                    task.mode, incoming_mode, irq, saved_cs, current_rsp as u64
-                );*/
+                // crate::klog_irq!(b'M');
                 task.mode = incoming_mode;
             }
 
@@ -337,22 +340,17 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
             if let Some(ctx) = unsafe { saved_ctx.as_ref() } {
                 let rip = ctx.frame.rip;
                 if rip >= BTREE_WATCH_FN_START && rip < BTREE_WATCH_FN_END {
-                    log::error!(
+                    /*log::error!(
                         "Saving context in btree watch fn: rip={:#x} rsi={:#x} rsp={:#x}",
                         rip,
                         ctx.regs.rsi,
                         ctx.frame.rsp
-                    );
+                    );*/
+                    crate::klog_irq!(b'E');
                 }
             }
 
-            /*info!(
-                "Saved context for task {:?}: rip={:#x} cs={:#x} rsp={:#x}",
-                task.mode,
-                (*saved).frame.rip,
-                (*saved).frame.cs,
-                (*saved).frame.rsp
-            );*/
+            // crate::klog_irq!(b'S');
         }
 
         let mut scheduler = SCHEDULER.lock();
@@ -378,22 +376,16 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                     && (*task_ptr).context.frame.rip < BTREE_WATCH_FN_END
                 {
                     let regs = &(*task_ptr).context.regs;
-                    log::error!(
+                    /*log::error!(
                         "Restoring context in btree watch fn: rip={:#x} rsi={:#x} rdi={:#x} rsp={:#x}",
                         (*task_ptr).context.frame.rip,
                         regs.rsi,
                         regs.rdi,
                         (*task_ptr).context.frame.rsp
-                    );
+                    );*/
+                    crate::klog_irq!(b'E');
                 }
-                /*info!(
-                    "Switching to {:?} task: rip={:#x}, cs={:#x}, rsp={:#x}, ss={:#x}",
-                    next_mode,
-                    (*task_ptr).context.frame.rip,
-                    (*task_ptr).context.frame.cs,
-                    (*task_ptr).context.frame.rsp,
-                    (*task_ptr).context.frame.ss
-                );*/
+                crate::klog_irq!(b'W');
 
                 // Step 2: Assert canonical RSP
                 let rsp = (*task_ptr).context.frame.rsp;
@@ -414,11 +406,7 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 let new_cr3 = PhysFrame::containing_address(PhysAddr::new((*task_ptr).cr3));
                 let current_cr3 = Cr3::read().0;
                 if new_cr3 != current_cr3 {
-                    /*info!(
-                        "Switching CR3: {:#x} -> {:#x}",
-                        current_cr3.start_address().as_u64(),
-                        new_cr3.start_address().as_u64()
-                    );*/
+                    // crate::klog_irq!(b'C');
                     Cr3::write(new_cr3, Cr3::read().1);
                     let actual_cr3 = Cr3::read().0;
                     if actual_cr3 != new_cr3 {
@@ -437,7 +425,8 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 let frame_ptr = if !current.is_null() {
                     &(*current).context.frame as *const IretFrame
                 } else {
-                    error!("No current task; esperante.");
+                    // error!("No current task; esperante.");
+                    crate::klog_irq!(b'N');
                     rust_schedule_and_switch(current_rsp, irq);
                 };
                 CURRENT_TASK = current;

@@ -16,6 +16,10 @@ fn main() {
     let _out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // Compile syscall_entry.S using cc
+    println!("cargo:rerun-if-changed=src/arch/x86_64/asm/syscall_entry.S");
+    println!("cargo:rerun-if-changed=src/arch/x86_64/asm/restore_context.S");
+    println!("cargo:rerun-if-changed=src/arch/x86_64/asm/tick_handler.S");
+
     Build::new()
         .file("src/arch/x86_64/asm/syscall_entry.S")
         .file("src/arch/x86_64/asm/restore_context.S")

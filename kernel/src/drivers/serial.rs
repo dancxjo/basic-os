@@ -93,9 +93,32 @@ pub unsafe fn raw_write(buf: &[u8]) {
     let mut status = Port::<u8>::new(0x3F8 + 5);
     for &b in buf {
         // Wait for THRE (Transmitter Holding Register Empty)
-        while status.read() & 0x20 == 0 {}
-        port.write(b);
+        unsafe {
+            while status.read() & 0x20 == 0 {}
+            port.write(b);
+        }
     }
+}
+
+/// Writes a single byte to COM1 in interrupt context.
+/// Must not take any lock or allocate.
+/// May busy-wait briefly on the UART transmit empty bit.
+#[unsafe(no_mangle)]
+pub extern "C" fn serial_debug_putc_irq(ch: u8) {
+    unsafe {
+        let mut port = Port::<u8>::new(0x3F8);
+        let mut status = Port::<u8>::new(0x3F8 + 5);
+        // Wait for THRE (Transmitter Holding Register Empty)
+        while status.read() & 0x20 == 0 {}
+        port.write(ch);
+    }
+}
+
+#[macro_export]
+macro_rules! klog_irq {
+    ($ch:expr) => {{
+        $crate::drivers::serial::serial_debug_putc_irq($ch as u8);
+    }};
 }
 
 pub unsafe fn raw_write_hex(mut val: u64) {

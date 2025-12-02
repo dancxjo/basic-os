@@ -28,73 +28,72 @@ restore_context:
 
 .kernel_return:
     # Returning to Kernel Mode (CS & 3 == 0).
-    # We switch to the Target Stack manually to ensure each task runs on its own stack.
-    # We construct a 5-word frame [RIP, CS, RFLAGS, RSP, SS] to be safe.
+    # We use lretq instead of iretq to avoid ambiguity about stack popping.
+    # lretq pops RIP and CS. We restore RFLAGS manually with popfq.
     
     # Load Target RSP from IretFrame (offset 24) into RAX
     movq 24(%rdi), %rax
+
+    # --- Sanity Check: RSP ---
+    testq %rax, %rax
+    jz .panic_bad_rsp
     
-    # We need to construct [RIP, CS, RFLAGS, RSP, SS] on the Target Stack.
-    # Target Stack Top is in RAX.
-    # [RAX - 8]  = SS
-    # [RAX - 16] = RSP (Target RSP)
+    # Check for canonical address
+    movq %rax, %rcx
+    shrq $48, %rcx
+    cmpq $0xffff, %rcx
+    jne .panic_bad_rsp
+    # -------------------------
+    
+    # Construct frame for lretq: [RIP, CS]
+    # And RFLAGS below it for popfq.
+    # We want RSP to be RAX after lretq.
+    # So we place [RIP, CS] at RAX-16.
+    # And RFLAGS at RAX-24.
+    
+    # [RAX - 8]  = CS (0x8)
+    # [RAX - 16] = RIP
     # [RAX - 24] = RFLAGS
-    # [RAX - 32] = CS
-    # [RAX - 40] = RIP
-    # [RAX - 48] = Saved RAX (temp)
+    # [RAX - 32] = Saved RAX
 
-    # Copy SS (offset 32 in IretFrame)
-    movq 32(%rdi), %rbx
-    movq %rbx, -8(%rax)
-
-    # Copy RSP (offset 24 in IretFrame) - use RAX
-    movq %rax, -16(%rax)
-
-    # Copy RFLAGS (offset 16 in IretFrame)
-    movq 16(%rdi), %rbx
-    movq %rbx, -24(%rax)
-    
-    # Copy CS (offset 8 in IretFrame)
-    movq 8(%rdi), %rbx
-    movq %rbx, -32(%rax)
+    # Set CS to 0x8 (Kernel Code)
+    movq $0x8, -8(%rax)
     
     # Copy RIP (offset 0 in IretFrame)
     movq 0(%rdi), %rbx
-    movq %rbx, -40(%rax)
+    movq %rbx, -16(%rax)
     
-    # Copy Saved RAX (offset 112 in FullContext / regs)
-    # This is still relative to RSP (which points to FullContext)
-    movq 112(%rsp), %rbx
-    movq %rbx, -48(%rax)
+    # Copy RFLAGS (offset 16 in IretFrame)
+    movq 16(%rdi), %rbx
+    orq $0x200, %rbx            # Ensure Interrupts Enabled
+    movq %rbx, -24(%rax)
     
-    # Restore GPRs (except RAX) from the Context struct
-    popq %r15
-    popq %r14
-    popq %r13
-    popq %r12
-    popq %r11
-    popq %r10
-    popq %r9
-    popq %r8
-    popq %rsi
-    popq %rdi
-    popq %rbp
-    popq %rdx
-    popq %rcx
-    popq %rbx
-    
-    # Skip RAX on the Context stack (we manually copied it to Target Stack)
-    addq $8, %rsp
-    
+    # Copy Saved RAX (offset 112 in FullContext)
+    movq -8(%rdi), %rbx
+    movq %rbx, -32(%rax)
+
     # Switch to Target Stack (pointing to Saved RAX)
-    leaq -48(%rax), %rsp
+    leaq -32(%rax), %rsp
     
     # Restore RAX
     popq %rax
     
-    # Stack is now [RIP, CS, RFLAGS, RSP, SS]
-    # RSP is (TargetRSP - 40)
-    iretq
+    # Stack is now [RFLAGS, RIP, CS]
+    popfq
+    # Stack is now [RIP, CS]
+    lretq
+
+.panic_bad_rsp:
+    movb $'X', %al
+    movw $0x3F8, %dx
+    outb %al, %dx
+    hlt
+
+.panic_bad_rip:
+    movb $'R', %al
+    movw $0x3F8, %dx
+    outb %al, %dx
+    hlt
 
 .user_return:
     # Returning to User Mode (CS & 3 == 3).

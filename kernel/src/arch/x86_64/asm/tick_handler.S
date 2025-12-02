@@ -6,6 +6,9 @@
 
 .extern rust_schedule_and_switch
 
+# WARNING: This handler runs in interrupt context.
+# Do not use full logging macros (info!, kinfo!, etc.) from here or called functions.
+# Use klog_irq! or direct serial writes only.
 tick_handler:
     # Check if we came from user or kernel
     # Stack: [RIP][CS][RFLAGS]...
@@ -24,6 +27,23 @@ tick_handler:
     pushq %rax # Save RAX temporarily
     
     movq 24(%rsp), %rax  # Load RIP (8+16)
+    
+    # --- DEBUG: Check if RIP is on stack ---
+    # Stack range: 0xffff880010000000 - 0xffff88001000ffff
+    # We check if RAX is in this range.
+    movq %rax, %rcx
+    shrq $16, %rcx
+    cmpq $0xffff88001000, %rcx
+    jne .rip_ok
+    
+    # RIP is on stack! Print 'S'
+    movb $'S', %al
+    movw $0x3F8, %dx
+    outb %al, %dx
+    
+.rip_ok:
+    # ---------------------------------------
+
     movq %rax, 8(%rsp)
     
     movq 32(%rsp), %rax  # Load CS (8+24)

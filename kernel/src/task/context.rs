@@ -22,6 +22,12 @@ pub struct IretFrame {
     pub ss: u64,
 }
 
+// Compile-time assertions for struct layout
+const _: () = assert!(core::mem::size_of::<GeneralRegisters>() == 120);
+const _: () = assert!(core::mem::size_of::<IretFrame>() == 40);
+const _: () = assert!(core::mem::offset_of!(FullContext, regs) == 0);
+const _: () = assert!(core::mem::offset_of!(FullContext, frame) == 120);
+
 /// General-purpose registers saved during context switch.
 ///
 /// IMPORTANT: The order of fields MUST match the push order in tick_handler.S

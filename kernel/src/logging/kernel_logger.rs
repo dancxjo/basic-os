@@ -4,6 +4,8 @@ use spin::Mutex;
 
 use crate::{logging::log_entry::LogEntry, serial_println};
 
+/// Full logging macros (info!, kinfo!, etc.) are not allowed in interrupt context or scheduler critical paths.
+/// Use klog_irq! for IRQ-safe trace breadcrumbs.
 pub struct KernelLogger {
     buffer: Mutex<Queue<LogEntry, 64>>,
 }
