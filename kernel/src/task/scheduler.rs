@@ -313,10 +313,10 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 TaskMode::Kernel
             };
             if task.mode != incoming_mode {
-                info!(
+                /*info!(
                     "Task mode transition: {:?} -> {:?} (irq={}, cs={:#x}, rsp={:#x})",
                     task.mode, incoming_mode, irq, saved_cs, current_rsp as u64
-                );
+                );*/
                 task.mode = incoming_mode;
             }
 
@@ -346,13 +346,13 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 }
             }
 
-            info!(
+            /*info!(
                 "Saved context for task {:?}: rip={:#x} cs={:#x} rsp={:#x}",
                 task.mode,
                 (*saved).frame.rip,
                 (*saved).frame.cs,
                 (*saved).frame.rsp
-            );
+            );*/
         }
 
         let mut scheduler = SCHEDULER.lock();
@@ -386,14 +386,14 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                         (*task_ptr).context.frame.rsp
                     );
                 }
-                info!(
+                /*info!(
                     "Switching to {:?} task: rip={:#x}, cs={:#x}, rsp={:#x}, ss={:#x}",
                     next_mode,
                     (*task_ptr).context.frame.rip,
                     (*task_ptr).context.frame.cs,
                     (*task_ptr).context.frame.rsp,
                     (*task_ptr).context.frame.ss
-                );
+                );*/
 
                 // Step 2: Assert canonical RSP
                 let rsp = (*task_ptr).context.frame.rsp;
@@ -414,11 +414,11 @@ pub extern "C" fn rust_schedule_and_switch(current_rsp: *const u8, irq: u8) -> !
                 let new_cr3 = PhysFrame::containing_address(PhysAddr::new((*task_ptr).cr3));
                 let current_cr3 = Cr3::read().0;
                 if new_cr3 != current_cr3 {
-                    info!(
+                    /*info!(
                         "Switching CR3: {:#x} -> {:#x}",
                         current_cr3.start_address().as_u64(),
                         new_cr3.start_address().as_u64()
-                    );
+                    );*/
                     Cr3::write(new_cr3, Cr3::read().1);
                     let actual_cr3 = Cr3::read().0;
                     if actual_cr3 != new_cr3 {
