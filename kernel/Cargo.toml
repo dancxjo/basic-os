@@ -41,6 +41,10 @@ thing_abi = { path = "../thing_abi" }
 default = ["apic", "threading"]
 apic = []
 threading = []
+debug_heap_bump = []
+debug_frame_sanity = []
+debug_heap_canaries = []
+debug_task_context = []
 
 [profile.release]
 panic = "abort"

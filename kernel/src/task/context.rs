@@ -28,6 +28,37 @@ const _: () = assert!(core::mem::size_of::<IretFrame>() == 40);
 const _: () = assert!(core::mem::offset_of!(FullContext, regs) == 0);
 const _: () = assert!(core::mem::offset_of!(FullContext, frame) == 120);
 
+#[cfg(feature = "debug_task_context")]
+#[inline(always)]
+pub fn is_canonical(va: u64) -> bool {
+    let sign_bits = va >> 47;
+    sign_bits == 0 || sign_bits == 0x1ffff
+}
+
+#[cfg(feature = "debug_task_context")]
+pub fn assert_context_sane(rip: u64, rsp: u64, cs: u64, ss: u64, mode: TaskMode) {
+    assert!(
+        is_canonical(rip),
+        "TaskContext: non-canonical RIP {:#x}",
+        rip
+    );
+    assert!(
+        is_canonical(rsp),
+        "TaskContext: non-canonical RSP {:#x}",
+        rsp
+    );
+    match mode {
+        TaskMode::Kernel => {
+            assert_eq!(cs & 0x3, 0, "TaskContext: unexpected kernel CS {:#x}", cs);
+            assert_eq!(ss & 0x3, 0, "TaskContext: unexpected kernel SS {:#x}", ss);
+        }
+        TaskMode::User => {
+            assert_eq!(cs & 0x3, 0x3, "TaskContext: unexpected user CS {:#x}", cs);
+            assert_eq!(ss & 0x3, 0x3, "TaskContext: unexpected user SS {:#x}", ss);
+        }
+    }
+}
+
 /// General-purpose registers saved during context switch.
 ///
 /// IMPORTANT: The order of fields MUST match the push order in tick_handler.S
@@ -85,6 +116,8 @@ pub fn prepare_context(entry: extern "C" fn(), stack_top: u64, mode: TaskMode) -
         TaskMode::Kernel => (kernel_cs, kernel_ss, 0x2),
         TaskMode::User => (user_cs, user_ss, 0x202),
     };
+    #[cfg(feature = "debug_task_context")]
+    assert_context_sane(entry as u64, stack_top, cs, ss, mode);
     FullContext {
         regs: unsafe { core::mem::zeroed() },
         frame: IretFrame {

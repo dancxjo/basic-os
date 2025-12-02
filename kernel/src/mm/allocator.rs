@@ -1,6 +1,6 @@
 use core::ops::Range;
 use core::sync::atomic::{AtomicBool, Ordering};
-use linked_list_allocator::LockedHeap;
+use spin::Mutex;
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::control::Cr3,
@@ -11,8 +11,12 @@ use x86_64::{
 };
 
 use crate::arch::x86_64::memory::{kernel_base, kernel_end};
-use crate::bootloader::collect_memory_regions;
-use spin::Mutex;
+#[cfg(feature = "debug_heap_bump")]
+use crate::mm::bump_allocator::BumpAllocator;
+#[cfg(all(not(feature = "debug_heap_bump"), feature = "debug_heap_canaries"))]
+use crate::mm::debug_alloc::DebugAlloc;
+#[cfg(not(feature = "debug_heap_bump"))]
+use linked_list_allocator::LockedHeap;
 
 // Constants for heap placement
 
@@ -60,6 +64,15 @@ struct SanityBounds {
 
 static SANITY_BOUNDS: Mutex<Option<SanityBounds>> = Mutex::new(None);
 
+#[cfg(feature = "debug_heap_bump")]
+#[global_allocator]
+static ALLOCATOR: BumpAllocator = BumpAllocator::new();
+
+#[cfg(all(not(feature = "debug_heap_bump"), feature = "debug_heap_canaries"))]
+#[global_allocator]
+static ALLOCATOR: DebugAlloc<LockedHeap> = DebugAlloc::new(LockedHeap::empty());
+
+#[cfg(all(not(feature = "debug_heap_bump"), not(feature = "debug_heap_canaries")))]
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
@@ -112,6 +125,42 @@ impl BootFrameAllocator {
             "No usable memory regions found for GeneralFrames!"
         );
 
+        #[cfg(feature = "debug_frame_sanity")]
+        {
+            let bounds = get_sanity_bounds();
+            for range in usable_ranges.iter().flatten() {
+                let start = range.start as u64;
+                let end = range.end as u64;
+                assert!(
+                    end <= SANITY_FORBIDDEN_RANGE.start || start >= SANITY_FORBIDDEN_RANGE.end,
+                    "BootFrameAllocator usable range [{:#x}, {:#x}) overlaps forbidden window [{:#x}, {:#x})",
+                    start,
+                    end,
+                    SANITY_FORBIDDEN_RANGE.start,
+                    SANITY_FORBIDDEN_RANGE.end
+                );
+                if let Some(b) = bounds.as_ref() {
+                    if let Some(kernel) = b.kernel_image.as_ref() {
+                        assert!(
+                            end <= kernel.start || start >= kernel.end,
+                            "BootFrameAllocator usable range [{:#x}, {:#x}) overlaps kernel image [{:#x}, {:#x})",
+                            start,
+                            end,
+                            kernel.start,
+                            kernel.end
+                        );
+                    }
+                    assert!(
+                        b.cr3_frame < start || b.cr3_frame >= end,
+                        "BootFrameAllocator usable range [{:#x}, {:#x}) overlaps active CR3 frame {:#x}",
+                        start,
+                        end,
+                        b.cr3_frame
+                    );
+                }
+            }
+        }
+
         usable_ranges[..range_count].sort_by_key(|range| {
             usize::MAX - (range.as_ref().unwrap().end - range.as_ref().unwrap().start)
         });
@@ -145,6 +194,14 @@ impl BootFrameAllocator {
             let aligned = (self.next + 0xFFF) & !0xFFF;
 
             if aligned + 0x1000 <= current_range.end {
+                #[cfg(feature = "debug_frame_sanity")]
+                if let Some(reason) = forbidden_reason(aligned as u64) {
+                    panic!(
+                        "BootFrameAllocator allocated forbidden frame {:#x}: {}",
+                        aligned, reason
+                    );
+                }
+
                 self.next = aligned + 0x1000;
 
                 // if self.used_frames.contains(&aligned) {
@@ -228,7 +285,17 @@ pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAl
     }
 
     unsafe {
+        #[cfg(all(not(feature = "debug_heap_bump"), not(feature = "debug_heap_canaries")))]
         ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE);
+
+        #[cfg(all(not(feature = "debug_heap_bump"), feature = "debug_heap_canaries"))]
+        ALLOCATOR
+            .inner()
+            .lock()
+            .init(HEAP_START as *mut u8, HEAP_SIZE);
+
+        #[cfg(feature = "debug_heap_bump")]
+        ALLOCATOR.init(HEAP_START as usize, HEAP_SIZE);
     }
 
     log::info!(
@@ -278,8 +345,39 @@ fn get_sanity_bounds() -> Option<SanityBounds> {
     SANITY_BOUNDS.lock().clone()
 }
 
+#[cfg(feature = "debug_frame_sanity")]
+fn forbidden_reason(addr: u64) -> Option<&'static str> {
+    if SANITY_FORBIDDEN_RANGE.contains(&addr) {
+        return Some("forbidden physical window");
+    }
+
+    let Some(bounds) = get_sanity_bounds() else {
+        return None;
+    };
+
+    if let Some(range) = bounds.kernel_image {
+        if range.contains(&addr) {
+            return Some("kernel image");
+        }
+    }
+
+    if addr == bounds.cr3_frame {
+        return Some("active CR3 frame");
+    }
+
+    None
+}
+
 fn check_reserved_ranges(addr: PhysAddr) {
     let value = addr.as_u64();
+    #[cfg(feature = "debug_frame_sanity")]
+    if let Some(reason) = forbidden_reason(value) {
+        panic!(
+            "Allocator returned forbidden frame {:#x}: {}",
+            value, reason
+        );
+    }
+
     if SANITY_FORBIDDEN_RANGE.contains(&value) {
         panic!(
             "Allocated frame inside forbidden range: {:#x} - {:#x} (got {:#x})",
