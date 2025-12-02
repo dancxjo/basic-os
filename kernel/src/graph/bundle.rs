@@ -93,44 +93,9 @@ pub fn create_package_with_id(
 /// The returned ID represents the running actor, distinct from the static Bundle ID.
 pub fn create_task(package_id: BundleId, name: &str, extra_labels: Vec<Symbol>) -> BundleId {
     let counter = TASK_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let unique_name = format!("{}-{}", name, counter);
-    // The task ID is derived from the package ID but is unique per instance.
-    let task_id = BundleId(Uuid::new_v5(&package_id.0, unique_name.as_bytes()));
-    let mut fields = BTreeMap::new();
-    fields.insert(canon::ID, Value::Uuid(task_id.0));
-    fields.insert(canon::NAME, Value::Text(name.into()));
-    fields.insert(canon::STATUS, Value::Symbol(canon::INIT));
+    let task_id = BundleId(Uuid::from_u128(counter as u128));
 
-    let mut labels = vec![canon::TASK];
-    labels.extend(extra_labels);
-
-    // Create the Task node
-    let req = GraphFiatRequest {
-        id: Some(task_id.0),
-        kind: canon::TASK,
-        labels,
-        fields,
-    };
-
-    // The task owns itself
-    info!("Calling fiat_for_bundle in create_task");
-    fiat_for_bundle(task_id, req);
-    info!("Returned from fiat_for_bundle in create_task");
-
-    // Link Task -> Package
-    info!("Calling that_for_bundle in create_task");
-    crate::graph::that_for_bundle(
-        task_id,
-        crate::graph::types::GraphThatRequest {
-            src: task_id.0,
-            pred: canon::INSTANCE_OF.into(),
-            dst: package_id.0,
-            revision_hint: 0,
-            props: BTreeMap::new(),
-        },
-    );
-    info!("Returned from that_for_bundle in create_task");
-
+    info!("create_task stubbed. Returning task_id: {}", task_id);
     task_id
 }
 

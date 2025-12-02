@@ -145,6 +145,7 @@ pub extern "C" fn start_user_task() {
     }
     info!("Creating task node for {}", module.name);
     let task_id = graph::create_task(module.bundle, module.name, labels);
+    info!("create_task returned.");
     info!("Task node created: {}", task_id);
 
     if module.bundle_type == BundleType::Driver {

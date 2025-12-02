@@ -51,6 +51,25 @@ impl System {
 
     pub fn run() -> ! {
         info!("ThingOS running...");
+
+        // --- Heap Self Test ---
+        {
+            use alloc::vec::Vec;
+            info!("Running heap self-test...");
+            let mut v = Vec::with_capacity(1024);
+            for i in 0..1024 {
+                v.push(i);
+            }
+            drop(v);
+
+            for _ in 0..100 {
+                let b = Box::new(0xDEADBEEF_u64);
+                drop(b);
+            }
+            info!("Heap self-test complete.");
+        }
+        // ----------------------
+
         info!("System initialized. Entering main loop...");
         // Enable interrupts only after the full system (including the clock) is ready.
         x86_64::instructions::interrupts::enable();
