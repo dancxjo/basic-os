@@ -24,6 +24,109 @@ pub struct Widget {
     pub y: Option<u64>,
 }
 
+impl Widget {
+    pub fn update(&mut self, thing: &GraphThing) {
+        if let Some(role) = thing
+            .fields
+            .get(&canon::ROLE)
+            .and_then(graph::extract_text)
+            .or_else(|| {
+                thing
+                    .fields
+                    .get(&canon::cc('W', 'K'))
+                    .and_then(graph::extract_text)
+            })
+        {
+            self.role = role;
+        }
+
+        if let Some(parent) = thing.fields.get(&canon::PARENT).and_then(|v| v.as_uuid()) {
+            self.parent = Some(parent);
+        }
+
+        if let Some(visible) = thing.fields.get(&canon::VISIBLE).and_then(|v| v.as_bool()) {
+            self.visible = visible;
+        }
+
+        if let Some(enabled) = thing.fields.get(&canon::ACTIVE).and_then(|v| v.as_bool()) {
+            self.enabled = enabled;
+        }
+
+        if let Some(label) = thing
+            .fields
+            .get(&canon::LABEL)
+            .or_else(|| thing.fields.get(&canon::ITEM_LABEL))
+            .and_then(graph::extract_text)
+        {
+            self.label = Some(label);
+        }
+
+        if let Some(icon) = thing
+            .fields
+            .get(&canon::ICON_NAME)
+            .and_then(graph::extract_text)
+        {
+            self.icon = Some(icon);
+        }
+
+        if let Some(action) = thing
+            .fields
+            .get(&canon::ACTION)
+            .and_then(graph::extract_text)
+        {
+            self.action = Some(action);
+        }
+
+        if let Some(description) = thing
+            .fields
+            .get(&canon::DESCRIPTION)
+            .and_then(graph::extract_text)
+        {
+            self.description = Some(description);
+        }
+
+        if let Some(focusable) = thing
+            .fields
+            .get(&canon::FOCUSABLE)
+            .and_then(|v| v.as_bool())
+        {
+            self.focusable = focusable;
+        }
+
+        if let Some(tab_index) = thing.fields.get(&canon::TAB_INDEX).and_then(|v| v.as_i64()) {
+            self.tab_index = Some(tab_index);
+        }
+
+        if let Some(bitmap) = thing
+            .fields
+            .get(&canon::BITMAP)
+            .or_else(|| thing.fields.get(&canon::cc('I', 'D')))
+            .and_then(|v| match v {
+                Value::Bytes(b) => Some(b.to_vec()),
+                _ => None,
+            })
+        {
+            self.bitmap = Some(bitmap);
+        }
+
+        if let Some(width) = thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64()) {
+            self.width = Some(width);
+        }
+
+        if let Some(height) = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64()) {
+            self.height = Some(height);
+        }
+
+        if let Some(x) = thing.fields.get(&canon::X).and_then(|v| v.as_u64()) {
+            self.x = Some(x);
+        }
+
+        if let Some(y) = thing.fields.get(&canon::Y).and_then(|v| v.as_u64()) {
+            self.y = Some(y);
+        }
+    }
+}
+
 impl Thingable for Widget {
     fn kind() -> &'static str {
         "widget"
@@ -37,6 +140,12 @@ impl Thingable for Widget {
             .fields
             .get(&canon::ROLE)
             .and_then(graph::extract_text)
+            .or_else(|| {
+                thing
+                    .fields
+                    .get(&canon::cc('W', 'K'))
+                    .and_then(graph::extract_text)
+            })
             .unwrap_or_default();
         let parent = thing.fields.get(&canon::PARENT).and_then(|v| v.as_uuid());
         let visible = thing
@@ -52,6 +161,7 @@ impl Thingable for Widget {
         let label = thing
             .fields
             .get(&canon::LABEL)
+            .or_else(|| thing.fields.get(&canon::ITEM_LABEL))
             .and_then(graph::extract_text);
         let icon = thing
             .fields
@@ -71,10 +181,14 @@ impl Thingable for Widget {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let tab_index = thing.fields.get(&canon::TAB_INDEX).and_then(|v| v.as_i64());
-        let bitmap = thing.fields.get(&canon::BITMAP).and_then(|v| match v {
-            Value::Bytes(b) => Some(b.to_vec()),
-            _ => None,
-        });
+        let bitmap = thing
+            .fields
+            .get(&canon::BITMAP)
+            .or_else(|| thing.fields.get(&canon::cc('I', 'D')))
+            .and_then(|v| match v {
+                Value::Bytes(b) => Some(b.to_vec()),
+                _ => None,
+            });
         let width = thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64());
         let height = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64());
         let x = thing.fields.get(&canon::X).and_then(|v| v.as_u64());

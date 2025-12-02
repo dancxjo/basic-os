@@ -120,12 +120,14 @@ impl LauncherApp {
                     alloc::format!("launcher_item_{}", entry.name).as_bytes(),
                 );
                 let mut item_fields = graph::map();
+                item_fields.insert(canon::ROLE, Value::Text("list_item".to_string()));
                 item_fields.insert(canon::ITEM_LABEL, Value::Text(entry.name.clone()));
                 item_fields.insert(canon::ITEM_VALUE, Value::Text(entry.name.clone()));
                 // Set PARENT to listbox so widget can find it
                 item_fields.insert(canon::PARENT, Value::Uuid(listbox_id));
+                item_fields.insert(canon::HEIGHT, Value::U64(20));
 
-                graph::fiat(Some(item_id), canon::ITEM, item_fields);
+                graph::fiat(Some(item_id), canon::WIDGET, item_fields);
                 graph::grant_capability(widget_host_bundle, item_id, "CAN_READ");
 
                 self.entries.push(LauncherEntry {

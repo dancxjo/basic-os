@@ -607,6 +607,14 @@ pub struct Bitmap {
 
 impl Bitmap {
     pub fn new(width: usize, height: usize, pixels: Vec<u32>) -> Self {
+        if pixels.len() != width * height {
+            panic!(
+                "Bitmap::new: pixels length {} does not match width {} * height {}",
+                pixels.len(),
+                width,
+                height
+            );
+        }
         Self {
             width,
             height,
@@ -1563,8 +1571,12 @@ where
 
         if let Some(bytes) = &widget.bitmap {
             if let (Some(bw), Some(bh)) = (widget.width, widget.height) {
-                let mut pixels = Vec::with_capacity((bw * bh) as usize);
+                let expected_len = (bw * bh) as usize;
+                let mut pixels = Vec::with_capacity(expected_len);
                 for chunk in bytes.chunks(4) {
+                    if pixels.len() >= expected_len {
+                        break;
+                    }
                     if chunk.len() == 4 {
                         let b = chunk[0] as u32; // Blue
                         let g = chunk[1] as u32; // Green
@@ -1578,11 +1590,12 @@ where
                     }
                 }
 
-                let bmp = Arc::new(Bitmap {
-                    width: bw as usize,
-                    height: bh as usize,
-                    pixels: pixels.into(),
-                });
+                // Pad with transparent pixels if the source data is smaller than the declared dimensions
+                while pixels.len() < expected_len {
+                    pixels.push(0);
+                }
+
+                let bmp = Arc::new(Bitmap::new(bw as usize, bh as usize, pixels));
 
                 scene.push(SceneItem::BlitImage {
                     rect: Rect::new(x, y, w as u32, h as u32),
@@ -1597,7 +1610,7 @@ where
 
         let mut drawn_height = 0;
 
-        if widget.role == ROLE_TOOLBAR {
+        if widget.role == ROLE_TOOLBAR || widget.role == "toolbar" {
             drawn_height = TOOLBAR_HEIGHT;
             scene.push(SceneItem::FillRect {
                 rect: Rect::new(x, y, w as u32, drawn_height as u32),
@@ -1661,6 +1674,83 @@ where
         } else if widget.role == ROLE_EDITOR_ROOT {
             drawn_height = h;
             self.draw_surface_content(scene, window_id, x, y, w, h);
+        } else if widget.role == "button" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
+            self.draw_toolbar_button(scene, widget, x, y, w, drawn_height);
+            if let Some(label) = &widget.label {
+                scene.push(SceneItem::DrawTextBlock {
+                    rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    scroll_offset: 0,
+                });
+            }
+        } else if widget.role == "listbox_default" || widget.role == "primary_list" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: Rgba::new(255, 255, 255, 255),
+            });
+            self.draw_rect_outline(scene, x, y, w, drawn_height, BTN_BORDER);
+
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y + 2;
+            let mut remaining_h = drawn_height - 4;
+            let child_w = w - 4;
+            let child_x = x + 2;
+
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let child_h = self.draw_widget_recursive(
+                        scene,
+                        window_id,
+                        child,
+                        child_x,
+                        child_y,
+                        child_w,
+                        remaining_h,
+                    );
+                    child_y += child_h;
+                    remaining_h -= child_h;
+                }
+            }
+        } else if widget.role == "scrollbar_thumb" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: BTN_FACE,
+            });
+            self.draw_rect_outline(scene, x, y, w, drawn_height, BTN_BORDER);
+        } else if widget.role == "thing_tile" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: BTN_FACE,
+            });
+            if let Some(label) = &widget.label {
+                scene.push(SceneItem::DrawTextBlock {
+                    rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    scroll_offset: 0,
+                });
+            }
+        } else if widget.role == "list_item" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(20);
+            if let Some(label) = &widget.label {
+                scene.push(SceneItem::DrawTextBlock {
+                    rect: Rect::new(x + 4, y + 2, (w - 8) as u32, (drawn_height - 4) as u32),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    scroll_offset: 0,
+                });
+            }
         }
 
         drawn_height
@@ -2786,18 +2876,34 @@ where
     }
 
     fn ingest_widget(&mut self, thing: &userland::GraphThing) {
-        if let Some(widget) = userland::semantic_ui::Widget::load(thing) {
-            if let Some(parent_id) = widget.parent {
+        if let Some(existing) = self.widgets.get_mut(&thing.id) {
+            existing.update(thing);
+
+            if let Some(parent_id) = existing.parent {
                 if let Some(scroll_y) = thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
                 {
                     if let Some(window) = self.windows.get_mut(&parent_id) {
-                        if window.scrollbar_widget_id == Some(widget.id) {
+                        if window.scrollbar_widget_id == Some(existing.id) {
                             window.scroll_y = scroll_y as i32;
                         }
                     }
                 }
             }
-            self.widgets.insert(widget.id, widget);
+        } else {
+            if let Some(widget) = userland::semantic_ui::Widget::load(thing) {
+                if let Some(parent_id) = widget.parent {
+                    if let Some(scroll_y) =
+                        thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
+                    {
+                        if let Some(window) = self.windows.get_mut(&parent_id) {
+                            if window.scrollbar_widget_id == Some(widget.id) {
+                                window.scroll_y = scroll_y as i32;
+                            }
+                        }
+                    }
+                }
+                self.widgets.insert(widget.id, widget);
+            }
         }
     }
 

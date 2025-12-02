@@ -1,0 +1,441 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/dancxjo/src/basic-os/kernel/Cargo.toml
+workspace: /home/dancxjo/src/basic-os/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/dancxjo/src/basic-os/userland/Cargo.toml
+workspace: /home/dancxjo/src/basic-os/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/dancxjo/src/basic-os/compositor/Cargo.toml
+workspace: /home/dancxjo/src/basic-os/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/dancxjo/src/basic-os/drivers/mouse_driver/Cargo.toml
+workspace: /home/dancxjo/src/basic-os/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/dancxjo/src/basic-os/apps/demo_app/Cargo.toml
+workspace: /home/dancxjo/src/basic-os/Cargo.toml
+warning: /home/dancxjo/src/basic-os/compositor/Cargo.toml: version requirement `1.1.0+data-15.1.05` for dependency `unifont` includes semver metadata which will be ignored, removing the metadata is recommended to avoid confusion
+warning: /home/dancxjo/src/basic-os/widgets/button/Cargo.toml: version requirement `1.1.0+data-15.1.05` for dependency `unifont` includes semver metadata which will be ignored, removing the metadata is recommended to avoid confusion
+warning: /home/dancxjo/src/basic-os/drivers/framebuffer_driver/Cargo.toml: file `/home/dancxjo/src/basic-os/drivers/framebuffer_driver/src/lib.rs` found to be present in multiple build targets:
+  * `lib` target `app_framebuffer_driver`
+  * `bin` target `framebuffer_driver`
+warning: /home/dancxjo/src/basic-os/drivers/mouse_driver/Cargo.toml: file `/home/dancxjo/src/basic-os/drivers/mouse_driver/src/lib.rs` found to be present in multiple build targets:
+  * `lib` target `app_mouse_driver`
+  * `bin` target `mouse_driver`
+warning: /home/dancxjo/src/basic-os/drivers/mouse_driver/Cargo.toml: unused manifest key: unstable
+warning: /home/dancxjo/src/basic-os/kernel/Cargo.toml: unused manifest key: build
+help: build is a valid .cargo/config.toml key
+warning: /home/dancxjo/src/basic-os/drivers/keyboard_driver/Cargo.toml: file `/home/dancxjo/src/basic-os/drivers/keyboard_driver/src/lib.rs` found to be present in multiple build targets:
+  * `lib` target `app_keyboard_driver`
+  * `bin` target `keyboard_driver`
+warning: /home/dancxjo/src/basic-os/apps/demo_app/Cargo.toml: unused manifest key: unstable
+warning: /home/dancxjo/src/basic-os/widgets/listbox_default/Cargo.toml: version requirement `1.1.0+data-15.1.05` for dependency `unifont` includes semver metadata which will be ignored, removing the metadata is recommended to avoid confusion
+warning: unused import: `BTreeSet`
+ --> thing_host/src/store.rs:4:24
+  |
+4 | use std::collections::{BTreeSet, HashMap};
+  |                        ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Symbol`
+ --> thing_host/src/store.rs:9:54
+  |
+9 |     GraphPropsRequest, GraphThing, Map, NodePattern, Symbol,
+  |                                                      ^^^^^^
+
+warning: field `index` is never read
+  --> thing_host/src/lib.rs:33:5
+   |
+31 | struct DeviceState {
+   |        ----------- field in this struct
+32 |     kind: u32,
+33 |     index: usize,
+   |     ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `is_valid_relationship_type` is never used
+   --> thing_host/src/store.rs:568:4
+    |
+568 | fn is_valid_relationship_type(s: &str) -> bool {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `thing_host` (lib) generated 4 warnings (run `cargo fix --lib -p thing_host` to apply 2 suggestions)
+warning: unused import: `semantic_ui`
+ --> userland/src/launcher.rs:1:31
+  |
+1 | use crate::{canon, fs, graph, semantic_ui, Value};
+  |                               ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alloc::vec`
+ --> userland/src/launcher.rs:3:5
+  |
+3 | use alloc::vec;
+  |     ^^^^^^^^^^
+
+warning: unused import: `uuid::Uuid`
+ --> userland/src/launcher.rs:4:5
+  |
+4 | use uuid::Uuid;
+  |     ^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> userland/src/sys.rs:79:9
+   |
+79 |     let mut buf = [0u8; 16];
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `KERNEL_RUNTIME` is never used
+   --> userland/src/runtime.rs:256:8
+    |
+256 | static KERNEL_RUNTIME: KernelRuntime = KernelRuntime;
+    |        ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `ctx` is never read
+   --> userland/src/semantic_ui.rs:290:5
+    |
+289 | pub struct WidgetBuilder<'a, 'b> {
+    |            ------------- field in this struct
+290 |     ctx: &'b mut AppContext<'a>,
+    |     ^^^
+
+warning: function `serialize_request` is never used
+   --> userland/src/sys.rs:538:4
+    |
+538 | fn serialize_request<T: Serialize>(req: &T) -> Option<Vec<u8>> {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: `userland` (lib) generated 7 warnings (run `cargo fix --lib -p userland` to apply 4 suggestions)
+warning: field `label` is never read
+  --> widgets/launcher_entry/src/lib.rs:14:5
+   |
+13 | pub struct State {
+   |            ----- field in this struct
+14 |     label: String,
+   |     ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alloc::vec::Vec`
+ --> widgets/scrollbar_thumb/src/lib.rs:5:5
+  |
+5 | use alloc::vec::Vec;
+  |     ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `widget_launcher_entry` (lib) generated 1 warning
+warning: `widget_scrollbar_thumb` (lib) generated 1 warning (run `cargo fix --lib -p widget_scrollbar_thumb` to apply 1 suggestion)
+warning: field `value` is never read
+  --> widgets/listbox_default/src/lib.rs:16:5
+   |
+14 | pub struct ItemState {
+   |            --------- field in this struct
+15 |     label: String,
+16 |     value: String,
+   |     ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `control_node` is never read
+  --> widgets/listbox_default/src/lib.rs:24:5
+   |
+19 | pub struct State {
+   |            ----- field in this struct
+...
+24 |     control_node: userland::uuid::Uuid,
+   |     ^^^^^^^^^^^^
+
+warning: unused import: `ToString`
+ --> widgets/notification_toast/src/lib.rs:5:29
+  |
+5 | use alloc::string::{String, ToString};
+  |                             ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `userland::prelude::*`
+ --> widgets/notification_toast/src/lib.rs:6:5
+  |
+6 | use userland::prelude::*;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ToString`
+ --> widgets/notification_dialog/src/lib.rs:5:29
+  |
+5 | use alloc::string::{String, ToString};
+  |                             ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `userland::prelude::*`
+ --> widgets/notification_dialog/src/lib.rs:6:5
+  |
+6 | use userland::prelude::*;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: `widget_listbox_default` (lib) generated 2 warnings
+warning: `widget_notification_toast` (lib) generated 2 warnings (run `cargo fix --lib -p widget_notification_toast` to apply 2 suggestions)
+warning: `widget_notification_dialog` (lib) generated 2 warnings (run `cargo fix --lib -p widget_notification_dialog` to apply 2 suggestions)
+warning: unnecessary transmute
+   --> third_party/ascii/src/ascii_char.rs:710:40
+    |
+710 |             b @ 0x0..=0x1f => unsafe { mem::transmute('␀' as u32 + b as u32) },
+    |                                        --------------^^^^^^^^^^^^^^^^^^^^^^^
+    |                                        |
+    |                                        help: replace this with: `char::from_u32_unchecked`
+    |
+    = help: consider using `char::from_u32(…).unwrap()`
+    = note: `#[warn(unnecessary_transmutes)]` on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> third_party/ascii/src/ascii_str.rs:229:18
+    |
+229 |     pub fn chars(&self) -> Chars {
+    |                  ^^^^^     ^^^^^ the same lifetime is hidden here
+    |                  |
+    |                  the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+229 |     pub fn chars(&self) -> Chars<'_> {
+    |                                 ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> third_party/ascii/src/ascii_str.rs:237:22
+    |
+237 |     pub fn chars_mut(&mut self) -> CharsMut {
+    |                      ^^^^^^^^^     ^^^^^^^^ the same lifetime is hidden here
+    |                      |
+    |                      the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+237 |     pub fn chars_mut(&mut self) -> CharsMut<'_> {
+    |                                            ++++
+
+warning: unused import: `alloc::vec::Vec`
+ --> apps/rootfs/src/lib.rs:7:5
+  |
+7 | use alloc::vec::Vec;
+  |     ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Symbol`
+  --> apps/rootfs/src/lib.rs:11:28
+   |
+11 | use userland::{AbiRequest, Symbol};
+   |                            ^^^^^^
+
+warning: function `create_icon_file` is never used
+   --> apps/rootfs/src/lib.rs:134:4
+    |
+134 | fn create_icon_file(name: &str, parent: Uuid, color: u32) {
+    |    ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dx`
+  --> drivers/mouse_driver/src/lib.rs:67:21
+   |
+67 |                 let dx = thing
+   |                     ^^ help: if this is intentional, prefix it with an underscore: `_dx`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dy`
+  --> drivers/mouse_driver/src/lib.rs:72:21
+   |
+72 |                 let dy = thing
+   |                     ^^ help: if this is intentional, prefix it with an underscore: `_dy`
+
+warning: unused variable: `buttons`
+  --> drivers/mouse_driver/src/lib.rs:80:21
+   |
+80 |                 let buttons = thing
+   |                     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_buttons`
+
+warning: unused variable: `down`
+  --> drivers/mouse_driver/src/lib.rs:85:21
+   |
+85 |                 let down = thing
+   |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_down`
+
+warning: creating a mutable reference to mutable static
+   --> drivers/mouse_driver/src/lib.rs:101:30
+    |
+101 |         let event = unsafe { MOUSE_DECODER.feed(byte) };
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+    = note: `#[warn(static_mut_refs)]` (part of `#[warn(rust_2024_compatibility)]`) on by default
+
+warning: fields `base` and `shifted` are never read
+   --> drivers/keyboard_driver/src/lib.rs:589:17
+    |
+589 |     Character { base: char, shifted: Option<char> },
+    |     ---------   ^^^^        ^^^^^^^
+    |     |
+    |     fields in this variant
+    |
+    = note: `KeyCode` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ascii` (lib) generated 3 warnings (run `cargo fix --lib -p ascii` to apply 3 suggestions)
+warning: `rootfs` (lib) generated 3 warnings (run `cargo fix --lib -p rootfs` to apply 2 suggestions)
+warning: `app-mouse-driver` (lib) generated 5 warnings (run `cargo fix --lib -p app-mouse-driver` to apply 4 suggestions)
+warning: `app-keyboard-driver` (lib) generated 1 warning
+warning: unused variable: `ctx`
+  --> apps/launcher/src/lib.rs:49:28
+   |
+49 |     fn on_event(&mut self, ctx: &mut AppContext<'_>, ev: AppEvent) {
+   |                            ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `window` is never read
+  --> apps/launcher/src/lib.rs:12:5
+   |
+11 | pub struct LauncherApp {
+   |            ----------- field in this struct
+12 |     window: WindowHandle,
+   |     ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `label` is never read
+  --> apps/launcher/src/lib.rs:22:5
+   |
+20 | struct LauncherEntry {
+   |        ------------- field in this struct
+21 |     fs_node_id: Uuid,
+22 |     label: alloc::string::String,
+   |     ^^^^^
+
+warning: variable does not need to be mutable
+  --> apps/demo_app/src/app.rs:40:13
+   |
+40 |         let mut add_widget = |name: &str,
+   |             ----^^^^^^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `fb_id`, `fb_ptr`, and `fb_info` are never read
+  --> drivers/framebuffer_driver/src/lib.rs:12:5
+   |
+11 | pub struct FramebufferDriver {
+   |            ----------------- fields in this struct
+12 |     fb_id: Uuid,
+   |     ^^^^^
+13 |     fb_ptr: *mut u32,
+   |     ^^^^^^
+14 |     fb_info: sys::FramebufferInfo,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `blit` is never used
+  --> drivers/framebuffer_driver/src/lib.rs:62:8
+   |
+61 | impl FramebufferDriver {
+   | ---------------------- method in this implementation
+62 |     fn blit(&mut self, src: *const u32) {
+   |        ^^^^
+
+warning: constant `CURSOR_FOCUS_NUDGE` is never used
+  --> apps/text_editor/src/app.rs:15:7
+   |
+15 | const CURSOR_FOCUS_NUDGE: i32 = 4;
+   |       ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `launcher` (lib) generated 3 warnings (run `cargo fix --lib -p launcher` to apply 1 suggestion)
+warning: `demo_app` (lib) generated 1 warning (run `cargo fix --lib -p demo_app` to apply 1 suggestion)
+warning: `app-framebuffer-driver` (lib) generated 2 warnings
+warning: `text_editor` (lib) generated 1 warning
+   Compiling compositor v0.1.0 (/home/dancxjo/src/basic-os/compositor)
+warning: value assigned to `desired_scroll` is never read
+    --> compositor/src/lib.rs:1228:34
+     |
+1228 |         let mut desired_scroll = current_scroll;
+     |                                  ^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `has_scrollbar` is never used
+   --> compositor/src/lib.rs:344:8
+    |
+247 | impl ContentMetrics {
+    | ------------------- method in this implementation
+...
+344 |     fn has_scrollbar(&self) -> bool {
+    |        ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `close_button_id` and `close_button_bitmap` are never read
+   --> compositor/src/lib.rs:661:5
+    |
+653 | struct WindowSurface {
+    |        ------------- fields in this struct
+...
+661 |     close_button_id: Uuid,
+    |     ^^^^^^^^^^^^^^^
+662 |     close_button_state: ButtonState,
+663 |     close_button_bitmap: Option<Arc<Bitmap>>,
+    |     ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `WindowSurface` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: `compositor` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.89s
+     Running `target/x86_64-unknown-linux-gnu/debug/compositor`
+Graph backend: InMemory
+Init process started.
+Spawning framebuffer_driver...
+Allocated pixels at 0x763b3ddf0010 size 1024x1024
+Spawning keyboard_driver...
+Spawning mouse_driver...
+Spawning rootfs...
+Scanning /bin for autostart apps (attempt 1)...
+RootFS service started.
+Created root directory: 392d0e7d-2fe3-67aa-392d-0e7d2fe367aa
+Created /bin: 0f934e8d-a0f9-1cd0-0f93-4e8da0f91cd0
+Created /dev: 1ce4eda3-12f9-9822-1ce4-eda312f99822
+Created /tmp: f1e8fd80-b3cd-d67c-f1e8-fd80b3cdd67c
+Created /icons: 2b499fc2-f0ec-091d-2b49-9fc2f0ec091d
+Created /fonts: ad998a04-8752-0dc5-ad99-8a0487520dc5
+Scanning /bin for autostart apps (attempt 2)...
+RootFS initialization complete. Entering idle loop.
+Scanning /bin for autostart apps (attempt 3)...
+Autostarting compositor...
+Autostarting demo_app...
+Compositor spawned (ignored)
+Autostarting graph_viewer...
+Autostarting launcher...
+Autostarting self_editing_demo...
+Autostarting text_editor...
+Autostarting widget_host...
+Self-editing bundle launched 1 times; first=2025-11-30T00:00:01Z, last=2025-11-30T00:00:01Z
+Creating toolbar...
+Host compositor: http://127.0.0.1:8080/
+Creating LaunchRequest for text_editor...
+Init sequence complete. Entering idle loop.
+Handling LaunchRequest for text_editor
