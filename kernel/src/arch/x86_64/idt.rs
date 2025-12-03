@@ -131,7 +131,7 @@ pub fn init_idt() {
     log::info!("Fault handlers initialized (PageFault, DoubleFault, GPFault).");
 }
 
-#[cfg(feature = "threading")]
+#[cfg(feature = "kernel_multitask")]
 unsafe extern "C" {
     fn tick_handler(stack_frame: InterruptStackFrame);
 }
@@ -139,12 +139,12 @@ unsafe extern "C" {
 /// Install device handlers (after memory is ready)
 pub fn init_device_handlers() {
     unsafe {
-        #[cfg(feature = "threading")]
+        #[cfg(feature = "kernel_multitask")]
         IDT[32].set_handler_fn(core::mem::transmute::<
             unsafe extern "C" fn(InterruptStackFrame),
             extern "x86-interrupt" fn(InterruptStackFrame),
         >(tick_handler));
-        #[cfg(not(feature = "threading"))]
+        #[cfg(not(feature = "kernel_multitask"))]
         IDT[32].set_handler_fn(timer_interrupt_handler); // Timer IRQ
 
         IDT[33].set_handler_fn(keyboard_interrupt_handler); // Keyboard IRQ

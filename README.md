@@ -93,6 +93,20 @@ timeout 300 make run
 
 `KARCH` can be set to `x86_64` (default) or other architectures supported by the Makefile such as `aarch64` and `riscv64`.
 
+## Kernel feature flags
+
+The kernel crate uses Cargo features to toggle increasingly experimental functionality:
+
+- `kernel_multitask`: enable the preemptive scheduler, timer-driven context switches, and multi-bundle boot.
+- `mm_advanced`: enable the experimental pool-based memory manager and page-table allocator.
+
+Recommended builds:
+
+- Safe baseline (single task, simple allocator): `cargo build -p kernel`
+- Debug multitasking (simple allocator): `cargo build -p kernel --features kernel_multitask`
+- Debug advanced MM (single task): `cargo build -p kernel --features mm_advanced`
+- Full experimental stack: `cargo build -p kernel --features "kernel_multitask,mm_advanced"`
+
 ## Debugging with GDB
 
 Run `make run-debug` to launch QEMU paused with a GDB stub on TCP port 1234. In

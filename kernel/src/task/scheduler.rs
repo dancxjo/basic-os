@@ -23,7 +23,6 @@ use crate::{
     arch::x86_64::gdt::set_kernel_stack,
     arch::x86_64::interrupts::end_of_interrupt,
     graph::{BundleId, KERNEL_BUNDLE_ID},
-    mm::pools::PAGE_TABLE_ALLOCATOR,
     serial_print,
 };
 use alloc::vec::Vec;
@@ -140,7 +139,7 @@ impl Task {
                             page,
                             frame,
                             PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                            &mut *PAGE_TABLE_ALLOCATOR.lock(),
+                            frame_allocator,
                         )
                         .expect("map_to failed (task stack)")
                         .flush();

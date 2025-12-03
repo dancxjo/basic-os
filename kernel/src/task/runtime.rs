@@ -1,6 +1,7 @@
 use crate::graph::{BundleId, BundleType, KERNEL_BUNDLE_ID};
 use crate::mm::allocator::BootFrameAllocator;
 use crate::task::context::TaskMode;
+#[cfg(feature = "kernel_multitask")]
 use crate::task::scheduler::{SCHEDULER, Scheduler};
 use spin::Mutex as SpinMutex;
 use thingos_kernel_std::prelude::*;
@@ -58,9 +59,15 @@ impl TaskHandle {
     }
 }
 
+#[cfg(feature = "kernel_multitask")]
 fn with_scheduler<R>(f: impl FnOnce(&mut Scheduler) -> R) -> R {
     let mut sched = SCHEDULER.lock();
     f(&mut sched)
+}
+
+#[cfg(not(feature = "kernel_multitask"))]
+fn scheduler_unavailable<T>() -> T {
+    panic!("Scheduler is unavailable without the kernel_multitask feature");
 }
 
 /// Spawn a new kernel-mode task using the provided mapper/frame allocator.
@@ -72,6 +79,12 @@ pub fn spawn_kernel_with_allocator<M>(
 where
     M: Mapper<Size4KiB> + Translate,
 {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     with_scheduler(|sched| {
         let id = sched.tasks.len();
         sched.spawn(entry, TaskMode::Kernel, mapper, frame_allocator);
@@ -83,6 +96,12 @@ where
 
 /// Spawn a new kernel-mode task using the global mapper/frame allocator.
 pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     let runtime_system = system();
     let mut mapper = runtime_system.mapper().lock();
     let mut frame_allocator = runtime_system.frame_allocator().lock();
@@ -98,6 +117,12 @@ pub fn spawn_kernel_with_bundle(
     bundle_name: &str,
     bundle_type: BundleType,
 ) -> (TaskHandle, BundleId) {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     use crate::graph;
 
     // Create or get the package
@@ -117,6 +142,12 @@ pub fn spawn_kernel_with_bundle(
 
 /// Assign the bundle instance ID to the given task.
 pub fn assign_bundle(task: TaskId, bundle: BundleId) {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     with_scheduler(|sched| {
         if let Some(Some(t)) = sched.tasks.get_mut(task.0 as usize).map(|t| t.as_mut()) {
             t.bundle = bundle;
@@ -126,6 +157,12 @@ pub fn assign_bundle(task: TaskId, bundle: BundleId) {
 
 /// Assign the bundle instance ID to the current task.
 pub fn assign_current_bundle(bundle: BundleId) {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     unsafe {
         let task_ptr = crate::task::scheduler::CURRENT_TASK;
         if !task_ptr.is_null() {
@@ -136,6 +173,12 @@ pub fn assign_current_bundle(bundle: BundleId) {
 
 /// Return the bundle instance ID of the currently running task.
 pub fn current_bundle() -> BundleId {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        return KERNEL_BUNDLE_ID;
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     unsafe {
         let task_ptr = crate::task::scheduler::CURRENT_TASK;
         if !task_ptr.is_null() {
@@ -147,11 +190,23 @@ pub fn current_bundle() -> BundleId {
 
 /// Return the number of registered tasks.
 pub fn task_count() -> usize {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     with_scheduler(|sched| sched.tasks.len())
 }
 
 /// Request the scheduler to make `task` the next runnable slot.
 pub fn select_task(task: TaskId) -> bool {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     with_scheduler(|sched| {
         let idx = task.0 as usize;
         if idx < sched.tasks.len() && sched.tasks[idx].is_some() {
@@ -165,11 +220,25 @@ pub fn select_task(task: TaskId) -> bool {
 
 /// Yield execution to the scheduler.
 pub fn yield_now() {
-    unsafe { yield_now_raw() }
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
+    unsafe {
+        yield_now_raw()
+    }
 }
 
 /// Enter the first scheduled task.
 pub fn start() -> ! {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     crate::task::scheduler::start_first()
 }
 
@@ -181,6 +250,12 @@ unsafe extern "C" {
 /// Update the CR3 (page table) for the current task.
 /// This is used when a task transitions from kernel to user mode and gets a new page table.
 pub fn set_current_cr3(cr3: u64) {
+    #[cfg(not(feature = "kernel_multitask"))]
+    {
+        scheduler_unavailable();
+    }
+
+    #[cfg(feature = "kernel_multitask")]
     unsafe {
         let task_ptr = crate::task::scheduler::CURRENT_TASK;
         if !task_ptr.is_null() {
@@ -192,7 +267,7 @@ pub fn set_current_cr3(cr3: u64) {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "kernel_multitask"))]
 pub fn debug_dump_current_task() {
     unsafe {
         let task_ptr = crate::task::scheduler::CURRENT_TASK;

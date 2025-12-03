@@ -8,15 +8,25 @@ use crate::arch::x86_64::interrupts::init_interrupts;
 use crate::arch::x86_64::ps2;
 use crate::arch::x86_64::stack::init_kernel_stack;
 use crate::bootloader::get_hhdm_offset;
+#[cfg(not(feature = "kernel_multitask"))]
+use crate::bootloader::get_module;
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
 use crate::drivers::framebuffer::{Framebuffer, register_framebuffer_device};
 use crate::drivers::{keyboard, mouse, serial};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging, prime_allocator_sanity};
-use crate::task::{launcher, runtime};
+#[cfg(not(feature = "kernel_multitask"))]
+use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
+#[cfg(feature = "kernel_multitask")]
+use crate::task::launcher;
+use crate::task::runtime;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use spin::Mutex as SpinMutex;
+#[cfg(not(feature = "kernel_multitask"))]
+use x86_64::PhysAddr;
+#[cfg(not(feature = "kernel_multitask"))]
+use x86_64::structures::paging::PhysFrame;
 
 pub(crate) static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
 
@@ -38,6 +48,7 @@ impl System {
         let framebuffer = init_framebuffer_and_devices();
         let _clock = init_clock();
         info!("ThingOS initialized.");
+        #[cfg(feature = "kernel_multitask")]
         init_user_tasks(&mut mapper, &mut frame_allocator);
 
         Self {
@@ -73,7 +84,7 @@ impl System {
         info!("System initialized. Entering main loop...");
         // Enable interrupts only after the full system (including the clock) is ready.
         x86_64::instructions::interrupts::enable();
-        runtime::start();
+        run_system();
     }
 }
 
@@ -191,6 +202,7 @@ fn init_clock() -> &'static SpinMutex<Clock> {
     clock
 }
 
+#[cfg(feature = "kernel_multitask")]
 fn init_user_tasks(
     mapper: &mut OffsetPageTable<'static>,
     frame_allocator: &mut BootFrameAllocator,
@@ -207,4 +219,62 @@ fn init_user_tasks(
             runtime::spawn_kernel_with_allocator(trampoline, mapper, frame_allocator);
         }
     });
+}
+
+#[cfg(not(feature = "kernel_multitask"))]
+fn run_single_task_self_editing_demo() -> ! {
+    use x86_64::instructions::hlt;
+
+    info!("Single-task mode: launching /boot/self_editing_demo");
+
+    let module_bytes = get_module("self_editing_demo")
+        .or_else(|| get_module("/boot/self_editing_demo"))
+        .expect("self_editing_demo not found");
+
+    let (l4_phys, loaded) = {
+        let runtime_system = runtime::system();
+        let mut mapper = runtime_system.mapper().lock();
+        let mut frame_allocator = runtime_system.frame_allocator().lock();
+
+        let (l4_table, mut user_mapper) =
+            create_user_page_table(&mut *frame_allocator, &mut *mapper, get_hhdm_offset());
+        let loaded = load_elf(
+            module_bytes,
+            l4_table,
+            &mut user_mapper,
+            &mut *frame_allocator,
+        )
+        .expect("Failed to load self_editing_demo ELF");
+        let l4_phys = PhysFrame::containing_address(PhysAddr::new(
+            l4_table as *const _ as u64 - get_hhdm_offset().as_u64(),
+        ));
+
+        (l4_phys, loaded)
+    };
+
+    info!(
+        "self_editing_demo entry prepared: rip={:#x}, stack_top={:#x}, cr3={:#x}",
+        loaded.entry,
+        loaded.stack_top,
+        l4_phys.start_address().as_u64()
+    );
+
+    unsafe {
+        jump_to_user(loaded.entry, loaded.stack_top, l4_phys);
+    }
+
+    info!("self_editing_demo returned; halting.");
+    loop {
+        hlt();
+    }
+}
+
+#[cfg(feature = "kernel_multitask")]
+fn run_system() -> ! {
+    runtime::start()
+}
+
+#[cfg(not(feature = "kernel_multitask"))]
+fn run_system() -> ! {
+    run_single_task_self_editing_demo()
 }

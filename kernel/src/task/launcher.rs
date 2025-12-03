@@ -120,6 +120,7 @@ pub fn user_module_count() -> usize {
     USER_MODULES.lock().as_ref().map(|v| v.len()).unwrap_or(0)
 }
 
+#[cfg(feature = "kernel_multitask")]
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
     crate::klog_irq!(b'{');

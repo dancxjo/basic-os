@@ -11,10 +11,14 @@ use x86_64::{
 };
 
 use crate::arch::x86_64::memory::{kernel_base, kernel_end};
+#[cfg(not(feature = "mm_advanced"))]
+use crate::bootloader::collect_memory_regions;
 #[cfg(feature = "debug_heap_bump")]
 use crate::mm::bump_allocator::BumpAllocator;
 #[cfg(all(not(feature = "debug_heap_bump"), feature = "debug_heap_canaries"))]
 use crate::mm::debug_alloc::DebugAlloc;
+#[cfg(feature = "mm_advanced")]
+use crate::mm::pools::{MemoryRole, POOL_MANAGER, init_pools};
 #[cfg(not(feature = "debug_heap_bump"))]
 use linked_list_allocator::LockedHeap;
 
@@ -101,9 +105,49 @@ pub struct BootFrameAllocator {
 }
 
 impl BootFrameAllocator {
+    #[cfg(not(feature = "mm_advanced"))]
     pub fn new() -> Self {
-        use crate::mm::pools::{MemoryRole, POOL_MANAGER, init_pools};
+        let mut usable_ranges: [Option<Range<usize>>; 32] = Default::default();
+        let mut range_count = 0;
 
+        for region in collect_memory_regions().iter() {
+            if region.kind != "usable" {
+                continue;
+            }
+
+            let start = core::cmp::max(region.base, 0x100000);
+            let end = region.base + region.len;
+            if start >= end {
+                continue;
+            }
+
+            if range_count >= usable_ranges.len() {
+                break;
+            }
+
+            usable_ranges[range_count] = Some(start as usize..end as usize);
+            range_count += 1;
+        }
+
+        assert!(range_count > 0, "BootFrameAllocator found no usable ranges");
+
+        let first_range_start = usable_ranges[0].as_ref().unwrap().start;
+
+        log::info!(
+            "BootFrameAllocator (simple) initialized with {} usable ranges",
+            range_count
+        );
+
+        Self {
+            usable_ranges,
+            range_count,
+            current_range: 0,
+            next: first_range_start,
+        }
+    }
+
+    #[cfg(feature = "mm_advanced")]
+    pub fn new() -> Self {
         init_pools();
         let pm = POOL_MANAGER.lock();
 
@@ -271,7 +315,7 @@ pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAl
                     page,
                     frame,
                     PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                    &mut *crate::mm::pools::PAGE_TABLE_ALLOCATOR.lock(),
+                    frame_allocator,
                 )
                 .expect("Heap map_to failed")
                 .flush();
