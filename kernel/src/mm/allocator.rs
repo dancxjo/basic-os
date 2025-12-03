@@ -115,7 +115,7 @@ impl BootFrameAllocator {
                 continue;
             }
 
-            let start = core::cmp::max(region.base, 0x100000);
+            let start = core::cmp::max(region.base, SANITY_FORBIDDEN_RANGE.end);
             let end = region.base + region.len;
             if start >= end {
                 continue;

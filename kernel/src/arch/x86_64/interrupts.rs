@@ -4,6 +4,7 @@ use log::info;
 use x86_64::instructions::port::Port;
 use x86_64::registers::model_specific::Msr;
 
+use crate::arch::x86_64::pic::{init_pic, pic_end_of_interrupt};
 use x86_64::registers::control::{Cr2, Cr3};
 
 // IA32_APIC_BASE MSR address (0x1B)

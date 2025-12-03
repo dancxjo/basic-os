@@ -81,7 +81,7 @@ where
 {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
@@ -98,15 +98,17 @@ where
 pub fn spawn_kernel(entry: extern "C" fn()) -> TaskHandle {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
-    let runtime_system = system();
-    let mut mapper = runtime_system.mapper().lock();
-    let mut frame_allocator = runtime_system.frame_allocator().lock();
+    {
+        let runtime_system = system();
+        let mut mapper = runtime_system.mapper().lock();
+        let mut frame_allocator = runtime_system.frame_allocator().lock();
 
-    spawn_kernel_with_allocator(entry, &mut *mapper, &mut *frame_allocator)
+        spawn_kernel_with_allocator(entry, &mut *mapper, &mut *frame_allocator)
+    }
 }
 
 /// Spawn a new kernel-mode task with an associated bundle.
@@ -119,32 +121,34 @@ pub fn spawn_kernel_with_bundle(
 ) -> (TaskHandle, BundleId) {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
-    use crate::graph;
+    {
+        use crate::graph;
 
-    // Create or get the package
-    let package_id = graph::create_package(bundle_name, bundle_type, None);
+        // Create or get the package
+        let package_id = graph::create_package(bundle_name, bundle_type, None);
 
-    // Create task
-    let task_id = graph::create_task(package_id, bundle_name, alloc::vec::Vec::new());
+        // Create task
+        let task_id = graph::create_task(package_id, bundle_name, alloc::vec::Vec::new());
 
-    // Spawn the task
-    let handle = spawn_kernel(entry);
+        // Spawn the task
+        let handle = spawn_kernel(entry);
 
-    // Assign the bundle to the task before first run
-    assign_bundle(handle.id(), task_id);
+        // Assign the bundle to the task before first run
+        assign_bundle(handle.id(), task_id);
 
-    (handle, task_id)
+        (handle, task_id)
+    }
 }
 
 /// Assign the bundle instance ID to the given task.
 pub fn assign_bundle(task: TaskId, bundle: BundleId) {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
@@ -159,7 +163,7 @@ pub fn assign_bundle(task: TaskId, bundle: BundleId) {
 pub fn assign_current_bundle(bundle: BundleId) {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
@@ -192,7 +196,7 @@ pub fn current_bundle() -> BundleId {
 pub fn task_count() -> usize {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
@@ -203,7 +207,7 @@ pub fn task_count() -> usize {
 pub fn select_task(task: TaskId) -> bool {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
@@ -222,7 +226,7 @@ pub fn select_task(task: TaskId) -> bool {
 pub fn yield_now() {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
@@ -235,7 +239,7 @@ pub fn yield_now() {
 pub fn start() -> ! {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
@@ -252,7 +256,7 @@ unsafe extern "C" {
 pub fn set_current_cr3(cr3: u64) {
     #[cfg(not(feature = "kernel_multitask"))]
     {
-        scheduler_unavailable();
+        scheduler_unavailable()
     }
 
     #[cfg(feature = "kernel_multitask")]
