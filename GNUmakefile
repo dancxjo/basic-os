@@ -306,6 +306,10 @@ else ifeq ($(MODE),hosted)
 	cargo run -p thing_host --bin thing_host --features "$(HOST_FEATURES)" --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/demo_app
 endif
 
+.PHONY: run-host
+run-host:
+	cargo run -p compositor --features host --target x86_64-unknown-linux-gnu
+
 .PHONY: run-hosted
 run-hosted:
 	docker compose -f docker-compose.neo4j.yml up -d
