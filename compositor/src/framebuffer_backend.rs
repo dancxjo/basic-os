@@ -314,7 +314,7 @@ impl<'a> FramebufferDevice<&'a [u32]> for BitmapFramebufferDevice {
         }
 
         let stride_u32 = self.pitch / 4;
-        
+
         // Clip dirty rect to framebuffer bounds
         let x = clamp_i32(dirty_rect.x, 0, self.width as i32) as usize;
         let y = clamp_i32(dirty_rect.y, 0, self.height as i32) as usize;
@@ -587,9 +587,10 @@ fn raster_draw_cursor(
         let sx_start = (start_x - top_left_x) as usize;
         let sx_end = (end_x - top_left_x) as usize;
         let sprite_row = &sprite_data[sy * sprite_width + sx_start..sy * sprite_width + sx_end];
-        
+
         let dst_row_start = (y as usize) * backend.width + (start_x as usize);
-        let dst_row = &mut backend.storage[dst_row_start..dst_row_start + (end_x - start_x) as usize];
+        let dst_row =
+            &mut backend.storage[dst_row_start..dst_row_start + (end_x - start_x) as usize];
 
         for (px, dst) in sprite_row.iter().zip(dst_row.iter_mut()) {
             let px = *px;
@@ -597,7 +598,7 @@ fn raster_draw_cursor(
             if alpha == 0 {
                 continue;
             }
-            
+
             let out = if alpha == 0xFF {
                 px
             } else {
@@ -606,15 +607,15 @@ fn raster_draw_cursor(
                 let dst_r = (dst_val >> 16) & 0xFF;
                 let dst_g = (dst_val >> 8) & 0xFF;
                 let dst_b = dst_val & 0xFF;
-                
+
                 let src_r = (px >> 16) & 0xFF;
                 let src_g = (px >> 8) & 0xFF;
                 let src_b = px & 0xFF;
-                
+
                 let r = src_r + (dst_r * inv_a) / 255;
                 let g = src_g + (dst_g * inv_a) / 255;
                 let b = src_b + (dst_b * inv_a) / 255;
-                
+
                 0xFF000000 | (r << 16) | (g << 8) | b
             };
             *dst = out;
@@ -660,9 +661,10 @@ fn raster_draw_cursor_clipped(
         let sx_start = (start_x - top_left_x) as usize;
         let sx_end = (end_x - top_left_x) as usize;
         let sprite_row = &sprite_data[sy * sprite_width + sx_start..sy * sprite_width + sx_end];
-        
+
         let dst_row_start = (y as usize) * backend.width + (start_x as usize);
-        let dst_row = &mut backend.storage[dst_row_start..dst_row_start + (end_x - start_x) as usize];
+        let dst_row =
+            &mut backend.storage[dst_row_start..dst_row_start + (end_x - start_x) as usize];
 
         for (px, dst) in sprite_row.iter().zip(dst_row.iter_mut()) {
             let px = *px;
@@ -670,7 +672,7 @@ fn raster_draw_cursor_clipped(
             if alpha == 0 {
                 continue;
             }
-            
+
             let out = if alpha == 0xFF {
                 px
             } else {
@@ -679,15 +681,15 @@ fn raster_draw_cursor_clipped(
                 let dst_r = (dst_val >> 16) & 0xFF;
                 let dst_g = (dst_val >> 8) & 0xFF;
                 let dst_b = dst_val & 0xFF;
-                
+
                 let src_r = (px >> 16) & 0xFF;
                 let src_g = (px >> 8) & 0xFF;
                 let src_b = px & 0xFF;
-                
+
                 let r = src_r + (dst_r * inv_a) / 255;
                 let g = src_g + (dst_g * inv_a) / 255;
                 let b = src_b + (dst_b * inv_a) / 255;
-                
+
                 0xFF000000 | (r << 16) | (g << 8) | b
             };
             *dst = out;

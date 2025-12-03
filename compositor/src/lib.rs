@@ -1113,10 +1113,10 @@ where
         let w = icon.bitmap.width as u32;
         let h = icon.bitmap.height as u32;
         let hotspot = icon.hotspot;
-        
+
         let x = self.cursor.x - hotspot.0;
         let y = self.cursor.y - hotspot.1;
-        
+
         Some(Rect::new(x, y, w, h))
     }
 
@@ -3884,7 +3884,7 @@ fn cursor_icon_from_mask(mask: CursorMask, fill: Rgba, outline: Rgba, _shadow: R
             ];
             let is_edge = neighbors.iter().any(|(nx, ny)| !mask.filled(*nx, *ny));
             let color = if is_edge { outline } else { fill };
-            
+
             // Premultiply alpha
             let a = color.a as u32;
             let r = (color.r as u32 * a) / 255;
