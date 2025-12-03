@@ -1,0 +1,164 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), no_main)]
+
+extern crate alloc;
+
+use alloc::vec::Vec;
+use compositor::{BitmapFramebufferDevice, BitmapRenderer, Compositor, FramebufferTarget};
+use userland::app::{create_app, DynApp};
+use userland::uuid::Uuid;
+use userland::{println, FramebufferGeometry, WatchManager};
+
+const FRAME_INTERVAL_SPINS: usize = 1_000_000;
+static mut BACKBUFFER_STORAGE: [u32; 8_388_608] = [0; 8_388_608];
+
+#[cfg(not(feature = "std"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn _start() -> ! {
+    userland::init_heap();
+    userland::ensure_kernel_runtime();
+
+    println!("Single-process desktop: cooperative compositor loop");
+
+    let mut watch_manager = WatchManager::new();
+    let compositor_app_id = watch_manager.register_app();
+
+    let fb_target = discover_framebuffer().unwrap_or_else(fallback_framebuffer);
+    println!(
+        "[INFO] framebuffer ready: {}x{} pitch={} bpp={}",
+        fb_target.info.width, fb_target.info.height, fb_target.info.pitch, fb_target.info.bpp
+    );
+
+    let fb_device = unsafe {
+        BitmapFramebufferDevice::new(
+            fb_target.info.width as usize,
+            fb_target.info.height as usize,
+            fb_target.info.pitch as usize,
+            fb_target.addr,
+        )
+    };
+    let renderer = BitmapRenderer::new(
+        fb_target.info.width as usize,
+        fb_target.info.height as usize,
+    );
+    let mut compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
+        &mut watch_manager,
+        compositor_app_id,
+        fb_device,
+        renderer,
+    );
+
+    let compositor_id = Uuid::nil();
+    let mut apps: Vec<DynApp> = Vec::new();
+    println!("[INFO] starting framebuffer_driver in cooperative mode");
+    apps.push(create_app::<app_framebuffer_driver::FramebufferDriver>(
+        compositor_id,
+        &mut watch_manager,
+    ));
+    println!("[INFO] starting keyboard_driver in cooperative mode");
+    apps.push(create_app::<app_keyboard_driver::KeyboardDriver>(
+        compositor_id,
+        &mut watch_manager,
+    ));
+    println!("[INFO] starting mouse_driver in cooperative mode");
+    apps.push(create_app::<app_mouse_driver::MouseDriver>(
+        compositor_id,
+        &mut watch_manager,
+    ));
+    println!("[INFO] starting widget_host for semantic UI surfaces");
+    apps.push(create_app::<widget_host::WidgetHost>(
+        compositor_id,
+        &mut watch_manager,
+    ));
+    println!("[INFO] starting text_editor");
+    apps.push(create_app::<text_editor::TextEditor>(
+        compositor_id,
+        &mut watch_manager,
+    ));
+
+    let mut participant_ids = alloc::vec![compositor_app_id];
+    participant_ids.extend(apps.iter().map(|app| app.app_id()));
+
+    let mut tick: u64 = 0;
+    loop {
+        watch_manager.process_graph(&participant_ids);
+
+        for app in apps.iter_mut() {
+            app.tick(&mut watch_manager, tick);
+        }
+
+        for ev in watch_manager.drain_inbox(compositor_app_id) {
+            compositor.on_event(&ev);
+        }
+
+        if compositor.is_fb_dirty() {
+            if let Some(info) = userland::sys::fb_info() {
+                let width = info.width as usize;
+                let height = info.height as usize;
+                let pitch = info.pitch as usize;
+                let addr = info.addr as *mut u32;
+
+                unsafe {
+                    compositor
+                        .fb_device_mut()
+                        .resize(width, height, pitch, addr);
+                }
+                compositor.renderer_mut().resize(width, height);
+                compositor.resize(width, height);
+                compositor.clear_fb_dirty();
+                println!("Resized compositor to {}x{}", width, height);
+            }
+        }
+
+        compositor.tick();
+        tick = tick.wrapping_add(1);
+        cooperative_pause();
+    }
+}
+
+#[cfg(feature = "std")]
+fn main() {
+    println!("Host run is not implemented for single_process_desktop");
+}
+
+fn discover_framebuffer() -> Option<FramebufferTarget> {
+    let info = userland::sys::fb_info()?;
+    let addr = userland::sys::fb_map() as *mut u32;
+    Some(FramebufferTarget {
+        info: FramebufferGeometry {
+            width: info.width as u32,
+            height: info.height as u32,
+            pitch: info.pitch as u32,
+            bpp: info.bpp as u16,
+        },
+        addr,
+        len_bytes: (info.pitch as usize) * (info.height as usize),
+    })
+}
+
+fn fallback_framebuffer() -> FramebufferTarget {
+    FramebufferTarget {
+        info: FramebufferGeometry {
+            width: 1024,
+            height: 768,
+            pitch: 1024 * 4,
+            bpp: 32,
+        },
+        addr: unsafe { BACKBUFFER_STORAGE.as_mut_ptr() },
+        len_bytes: 1024 * 768 * 4,
+    }
+}
+
+fn cooperative_pause() {
+    for _ in 0..FRAME_INTERVAL_SPINS {
+        core::hint::spin_loop();
+    }
+}
+
+#[cfg(not(feature = "std"))]
+#[cfg(not(test))]
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    println!("\nPanic inside single_process_desktop: {info}");
+    loop {}
+}

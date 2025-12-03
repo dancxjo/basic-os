@@ -34,9 +34,10 @@ pub unsafe fn init_pic() {
         pic1_data.write(0x01);
         pic2_data.write(0x01);
 
-        // Allow IRQ0 (timer) and IRQ1 (keyboard)
-        pic1_data.write(0b1111_1100);
-        pic2_data.write(0b1111_1111);
+        // Allow IRQ0 (timer), IRQ1 (keyboard), and IRQ2 (cascade)
+        pic1_data.write(0b1111_1000);
+        // Allow IRQ12 (mouse)
+        pic2_data.write(0b1110_1111);
     }
     log::info!("PIC remapped and initialized.");
 }

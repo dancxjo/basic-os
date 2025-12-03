@@ -108,28 +108,15 @@ impl Store {
     }
 
     pub fn poll_watch(&mut self, id: WatchId) -> Option<GraphWatchBatch> {
-        crate::serial_println!("Store::poll_watch: id={}", id);
-        if !self.watches.contains_key(&id) {
-            crate::serial_println!("Store::poll_watch: id={} NOT FOUND", id);
-            return None;
-        }
+        // crate::serial_println!("Store::poll_watch: id={}", id);
         let watch = self.watches.get_mut(&id)?;
         if watch.queue.is_empty() {
             return None;
         }
-
-        let mut changes = Vec::new();
-        let count = watch.queue.len().min(100);
-        for _ in 0..count {
-            changes.push(watch.queue.remove(0));
-        }
-
-        let from_revision = changes.first().map(|c| c.revision()).unwrap_or(0);
-        let latest_revision = changes.last().map(|c| c.revision()).unwrap_or(0);
-
+        let changes = core::mem::take(&mut watch.queue);
         Some(GraphWatchBatch {
-            from_revision,
-            latest_revision,
+            from_revision: 0,
+            latest_revision: self.next_revision,
             changes,
         })
     }

@@ -171,6 +171,14 @@ pub fn register_watch_pattern(owner: BundleId, pattern: NodePattern) -> WatchId 
     with_store(|store| store.register_watch_pattern(owner, pattern))
 }
 
+pub fn find_by_kind(owner: BundleId, kind: &str, cursor: u64) -> (Vec<GraphThing>, u64) {
+    with_store(|store| store.find_by_kind(owner, kind, cursor))
+}
+
+pub fn poll_watch(id: WatchId) -> Option<GraphWatchBatch> {
+    with_store(|store| store.poll_watch(id))
+}
+
 pub fn export_find_by_kind_bytes(owner: BundleId, kind: &str, cursor: u64) -> Option<Vec<u8>> {
     let (things, next_cursor) = with_store(|store| store.find_by_kind(owner, kind, cursor));
 

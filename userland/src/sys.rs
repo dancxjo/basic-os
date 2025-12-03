@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::fmt;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use uuid::Uuid;
 
 /// Raw syscall entry point (rax, rdi, rsi, rdx, r10).
 #[inline(always)]
-#[cfg(target_os = "none")]
+#[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
 pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     let ret: u64;
     core::arch::asm!(
@@ -42,7 +43,7 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     ret
 }
 
-#[cfg(not(target_os = "none"))]
+#[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
 pub unsafe fn syscall(_rax: u64, _rdi: u64, _rsi: u64, _rdx: u64, _r10: u64) -> u64 {
     panic!("syscall not supported on host");
 }
@@ -77,7 +78,7 @@ pub const SYSCALL_LOG: u64 = 0x99;
 
 pub fn get_self() -> Uuid {
     let mut buf = [0u8; 16];
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     unsafe {
         syscall(SYSCALL_GET_SELF, buf.as_mut_ptr() as u64, 0, 0, 0)
     };
@@ -85,11 +86,11 @@ pub fn get_self() -> Uuid {
 }
 
 pub fn spawn(name: &str) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe { syscall(SYSCALL_SPAWN, name.as_ptr() as u64, name.len() as u64, 0, 0) }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         #[cfg(feature = "std")]
         return spawn_host(name);
@@ -189,7 +190,7 @@ pub struct FramebufferInfo {
 }
 
 pub fn fb_info() -> Option<FramebufferInfo> {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let mut info = FramebufferInfo {
             width: 0,
@@ -213,7 +214,7 @@ pub fn fb_info() -> Option<FramebufferInfo> {
             None
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req = thing_abi::AbiRequest::FbInfo;
         match crate::runtime().call(req) {
@@ -230,11 +231,11 @@ pub fn fb_info() -> Option<FramebufferInfo> {
 }
 
 pub fn fb_map() -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe { syscall(SYSCALL_FB_MAP, 0, 0, 0, 0) }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req = thing_abi::AbiRequest::FbMap;
         match crate::runtime().call(req) {
@@ -245,7 +246,7 @@ pub fn fb_map() -> u64 {
 }
 
 pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -257,7 +258,7 @@ pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req: thing_abi::GraphFiatRequest =
             postcard::from_bytes(payload).expect("deserialize fiat");
@@ -275,7 +276,7 @@ pub fn graph_fiat_raw(payload: &[u8]) -> u64 {
 }
 
 pub fn graph_find_by_kind_raw(req: &GraphFindByKind, out: &mut [u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let req_ptr = req as *const _ as u64;
         unsafe {
@@ -288,7 +289,7 @@ pub fn graph_find_by_kind_raw(req: &GraphFindByKind, out: &mut [u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let kind_slice = unsafe {
             core::slice::from_raw_parts(req.kind_ptr as *const u8, req.kind_len as usize)
@@ -309,7 +310,7 @@ pub fn graph_find_by_kind_raw(req: &GraphFindByKind, out: &mut [u8]) -> u64 {
 }
 
 pub fn graph_link_raw(payload: &[u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -321,7 +322,7 @@ pub fn graph_link_raw(payload: &[u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req: thing_abi::GraphLinkRequest =
             postcard::from_bytes(payload).expect("deserialize link");
@@ -340,7 +341,7 @@ pub fn graph_link_raw(payload: &[u8]) -> u64 {
 }
 
 pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -352,7 +353,7 @@ pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req: thing_abi::GraphPropsGetRequest =
             postcard::from_bytes(request).expect("deserialize props get");
@@ -368,7 +369,7 @@ pub fn graph_get_props_raw(request: &[u8], out: &mut [u8]) -> u64 {
 }
 
 pub fn graph_set_props_raw(request: &[u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -380,7 +381,7 @@ pub fn graph_set_props_raw(request: &[u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req: thing_abi::GraphPropsRequest =
             postcard::from_bytes(request).expect("deserialize props set");
@@ -393,7 +394,7 @@ pub fn graph_set_props_raw(request: &[u8]) -> u64 {
 }
 
 pub fn graph_watch_register_raw(payload: &[u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -405,7 +406,7 @@ pub fn graph_watch_register_raw(payload: &[u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let pattern: thing_abi::NodePattern =
             postcard::from_bytes(payload).expect("deserialize watch pattern");
@@ -418,7 +419,7 @@ pub fn graph_watch_register_raw(payload: &[u8]) -> u64 {
 }
 
 pub fn graph_watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -430,7 +431,7 @@ pub fn graph_watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let abi_req = thing_abi::AbiRequest::WatchPoll {
             watch_id,
@@ -447,7 +448,7 @@ pub fn graph_watch_poll_raw(watch_id: u64, out: &mut [u8]) -> u64 {
 }
 
 pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -459,7 +460,7 @@ pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let _ = out;
         // Not implemented on host via this syscall, use DevRead or similar if needed
@@ -468,7 +469,7 @@ pub fn kbd_read_raw(out: &mut [u8]) -> u64 {
 }
 
 pub fn graph_get_raw(request: &[u8], out: &mut [u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -480,7 +481,7 @@ pub fn graph_get_raw(request: &[u8], out: &mut [u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req: thing_abi::GraphGetRequest = postcard::from_bytes(request).unwrap();
         let abi_req = match req {
@@ -505,7 +506,7 @@ pub fn graph_get_raw(request: &[u8], out: &mut [u8]) -> u64 {
 }
 
 pub fn grant_capability_raw(payload: &[u8]) -> u64 {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -517,7 +518,7 @@ pub fn grant_capability_raw(payload: &[u8]) -> u64 {
             )
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req: thing_abi::GrantCapabilityRequest =
             postcard::from_bytes(payload).expect("deserialize grant cap");
@@ -540,7 +541,7 @@ fn serialize_request<T: Serialize>(req: &T) -> Option<Vec<u8>> {
 }
 
 pub fn irq_bind(request: IrqBindRequest) -> Option<u64> {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let payload = serialize_request(&request)?;
         let handle = unsafe {
@@ -554,7 +555,7 @@ pub fn irq_bind(request: IrqBindRequest) -> Option<u64> {
         };
         (handle != !0).then_some(handle)
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req = thing_abi::AbiRequest::IrqBind {
             device: request.device,
@@ -568,11 +569,11 @@ pub fn irq_bind(request: IrqBindRequest) -> Option<u64> {
 }
 
 pub fn irq_ack(handle: u64) -> bool {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe { syscall(SYSCALL_IRQ_ACK, handle, 0, 0, 0) == 0 }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req = thing_abi::AbiRequest::IrqAck { handle };
         match crate::runtime().call(req) {
@@ -583,7 +584,7 @@ pub fn irq_ack(handle: u64) -> bool {
 }
 
 pub fn dma_map(request: DmaMapRequest) -> Option<u64> {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let payload = serialize_request(&request)?;
         let handle = unsafe {
@@ -597,7 +598,7 @@ pub fn dma_map(request: DmaMapRequest) -> Option<u64> {
         };
         (handle != !0).then_some(handle)
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let _ = request;
         None
@@ -605,7 +606,7 @@ pub fn dma_map(request: DmaMapRequest) -> Option<u64> {
 }
 
 pub fn dma_submit(request: DmaSubmitRequest) -> Option<u64> {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let payload = serialize_request(&request)?;
         let handle = unsafe {
@@ -619,7 +620,7 @@ pub fn dma_submit(request: DmaSubmitRequest) -> Option<u64> {
         };
         (handle != !0).then_some(handle)
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let _ = request;
         None
@@ -627,7 +628,7 @@ pub fn dma_submit(request: DmaSubmitRequest) -> Option<u64> {
 }
 
 pub fn dma_wait(request: DmaWaitRequest) -> bool {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let Some(payload) = serialize_request(&request) else {
             return false;
@@ -642,7 +643,7 @@ pub fn dma_wait(request: DmaWaitRequest) -> bool {
             ) == 0
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let _ = request;
         false
@@ -650,14 +651,14 @@ pub fn dma_wait(request: DmaWaitRequest) -> bool {
 }
 
 pub fn log(s: &str) {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe { syscall(SYSCALL_LOG, s.as_ptr() as u64, s.len() as u64, 0, 0) };
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         // On host, print to stderr
-        eprint!("{}", s);
+        // eprint!("{}", s);
     }
 }
 
@@ -671,7 +672,7 @@ pub const DEVICE_KIND_FRAMEBUFFER: u32 = 3;
 pub const DEVICE_KIND_SERIAL: u32 = 4;
 
 pub fn dev_open(kind: u32, index: usize) -> Option<u64> {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let ret = unsafe { syscall(SYSCALL_DEV_OPEN, kind as u64, index as u64, 0, 0) };
         if ret == !0 {
@@ -680,7 +681,7 @@ pub fn dev_open(kind: u32, index: usize) -> Option<u64> {
             Some(ret)
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req = thing_abi::AbiRequest::DevOpen { kind, index };
         match crate::runtime().call(req) {
@@ -691,7 +692,7 @@ pub fn dev_open(kind: u32, index: usize) -> Option<u64> {
 }
 
 pub fn dev_read(handle: u64, buf: &mut [u8]) -> usize {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -703,7 +704,7 @@ pub fn dev_read(handle: u64, buf: &mut [u8]) -> usize {
             ) as usize
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req = thing_abi::AbiRequest::DevRead {
             handle,
@@ -721,7 +722,7 @@ pub fn dev_read(handle: u64, buf: &mut [u8]) -> usize {
 }
 
 pub fn dev_write(handle: u64, buf: &[u8]) -> usize {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         unsafe {
             syscall(
@@ -733,7 +734,7 @@ pub fn dev_write(handle: u64, buf: &[u8]) -> usize {
             ) as usize
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let req = thing_abi::AbiRequest::DevWrite {
             handle,
@@ -747,7 +748,7 @@ pub fn dev_write(handle: u64, buf: &[u8]) -> usize {
 }
 
 pub fn dev_map(handle: u64) -> Option<u64> {
-    #[cfg(target_os = "none")]
+    #[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
     {
         let ret = unsafe { syscall(SYSCALL_DEV_MAP, handle, 0, 0, 0) };
         if ret == 0 {
@@ -756,7 +757,7 @@ pub fn dev_map(handle: u64) -> Option<u64> {
             Some(ret)
         }
     }
-    #[cfg(not(target_os = "none"))]
+    #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         let _ = handle;
         None

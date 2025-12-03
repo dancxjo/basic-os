@@ -93,7 +93,7 @@ impl AppState {
 }
 
 pub struct AppContext<'a> {
-    state: &'a mut AppState,
+    pub state: &'a mut AppState,
     pub watch_manager: &'a mut WatchManager,
 }
 
@@ -266,7 +266,11 @@ pub fn create_app<A: App + 'static>(compositor: Uuid, watch_manager: &mut WatchM
 #[macro_export]
 macro_rules! app_main {
     ($app_ty:ty) => {
-        #[cfg(not(feature = "std"))]
+        #[cfg(all(
+            not(feature = "std"),
+            not(feature = "kernel_hosted"),
+            not(feature = "disable_panic_handler")
+        ))]
         #[no_mangle]
         pub extern "C" fn _start() -> ! {
             $crate::init_heap();
@@ -292,7 +296,11 @@ macro_rules! app_main {
             }
         }
 
-        #[cfg(not(feature = "std"))]
+        #[cfg(all(
+            not(feature = "std"),
+            not(feature = "kernel_hosted"),
+            not(feature = "disable_panic_handler")
+        ))]
         #[panic_handler]
         fn panic(info: &core::panic::PanicInfo) -> ! {
             $crate::println!("App Panic: {}", info);

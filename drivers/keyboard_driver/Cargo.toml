@@ -13,6 +13,7 @@ uuid = { version = "=1.10", default-features = false, features = [
 [features]
 default = []
 std = ["userland/std"]
+disable_panic_handler = []
 
 [[bin]]
 name = "keyboard_driver"

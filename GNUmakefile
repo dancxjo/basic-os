@@ -269,6 +269,7 @@ ifeq ($(MODE),native)
 	cd apps/demo_app && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 	cd apps/graph_viewer && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 	cd apps/text_editor && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
+	cd apps/single_process_desktop && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 	cd apps/init && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 	cd apps/rootfs && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
 	cd apps/launcher && RUSTFLAGS="-C link-arg=-T$(CURDIR)/userland/linker.ld -C relocation-model=static -C code-model=large -C target-cpu=x86-64" cargo build --release --target x86_64-unknown-none
@@ -332,6 +333,7 @@ $(IMAGE_NAME).iso: limine/limine kernel userland
 	cp -v target/$(RUST_TARGET)/release/self_editing_demo iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/graph_viewer iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/text_editor iso_root/boot/
+	cp -v target/$(RUST_TARGET)/release/single_process_desktop iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/widget_host iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/keyboard_driver iso_root/boot/
 	cp -v target/$(RUST_TARGET)/release/mouse_driver iso_root/boot/

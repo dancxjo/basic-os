@@ -98,11 +98,13 @@ timeout 300 make run
 The kernel crate uses Cargo features to toggle increasingly experimental functionality:
 
 - `kernel_multitask`: enable the preemptive scheduler, timer-driven context switches, and multi-bundle boot.
+- `single_process_desktop`: launch the compositor plus userland drivers inside a single cooperative task (disables multitasking).
 - `mm_advanced`: enable the experimental pool-based memory manager and page-table allocator.
 
 Recommended builds:
 
 - Safe baseline (single task, simple allocator): `cargo build -p kernel`
+- Cooperative desktop bring-up: `cargo build -p kernel --features single_process_desktop`
 - Debug multitasking (simple allocator): `cargo build -p kernel --features kernel_multitask`
 - Debug advanced MM (single task): `cargo build -p kernel --features mm_advanced`
 - Full experimental stack: `cargo build -p kernel --features "kernel_multitask,mm_advanced"`

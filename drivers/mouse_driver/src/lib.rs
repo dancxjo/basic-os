@@ -98,8 +98,10 @@ static mut MOUSE_DECODER: PacketDecoder = PacketDecoder::new();
 
 impl MouseDriver {
     fn handle_byte(&self, byte: u8) {
+        // println!("Mouse byte: {:02x}", byte);
         let event = unsafe { MOUSE_DECODER.feed(byte) };
         if let Some(event) = event {
+            println!("Mouse event: {:?}", event);
             self.emit_mouse_event(event);
         }
     }

@@ -1,0 +1,30 @@
+[package]
+name = "single_process_desktop"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+compositor = { path = "../../compositor" }
+app-mouse-driver = { path = "../../drivers/mouse_driver", features = [
+    "disable_panic_handler",
+] }
+app-keyboard-driver = { path = "../../drivers/keyboard_driver", features = [
+    "disable_panic_handler",
+] }
+app-framebuffer-driver = { path = "../../drivers/framebuffer_driver", features = [
+    "disable_panic_handler",
+] }
+text_editor = { path = "../text_editor" }
+widget_host = { path = "../../widgets/host" }
+
+[features]
+default = []
+std = ["userland/std", "compositor/std", "text_editor/std", "widget_host/std"]
+
+[[bin]]
+name = "single_process_desktop"
+path = "src/main.rs"
+
+[profile.release]
+panic = "abort"

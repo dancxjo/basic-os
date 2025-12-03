@@ -16,6 +16,8 @@ thing_host = { path = "../thing_host", optional = true }
 
 [features]
 std = ["serde/std", "thing_host"]
+kernel_hosted = []
+disable_panic_handler = []
 
 [profile.release]
 panic = "abort"

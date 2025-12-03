@@ -21,6 +21,7 @@ use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 use crate::task::launcher;
 use crate::task::runtime;
 use alloc::boxed::Box;
+use alloc::format;
 use alloc::sync::Arc;
 use spin::Mutex as SpinMutex;
 #[cfg(not(feature = "kernel_multitask"))]
@@ -42,10 +43,8 @@ impl System {
     pub fn boot() -> Self {
         info!("Ready? Set? Go!");
 
-        let (mut mapper, mut frame_allocator) = init_memory_and_heap();
-        init_graph_and_syscalls();
-        init_interrupts_and_idt();
-        let framebuffer = init_framebuffer_and_devices();
+        let (mut mapper, mut frame_allocator) = init_kernel_core();
+        let framebuffer = init_drivers();
         let _clock = init_clock();
         info!("ThingOS initialized.");
         #[cfg(feature = "kernel_multitask")]
@@ -115,6 +114,13 @@ pub extern "C" fn task_entry_trampoline() {
     );
 }
 
+fn init_kernel_core() -> (OffsetPageTable<'static>, BootFrameAllocator) {
+    let (mapper, frame_allocator) = init_memory_and_heap();
+    init_graph_and_syscalls();
+    init_interrupts_and_idt();
+    (mapper, frame_allocator)
+}
+
 fn init_memory_and_heap() -> (OffsetPageTable<'static>, BootFrameAllocator) {
     let mut mapper = bootstrap_step!("paging", {
         let physical_memory_offset = get_hhdm_offset();
@@ -164,14 +170,16 @@ fn init_interrupts_and_idt() {
     });
 }
 
-fn init_framebuffer_and_devices() -> Arc<SpinMutex<Framebuffer>> {
-    let framebuffer = bootstrap_step!("framebuffer", {
+fn init_drivers() -> Arc<SpinMutex<Framebuffer>> {
+    info!("[INFO] Starting driver bring-up (framebuffer -> keyboard -> mouse)...");
+    let framebuffer = bootstrap_step!("framebuffer driver", {
         let fb = Arc::new(SpinMutex::new(
             Framebuffer::new().expect("Framebuffer not available"),
         ));
         register_framebuffer_device(fb.clone());
         fb
     });
+    info!("[INFO] Framebuffer driver initialized; framebuffer mapped for userland.");
 
     let _mouse = bootstrap_step!("PS/2 devices", {
         ps2::enable_ps2_devices();
@@ -184,12 +192,14 @@ fn init_framebuffer_and_devices() -> Arc<SpinMutex<Framebuffer>> {
     bootstrap_step!("keyboard driver", {
         keyboard::init();
     });
+    info!("[INFO] Keyboard driver initialized (raw scancodes buffered).");
 
     bootstrap_step!("mouse driver", {
         if let Err(err) = mouse::init() {
             info!("Mouse driver init failed: {}", err);
         }
     });
+    info!("[INFO] Mouse driver initialized (raw packets buffered).");
 
     framebuffer
 }
@@ -222,14 +232,17 @@ fn init_user_tasks(
 }
 
 #[cfg(not(feature = "kernel_multitask"))]
-fn run_single_task_self_editing_demo() -> ! {
+fn run_single_user_module(module_name: &str, description: &str) -> ! {
     use x86_64::instructions::hlt;
 
-    info!("Single-task mode: launching /boot/self_editing_demo");
+    info!(
+        "Single-task mode: launching {} ({})",
+        module_name, description
+    );
 
-    let module_bytes = get_module("self_editing_demo")
-        .or_else(|| get_module("/boot/self_editing_demo"))
-        .expect("self_editing_demo not found");
+    let module_bytes = get_module(module_name)
+        .or_else(|| get_module(&format!("/boot/{module_name}")))
+        .unwrap_or_else(|| panic!("{} not found", module_name));
 
     let (l4_phys, loaded) = {
         let runtime_system = runtime::system();
@@ -244,7 +257,7 @@ fn run_single_task_self_editing_demo() -> ! {
             &mut user_mapper,
             &mut *frame_allocator,
         )
-        .expect("Failed to load self_editing_demo ELF");
+        .unwrap_or_else(|_| panic!("Failed to load {} ELF", module_name));
         let l4_phys = PhysFrame::containing_address(PhysAddr::new(
             l4_table as *const _ as u64 - get_hhdm_offset().as_u64(),
         ));
@@ -253,9 +266,10 @@ fn run_single_task_self_editing_demo() -> ! {
     };
 
     info!(
-        "self_editing_demo entry prepared: rip={:#x}, stack_top={:#x}, cr3={:#x}",
-        loaded.entry,
-        loaded.stack_top,
+        "{} entry prepared: rip={:#x}, stack_top={:#x}, cr3={:#x}",
+        module_name,
+        loaded.entry.as_u64(),
+        loaded.stack_top.as_u64(),
         l4_phys.start_address().as_u64()
     );
 
@@ -263,8 +277,118 @@ fn run_single_task_self_editing_demo() -> ! {
         jump_to_user(loaded.entry, loaded.stack_top, l4_phys);
     }
 
-    info!("self_editing_demo returned; halting.");
+    info!("{} returned; halting.", module_name);
     loop {
+        hlt();
+    }
+}
+
+#[cfg(not(feature = "kernel_multitask"))]
+fn run_single_task_self_editing_demo() -> ! {
+    run_single_user_module("self_editing_demo", "legacy self-editing demo")
+}
+
+#[cfg(feature = "single_process_desktop")]
+fn run_single_process_desktop() -> ! {
+    use crate::system::direct_runtime::DirectKernelRuntime;
+    use app_keyboard_driver::KeyboardDriver;
+    use app_mouse_driver::MouseDriver;
+    use compositor::{BitmapFramebufferDevice, BitmapRenderer, Compositor};
+    use userland::app::{App, AppContext, AppState};
+    use userland::watch::WatchManager;
+    use x86_64::instructions::hlt;
+
+    info!("Starting single-process desktop...");
+
+    // Set runtime
+    static RUNTIME: DirectKernelRuntime = DirectKernelRuntime;
+    userland::set_runtime(&RUNTIME);
+
+    let mut watch_manager = WatchManager::new();
+    let compositor_app_id = watch_manager.register_app();
+    let mouse_app_id = watch_manager.register_app();
+    let kbd_app_id = watch_manager.register_app();
+
+    // Init Compositor
+    let fb_info = crate::drivers::framebuffer::get_framebuffer_info().expect("No framebuffer");
+    let fb_device = unsafe {
+        BitmapFramebufferDevice::new(
+            fb_info.width as usize,
+            fb_info.height as usize,
+            fb_info.pitch as usize,
+            fb_info.addr as *mut u32,
+        )
+    };
+    let renderer = BitmapRenderer::new(fb_info.width as usize, fb_info.height as usize);
+    let mut compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
+        &mut watch_manager,
+        compositor_app_id,
+        fb_device,
+        renderer,
+    );
+
+    // Init Drivers
+    let compositor_uuid = uuid::Uuid::nil();
+
+    let mut mouse_state = AppState::new(compositor_uuid, mouse_app_id);
+    let mut mouse_ctx = AppContext {
+        state: &mut mouse_state,
+        watch_manager: &mut watch_manager,
+    };
+    let mut mouse_driver = MouseDriver::init(&mut mouse_ctx);
+
+    let mut kbd_state = AppState::new(compositor_uuid, kbd_app_id);
+    let mut kbd_ctx = AppContext {
+        state: &mut kbd_state,
+        watch_manager: &mut watch_manager,
+    };
+    let mut kbd_driver = KeyboardDriver::init(&mut kbd_ctx);
+
+    info!("Drivers and Compositor initialized. Entering cooperative loop.");
+
+    let mut tick: u64 = 0;
+    loop {
+        // Tick drivers
+        {
+            let mut mouse_ctx = AppContext {
+                state: &mut mouse_state,
+                watch_manager: &mut watch_manager,
+            };
+            mouse_driver.tick(&mut mouse_ctx, tick);
+        }
+        {
+            let mut kbd_ctx = AppContext {
+                state: &mut kbd_state,
+                watch_manager: &mut watch_manager,
+            };
+            kbd_driver.tick(&mut kbd_ctx, tick);
+        }
+
+        // Process graph
+        watch_manager.process_graph(&[mouse_app_id, kbd_app_id, compositor_app_id]);
+
+        // Deliver events
+        for ev in watch_manager.drain_inbox(mouse_app_id) {
+            let mut mouse_ctx = AppContext {
+                state: &mut mouse_state,
+                watch_manager: &mut watch_manager,
+            };
+            mouse_driver.on_event(&mut mouse_ctx, ev);
+        }
+        for ev in watch_manager.drain_inbox(kbd_app_id) {
+            let mut kbd_ctx = AppContext {
+                state: &mut kbd_state,
+                watch_manager: &mut watch_manager,
+            };
+            kbd_driver.on_event(&mut kbd_ctx, ev);
+        }
+        for ev in watch_manager.drain_inbox(compositor_app_id) {
+            compositor.on_event(&ev);
+        }
+
+        compositor.tick();
+        tick = tick.wrapping_add(1);
+
         hlt();
     }
 }
@@ -274,7 +398,16 @@ fn run_system() -> ! {
     runtime::start()
 }
 
-#[cfg(not(feature = "kernel_multitask"))]
+#[cfg(all(feature = "single_process_desktop", not(feature = "kernel_multitask")))]
+fn run_system() -> ! {
+    info!("single_process_desktop enabled; skipping scheduler for cooperative loop.");
+    run_single_process_desktop()
+}
+
+#[cfg(all(
+    not(feature = "single_process_desktop"),
+    not(feature = "kernel_multitask")
+))]
 fn run_system() -> ! {
     run_single_task_self_editing_demo()
 }

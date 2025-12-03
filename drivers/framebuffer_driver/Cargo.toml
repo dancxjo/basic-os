@@ -15,6 +15,7 @@ serde = { workspace = true }
 [features]
 default = []
 std = ["userland/std"]
+disable_panic_handler = []
 
 [[bin]]
 name = "framebuffer_driver"
