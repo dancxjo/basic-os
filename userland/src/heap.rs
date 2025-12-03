@@ -1,17 +1,37 @@
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 use core::alloc::{GlobalAlloc, Layout};
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 use linked_list_allocator::LockedHeap;
 
 #[cfg(test)]
 extern crate std;
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 struct SafeHeap {
     inner: LockedHeap,
 }
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 impl SafeHeap {
     pub const fn new() -> Self {
         Self {
@@ -20,7 +40,12 @@ impl SafeHeap {
     }
 }
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 unsafe impl GlobalAlloc for SafeHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut heap = self.inner.lock();
@@ -35,7 +60,12 @@ unsafe impl GlobalAlloc for SafeHeap {
     }
 }
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 #[global_allocator]
 static ALLOCATOR: SafeHeap = SafeHeap::new();
 
@@ -43,14 +73,29 @@ static ALLOCATOR: SafeHeap = SafeHeap::new();
 #[global_allocator]
 static ALLOCATOR: std::alloc::System = std::alloc::System;
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 #[repr(C, align(4096))]
 struct HeapBuffer([u8; 32 * 1024 * 1024]);
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 static mut HEAP_SPACE: HeapBuffer = HeapBuffer([0; 32 * 1024 * 1024]);
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 pub fn init_heap() {
     unsafe {
         let start = HEAP_SPACE.0.as_mut_ptr();
@@ -60,10 +105,20 @@ pub fn init_heap() {
     }
 }
 
-#[cfg(any(test, feature = "std", feature = "kernel_hosted"))]
+#[cfg(any(
+    test,
+    feature = "std",
+    feature = "kernel_hosted",
+    feature = "kernel_standalone"
+))]
 pub fn init_heap() {}
 
-#[cfg(all(not(test), not(feature = "std"), not(feature = "kernel_hosted")))]
+#[cfg(all(
+    not(test),
+    not(feature = "std"),
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 #[alloc_error_handler]
 fn alloc_error_handler(layout: Layout) -> ! {
     crate::println!("ALLOCATION FAILED: layout={:?}", layout);

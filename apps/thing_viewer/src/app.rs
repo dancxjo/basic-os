@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use userland::prelude::*;
 use userland::{canon, AppEvent, NodePattern};
 
-pub struct GraphViewerApp {
+pub struct ThingViewerApp {
     window: WindowHandle,
 }
 
@@ -24,10 +24,10 @@ struct DocumentInfo {
     dirty: bool,
 }
 
-impl App for GraphViewerApp {
+impl App for ThingViewerApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
-        let window = ctx.create_window("Graph Inspector");
-        GraphViewerApp { window }
+        let window = ctx.create_window("Thing Viewer");
+        ThingViewerApp { window }
     }
 
     fn on_event(&mut self, _ctx: &mut AppContext<'_>, _ev: AppEvent) {
@@ -38,10 +38,7 @@ impl App for GraphViewerApp {
         ctx.clear_window(&self.window);
 
         // Header
-        ctx.draw_text(
-            &self.window,
-            format_args!("Graph Inspector (read-only)\n\n"),
-        );
+        ctx.draw_text(&self.window, format_args!("Thing Viewer (read-only)\n\n"));
 
         // Bundles
         let bundles = self.list_bundles_from_graph();
@@ -106,7 +103,7 @@ impl App for GraphViewerApp {
     }
 }
 
-impl GraphViewerApp {
+impl ThingViewerApp {
     fn list_bundles_from_graph(&self) -> Vec<BundleInfo> {
         let mut pattern = NodePattern::default();
         pattern.labels.push(canon::PACKAGE);

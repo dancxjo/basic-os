@@ -7,7 +7,11 @@ use uuid::Uuid;
 
 /// Raw syscall entry point (rax, rdi, rsi, rdx, r10).
 #[inline(always)]
-#[cfg(all(target_os = "none", not(feature = "kernel_hosted")))]
+#[cfg(all(
+    target_os = "none",
+    not(feature = "kernel_hosted"),
+    not(feature = "kernel_standalone")
+))]
 pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
     let ret: u64;
     core::arch::asm!(
@@ -41,6 +45,18 @@ pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
         options(nostack)
     );
     ret
+}
+
+#[cfg(feature = "kernel_standalone")]
+pub static mut SYSCALL_HANDLER: Option<unsafe fn(u64, u64, u64, u64, u64) -> u64> = None;
+
+#[cfg(feature = "kernel_standalone")]
+pub unsafe fn syscall(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) -> u64 {
+    if let Some(handler) = SYSCALL_HANDLER {
+        handler(rax, rdi, rsi, rdx, r10)
+    } else {
+        panic!("Syscall handler not set in kernel_standalone mode");
+    }
 }
 
 #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]

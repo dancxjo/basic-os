@@ -213,14 +213,16 @@ dependencies = [
  "app-mouse-driver",
  "demo_app",
  "flate2",
- "graph_viewer",
  "init",
  "launcher",
  "rootfs",
  "self_editing_demo",
  "serde",
  "serde_json",
+ "spin 0.9.8",
  "text_editor",
+ "thing_abi",
+ "thing_viewer",
  "tiny_http",
  "tungstenite",
  "unifont",
@@ -228,6 +230,7 @@ dependencies = [
  "uuid",
  "widget_button",
  "widget_host",
+ "x86_64 0.14.13",
 ]
 
 [[package]]
@@ -548,14 +551,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graph_viewer"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
 name = "hash32"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -754,8 +749,6 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "app-keyboard-driver",
- "app-mouse-driver",
  "cc",
  "compositor",
  "embedded-graphics",
@@ -776,7 +769,6 @@ dependencies = [
  "spinning_top 0.3.0",
  "thing_abi",
  "thingos_kernel_std",
- "userland",
  "uuid",
  "x86_64 0.14.13",
 ]
@@ -1449,19 +1441,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 
 [[package]]
-name = "single_process_desktop"
-version = "0.1.0"
-dependencies = [
- "app-framebuffer-driver",
- "app-keyboard-driver",
- "app-mouse-driver",
- "compositor",
- "text_editor",
- "userland",
- "widget_host",
-]
-
-[[package]]
 name = "siphasher"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1603,6 +1582,14 @@ dependencies = [
  "serde_json",
  "thing_abi",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "thing_viewer"
+version = "0.1.0"
+dependencies = [
+ "userland",
  "uuid",
 ]
 

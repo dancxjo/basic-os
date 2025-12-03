@@ -31,8 +31,8 @@ pub static APPS: &[AppSpec] = &[
         show_in_launcher: true,
     },
     AppSpec {
-        name: "graph_viewer",
-        bin_name: "graph_viewer",
+        name: "thing_viewer",
+        bin_name: "thing_viewer",
         autostart: true,
         show_in_launcher: true,
     },

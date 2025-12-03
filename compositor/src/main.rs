@@ -155,8 +155,8 @@ fn main() {
         userland::app::run_app::<app_framebuffer_driver::FramebufferDriver>,
     );
     userland::sys::register_host_app(
-        "graph_viewer",
-        userland::app::run_app::<graph_viewer::GraphViewerApp>,
+        "thing_viewer",
+        userland::app::run_app::<thing_viewer::ThingViewerApp>,
     );
     userland::sys::register_host_app(
         "text_editor",

@@ -1,7 +1,5 @@
-pub mod panic;
-
-#[cfg(feature = "single_process_desktop")]
 pub mod direct_runtime;
+pub mod panic;
 
 mod system;
 

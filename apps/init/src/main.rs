@@ -4,7 +4,7 @@
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     userland::ensure_kernel_runtime();
-    init::app_main()
+    userland::app_main!(init::InitApp);
 }
 
 #[panic_handler]

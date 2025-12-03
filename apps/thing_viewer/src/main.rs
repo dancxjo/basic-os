@@ -3,6 +3,6 @@
 
 extern crate alloc;
 
-use graph_viewer::GraphViewerApp;
+use thing_viewer::ThingViewerApp;
 
-userland::app_main!(GraphViewerApp);
+userland::app_main!(ThingViewerApp);

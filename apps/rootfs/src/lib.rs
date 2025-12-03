@@ -16,6 +16,16 @@ const NOTO_SANS_SYMBOLS_2: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/NotoSansSymbols2-Regular.ttf"));
 
 pub fn app_main() -> ! {
+    init();
+    userland::println!("RootFS initialization complete. Entering idle loop.");
+
+    // Just sleep/idle
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+pub fn init() {
     userland::println!("RootFS service started.");
 
     // Create root directory "/"
@@ -61,13 +71,6 @@ pub fn app_main() -> ! {
 
     // Populate /dev
     create_device("tty0", dev_id);
-
-    userland::println!("RootFS initialization complete. Entering idle loop.");
-
-    // Just sleep/idle
-    loop {
-        core::hint::spin_loop();
-    }
 }
 
 fn create_directory(name: &str, parent: Option<Uuid>) -> Uuid {

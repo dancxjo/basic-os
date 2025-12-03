@@ -11,6 +11,7 @@ uuid = { version = "1.10.0", default-features = false, features = ["v5"] }
 [features]
 default = []
 std = ["userland/std"]
+disable_panic_handler = []
 
 [[bin]]
 name = "launcher"

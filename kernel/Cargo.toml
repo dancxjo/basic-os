@@ -37,32 +37,19 @@ uuid = { version = "=1.10", default-features = false, features = [
 ] }
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 thing_abi = { path = "../thing_abi" }
-compositor = { path = "../compositor", default-features = false, optional = true }
-userland = { path = "../userland", default-features = false, features = [
-    "kernel_hosted",
-    "disable_panic_handler",
-], optional = true }
-app-mouse-driver = { path = "../drivers/mouse_driver", default-features = false, features = [
-    "disable_panic_handler",
-], optional = true }
-app-keyboard-driver = { path = "../drivers/keyboard_driver", default-features = false, features = [
-    "disable_panic_handler",
-], optional = true }
+compositor = { path = "../compositor", optional = true, default-features = false, features = [
+    "kernel_standalone",
+] }
 
 [features]
 # Default: simplest, safest mode
-default = ["single_process_desktop"]
+default = ["standalone_compositor"]
+
+# Enable standalone compositor (cooperative single-process mode)
+standalone_compositor = ["compositor"]
 
 # Enable preemptive multitasking: scheduler, timer-driven context switching, user tasks
 kernel_multitask = []
-
-# Enable single-process desktop mode (cooperative multitasking)
-single_process_desktop = [
-    "compositor",
-    "userland",
-    "app-mouse-driver",
-    "app-keyboard-driver",
-]
 
 # Enable advanced MM: pools, page-table region, etc.
 mm_advanced = []

@@ -4,4 +4,4 @@ extern crate alloc;
 
 pub mod app;
 
-pub use app::GraphViewerApp;
+pub use app::ThingViewerApp;

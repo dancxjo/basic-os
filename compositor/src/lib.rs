@@ -4207,3 +4207,196 @@ mod tests {
         assert_eq!(CLEAR_COLOR.to_u32(), 0xff000000);
     }
 }
+
+#[cfg(feature = "kernel_standalone")]
+pub trait RunnableApp {
+    fn tick(&mut self, ctx: &mut userland::app::AppContext<'_>, tick: u64);
+    fn on_event(&mut self, ctx: &mut userland::app::AppContext<'_>, ev: userland::AppEvent);
+}
+
+#[cfg(feature = "kernel_standalone")]
+impl<T: userland::app::App> RunnableApp for T {
+    fn tick(&mut self, ctx: &mut userland::app::AppContext<'_>, tick: u64) {
+        self.tick(ctx, tick)
+    }
+    fn on_event(&mut self, ctx: &mut userland::app::AppContext<'_>, ev: userland::AppEvent) {
+        self.on_event(ctx, ev)
+    }
+}
+
+#[cfg(feature = "kernel_standalone")]
+struct RunningAppInstance {
+    app: alloc::boxed::Box<dyn RunnableApp>,
+    state: userland::app::AppState,
+    app_id: usize,
+}
+
+#[cfg(feature = "kernel_standalone")]
+static PENDING_SPAWNS: spin::Mutex<Vec<String>> = spin::Mutex::new(Vec::new());
+
+#[cfg(feature = "kernel_standalone")]
+pub fn request_spawn(name: &str) {
+    PENDING_SPAWNS.lock().push(name.to_string());
+}
+
+#[cfg(feature = "kernel_standalone")]
+pub fn run_standalone(
+    fb_width: usize,
+    fb_height: usize,
+    fb_pitch: usize,
+    fb_addr: *mut u32,
+    runtime: alloc::boxed::Box<dyn thing_abi::ThingRuntime>,
+    syscall_handler: unsafe fn(u64, u64, u64, u64, u64) -> u64,
+) -> ! {
+    use app_framebuffer_driver::FramebufferDriver;
+    use app_keyboard_driver::KeyboardDriver;
+    use app_mouse_driver::MouseDriver;
+    use userland::app::{App, AppContext, AppState};
+    use userland::watch::WatchManager;
+    use x86_64::instructions::hlt;
+
+    println!("Starting standalone compositor...");
+
+    unsafe {
+        userland::sys::SYSCALL_HANDLER = Some(syscall_handler);
+    }
+    userland::set_runtime(alloc::boxed::Box::leak(runtime));
+
+    // Init RootFS
+    rootfs::init();
+
+    let mut watch_manager = WatchManager::new();
+    let compositor_app_id = watch_manager.register_app();
+
+    // Init Compositor
+    let fb_device = unsafe { BitmapFramebufferDevice::new(fb_width, fb_height, fb_pitch, fb_addr) };
+    let renderer = BitmapRenderer::new(fb_width, fb_height);
+    let mut compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
+        &mut watch_manager,
+        compositor_app_id,
+        fb_device,
+        renderer,
+    );
+
+    let mut running_apps: Vec<RunningAppInstance> = Vec::new();
+
+    // Initial spawn: init
+    request_spawn("init");
+
+    println!("Compositor initialized. Entering cooperative loop.");
+
+    let mut tick: u64 = 0;
+    loop {
+        // Process pending spawns
+        let pending: Vec<String> = {
+            let mut lock = PENDING_SPAWNS.lock();
+            let p = lock.clone();
+            lock.clear();
+            p
+        };
+
+        for name in pending {
+            println!("Spawning app: {}", name);
+            let app_id = watch_manager.register_app();
+            let compositor_uuid = Uuid::nil();
+            let mut state = AppState::new(compositor_uuid, app_id);
+            let mut ctx = AppContext {
+                state: &mut state,
+                watch_manager: &mut watch_manager,
+            };
+
+            let app: Option<alloc::boxed::Box<dyn RunnableApp>> = match name.as_str() {
+                "init" => Some(alloc::boxed::Box::new(init::InitApp::init(&mut ctx))),
+                "mouse_driver" => Some(alloc::boxed::Box::new(MouseDriver::init(&mut ctx))),
+                "keyboard_driver" => Some(alloc::boxed::Box::new(KeyboardDriver::init(&mut ctx))),
+                "framebuffer_driver" => Some(alloc::boxed::Box::new(FramebufferDriver::init(&mut ctx))),
+                "launcher" => Some(alloc::boxed::Box::new(launcher::LauncherApp::init(&mut ctx))),
+                "rootfs" => {
+                    println!("rootfs already initialized.");
+                    None
+                }
+                "text_editor" => {
+                     #[cfg(feature = "text_editor")]
+                     {
+                         Some(alloc::boxed::Box::new(text_editor::TextEditorApp::init(&mut ctx)))
+                     }
+                     #[cfg(not(feature = "text_editor"))]
+                     {
+                         println!("text_editor not enabled");
+                         None
+                     }
+                }
+                "demo_app" => {
+                     #[cfg(feature = "demo_app")]
+                     {
+                         Some(alloc::boxed::Box::new(demo_app::DemoApp::init(&mut ctx)))
+                     }
+                     #[cfg(not(feature = "demo_app"))]
+                     {
+                         println!("demo_app not enabled");
+                         None
+                     }
+                }
+                "thing_viewer" => {
+                     #[cfg(feature = "thing_viewer")]
+                     {
+                         Some(alloc::boxed::Box::new(thing_viewer::ThingViewerApp::init(&mut ctx)))
+                     }
+                     #[cfg(not(feature = "thing_viewer"))]
+                     {
+                         println!("thing_viewer not enabled");
+                         None
+                     }
+                }
+                _ => {
+                    println!("Unknown app: {}", name);
+                    None
+                }
+            };
+
+            if let Some(app) = app {
+                running_apps.push(RunningAppInstance {
+                    app,
+                    state,
+                    app_id,
+                });
+            }
+        }
+
+        // Tick apps
+        for instance in &mut running_apps {
+            let mut ctx = AppContext {
+                state: &mut instance.state,
+                watch_manager: &mut watch_manager,
+            };
+            instance.app.tick(&mut ctx, tick);
+        }
+
+        // Process graph
+        let mut app_ids = vec![compositor_app_id];
+        for instance in &running_apps {
+            app_ids.push(instance.app_id);
+        }
+        watch_manager.process_graph(&app_ids);
+
+        // Deliver events
+        for instance in &mut running_apps {
+            for ev in watch_manager.drain_inbox(instance.app_id) {
+                let mut ctx = AppContext {
+                    state: &mut instance.state,
+                    watch_manager: &mut watch_manager,
+                };
+                instance.app.on_event(&mut ctx, ev);
+            }
+        }
+
+        for ev in watch_manager.drain_inbox(compositor_app_id) {
+            compositor.on_event(&ev);
+        }
+
+        compositor.tick();
+        tick = tick.wrapping_add(1);
+
+        hlt();
+    }
+}

@@ -4,11 +4,11 @@
 pub mod canon;
 pub mod journal;
 
-mod api;
+pub mod api;
 mod bundle;
 mod events;
-mod store;
-mod types;
+pub mod store;
+pub mod types;
 
 pub use api::*;
 #[allow(unused_imports)]

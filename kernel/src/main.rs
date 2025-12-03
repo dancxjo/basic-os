@@ -19,11 +19,10 @@ mod system;
 mod task;
 pub mod trace;
 
-#[cfg(all(feature = "kernel_multitask", feature = "single_process_desktop"))]
-compile_error!("single_process_desktop cannot be combined with kernel_multitask");
-
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
+    drivers::serial::SERIAL1.lock().init();
+    unsafe { drivers::serial::raw_write(b"Kernel started!\r\n") };
     init_logger();
     init_and_run_system();
 }

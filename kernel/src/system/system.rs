@@ -12,9 +12,10 @@ use crate::bootloader::get_hhdm_offset;
 use crate::bootloader::get_module;
 use crate::bootstrap_step;
 use crate::clock::{Clock, HPET, RTC};
-use crate::drivers::framebuffer::{Framebuffer, register_framebuffer_device};
+use crate::drivers::framebuffer::{Framebuffer, get_framebuffer_info, register_framebuffer_device};
 use crate::drivers::{keyboard, mouse, serial};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging, prime_allocator_sanity};
+use crate::system::direct_runtime::{KernelDirectRuntime, syscall_handler};
 #[cfg(not(feature = "kernel_multitask"))]
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 #[cfg(feature = "kernel_multitask")]
@@ -283,114 +284,19 @@ fn run_single_user_module(module_name: &str, description: &str) -> ! {
     }
 }
 
-#[cfg(not(feature = "kernel_multitask"))]
-fn run_single_task_self_editing_demo() -> ! {
-    run_single_user_module("self_editing_demo", "legacy self-editing demo")
-}
+#[cfg(feature = "standalone_compositor")]
+fn run_standalone_compositor() -> ! {
+    let info = get_framebuffer_info().expect("Framebuffer info not available");
+    let width = info.width as usize;
+    let height = info.height as usize;
+    let pitch = info.pitch as usize;
+    let addr = info.addr as *mut u32;
 
-#[cfg(feature = "single_process_desktop")]
-fn run_single_process_desktop() -> ! {
-    use crate::system::direct_runtime::DirectKernelRuntime;
-    use app_keyboard_driver::KeyboardDriver;
-    use app_mouse_driver::MouseDriver;
-    use compositor::{BitmapFramebufferDevice, BitmapRenderer, Compositor};
-    use userland::app::{App, AppContext, AppState};
-    use userland::watch::WatchManager;
-    use x86_64::instructions::hlt;
+    let runtime = Box::new(KernelDirectRuntime);
 
-    info!("Starting single-process desktop...");
-
-    // Set runtime
-    static RUNTIME: DirectKernelRuntime = DirectKernelRuntime;
-    userland::set_runtime(&RUNTIME);
-
-    let mut watch_manager = WatchManager::new();
-    let compositor_app_id = watch_manager.register_app();
-    let mouse_app_id = watch_manager.register_app();
-    let kbd_app_id = watch_manager.register_app();
-
-    // Init Compositor
-    let fb_info = crate::drivers::framebuffer::get_framebuffer_info().expect("No framebuffer");
-    let fb_device = unsafe {
-        BitmapFramebufferDevice::new(
-            fb_info.width as usize,
-            fb_info.height as usize,
-            fb_info.pitch as usize,
-            fb_info.addr as *mut u32,
-        )
-    };
-    let renderer = BitmapRenderer::new(fb_info.width as usize, fb_info.height as usize);
-    let mut compositor = Compositor::<BitmapFramebufferDevice, BitmapRenderer>::init_with_watches(
-        &mut watch_manager,
-        compositor_app_id,
-        fb_device,
-        renderer,
-    );
-
-    // Init Drivers
-    let compositor_uuid = uuid::Uuid::nil();
-
-    let mut mouse_state = AppState::new(compositor_uuid, mouse_app_id);
-    let mut mouse_ctx = AppContext {
-        state: &mut mouse_state,
-        watch_manager: &mut watch_manager,
-    };
-    let mut mouse_driver = MouseDriver::init(&mut mouse_ctx);
-
-    let mut kbd_state = AppState::new(compositor_uuid, kbd_app_id);
-    let mut kbd_ctx = AppContext {
-        state: &mut kbd_state,
-        watch_manager: &mut watch_manager,
-    };
-    let mut kbd_driver = KeyboardDriver::init(&mut kbd_ctx);
-
-    info!("Drivers and Compositor initialized. Entering cooperative loop.");
-
-    let mut tick: u64 = 0;
-    loop {
-        // Tick drivers
-        {
-            let mut mouse_ctx = AppContext {
-                state: &mut mouse_state,
-                watch_manager: &mut watch_manager,
-            };
-            mouse_driver.tick(&mut mouse_ctx, tick);
-        }
-        {
-            let mut kbd_ctx = AppContext {
-                state: &mut kbd_state,
-                watch_manager: &mut watch_manager,
-            };
-            kbd_driver.tick(&mut kbd_ctx, tick);
-        }
-
-        // Process graph
-        watch_manager.process_graph(&[mouse_app_id, kbd_app_id, compositor_app_id]);
-
-        // Deliver events
-        for ev in watch_manager.drain_inbox(mouse_app_id) {
-            let mut mouse_ctx = AppContext {
-                state: &mut mouse_state,
-                watch_manager: &mut watch_manager,
-            };
-            mouse_driver.on_event(&mut mouse_ctx, ev);
-        }
-        for ev in watch_manager.drain_inbox(kbd_app_id) {
-            let mut kbd_ctx = AppContext {
-                state: &mut kbd_state,
-                watch_manager: &mut watch_manager,
-            };
-            kbd_driver.on_event(&mut kbd_ctx, ev);
-        }
-        for ev in watch_manager.drain_inbox(compositor_app_id) {
-            compositor.on_event(&ev);
-        }
-
-        compositor.tick();
-        tick = tick.wrapping_add(1);
-
-        hlt();
-    }
+    // Safety: We are passing the raw framebuffer pointer to the compositor.
+    // The kernel will not touch it anymore in this mode (cooperative single task).
+    compositor::run_standalone(width, height, pitch, addr, runtime, syscall_handler);
 }
 
 #[cfg(feature = "kernel_multitask")]
@@ -398,16 +304,15 @@ fn run_system() -> ! {
     runtime::start()
 }
 
-#[cfg(all(feature = "single_process_desktop", not(feature = "kernel_multitask")))]
+#[cfg(feature = "standalone_compositor")]
 fn run_system() -> ! {
-    info!("single_process_desktop enabled; skipping scheduler for cooperative loop.");
-    run_single_process_desktop()
+    run_standalone_compositor()
 }
 
 #[cfg(all(
-    not(feature = "single_process_desktop"),
-    not(feature = "kernel_multitask")
+    not(feature = "kernel_multitask"),
+    not(feature = "standalone_compositor")
 ))]
 fn run_system() -> ! {
-    run_single_task_self_editing_demo()
+    panic!("No run mode selected (kernel_multitask or standalone_compositor)");
 }

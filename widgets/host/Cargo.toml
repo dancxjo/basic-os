@@ -23,6 +23,7 @@ widget_image = { path = "../image" }
 default = []
 std = ["userland/std"]
 host = ["std"]
+disable_panic_handler = []
 
 [[bin]]
 name = "widget_host"

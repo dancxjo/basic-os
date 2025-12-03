@@ -1,5 +1,5 @@
 [package]
-name = "graph_viewer"
+name = "thing_viewer"
 version = "0.1.0"
 edition = "2021"
 
@@ -16,5 +16,5 @@ std = ["userland/std"]
 host = ["std"]
 
 [[bin]]
-name = "graph_viewer"
+name = "thing_viewer"
 path = "src/main.rs"

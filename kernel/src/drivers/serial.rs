@@ -6,31 +6,42 @@ use spin::Mutex;
 use x86_64::instructions::port::Port;
 
 pub struct SerialPort {
-    port: Port<u8>,
+    data: Port<u8>,
+    int_en: Port<u8>,
+    fifo_ctrl: Port<u8>,
+    line_ctrl: Port<u8>,
+    modem_ctrl: Port<u8>,
+    line_sts: Port<u8>,
 }
 
 impl SerialPort {
-    pub const fn new(port: u16) -> Self {
+    pub const fn new(base: u16) -> Self {
         Self {
-            port: Port::new(port),
+            data: Port::new(base),
+            int_en: Port::new(base + 1),
+            fifo_ctrl: Port::new(base + 2),
+            line_ctrl: Port::new(base + 3),
+            modem_ctrl: Port::new(base + 4),
+            line_sts: Port::new(base + 5),
         }
     }
 
     pub fn init(&mut self) {
         unsafe {
-            self.port.write(0x00); // Disable all interrupts
-            self.port.write(0x80); // Enable DLAB
-            self.port.write(0x03); // Set divisor to 3 (38400 baud)
-            self.port.write(0x00);
-            self.port.write(0x03); // 8 bits, no parity, one stop bit
-            self.port.write(0xC7); // Enable FIFO, clear them, with 14-byte threshold
-            self.port.write(0x0B); // IRQs enabled, RTS/DSR set
+            self.int_en.write(0x00); // Disable all interrupts
+            self.line_ctrl.write(0x80); // Enable DLAB (set baud rate divisor)
+            self.data.write(0x03); // Set divisor to 3 (lo byte) 38400 baud
+            self.int_en.write(0x00); // Set divisor to 0 (hi byte)
+            self.line_ctrl.write(0x03); // 8 bits, no parity, one stop bit
+            self.fifo_ctrl.write(0xC7); // Enable FIFO, clear them, with 14-byte threshold
+            self.modem_ctrl.write(0x0B); // IRQs enabled, RTS/DSR set
         }
     }
 
     pub fn write_byte(&mut self, byte: u8) {
         unsafe {
-            self.port.write(byte);
+            while (self.line_sts.read() & 0x20) == 0 {}
+            self.data.write(byte);
         }
     }
 }
