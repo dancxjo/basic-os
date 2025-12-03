@@ -162,7 +162,11 @@ fn main() {
         "text_editor",
         userland::app::run_app::<text_editor::TextEditor>,
     );
-    userland::sys::register_host_app("launcher", userland::app::run_app::<launcher::LauncherApp>);
+    #[cfg(feature = "graph_viewer")]
+    userland::sys::register_host_app(
+        "graph_viewer",
+        userland::app::run_app::<graph_viewer::GraphViewerApp>,
+    );
     userland::sys::register_host_app(
         "widget_host",
         userland::app::run_app::<widget_host::WidgetHost>,

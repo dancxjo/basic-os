@@ -286,17 +286,14 @@ fn run_single_user_module(module_name: &str, description: &str) -> ! {
 
 #[cfg(feature = "standalone_compositor")]
 fn run_standalone_compositor() -> ! {
-    let info = get_framebuffer_info().expect("Framebuffer info not available");
-    let width = info.width as usize;
-    let height = info.height as usize;
-    let pitch = info.pitch as usize;
-    let addr = info.addr as *mut u32;
+    // Ensure framebuffer is set up so init can discover it via syscalls
+    let _ = get_framebuffer_info().expect("Framebuffer info not available");
 
     let runtime = Box::new(KernelDirectRuntime);
 
     // Safety: We are passing the raw framebuffer pointer to the compositor.
     // The kernel will not touch it anymore in this mode (cooperative single task).
-    compositor::run_standalone(width, height, pitch, addr, runtime, syscall_handler);
+    init::desktop::run_desktop(runtime, syscall_handler);
 }
 
 #[cfg(feature = "kernel_multitask")]

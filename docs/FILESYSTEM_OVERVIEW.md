@@ -17,7 +17,7 @@ The initial filesystem layout is:
 
 - `/bin`  
   Contains executable bundles. This is the **canonical registry of available
-  userland programs**. Both `init` and the desktop/launcher should discover
+  userland programs**. Both `init` and the desktop/graph viewer should discover
   programs here, rather than hard-coding any list.
 
 - `/dev`  
@@ -96,8 +96,8 @@ Future/optional metadata on `/bin` entries:
 - `AUTOSTART`: `true | false`  
   Indicates whether `init` should automatically launch this program at startup.
 
-- `SHOW_IN_LAUNCHER`: `true | false`  
-  Indicates whether the desktop/launcher should present this entry to the user
+- `SHOW_IN_GRAPH_VIEWER`: `true | false`  
+  Indicates whether the desktop/graph viewer should present this entry to the user
   as an application icon or menu item.
 
 ### Launching from /bin
@@ -107,9 +107,9 @@ Future/optional metadata on `/bin` entries:
   - Filter entries where `KIND = FILE` and `AUTOSTART = true`.
   - Spawn the corresponding bundles using `BUNDLE_ID`/`BIN_NAME`.
 
-- **Desktop / launcher**: To list available applications, the desktop bundle can:
+- **Desktop / graph viewer**: To list available applications, the desktop bundle can:
   - Call `read_dir("/bin")`.
-  - Filter entries based on `SHOW_IN_LAUNCHER`.
+  - Filter entries based on `SHOW_IN_GRAPH_VIEWER`.
   - Render icons / menu items for those entries.
   - Launch them via the same bundle/binary identifiers.
 

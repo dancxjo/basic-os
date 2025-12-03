@@ -8,25 +8,25 @@ use userland::prelude::*;
 use userland::{canon, graph, AppEvent, ThingFilter};
 use uuid::Uuid;
 
-pub struct LauncherApp {
+pub struct GraphViewerApp {
     window: WindowHandle,
-    entries: Vec<LauncherEntry>,
+    entries: Vec<GraphViewerEntry>,
     selection_node_id: Uuid,
     is_active: bool,
     window_watch: Option<userland::watch::WatchId>,
     selection_watch: Option<userland::watch::WatchId>,
 }
 
-struct LauncherEntry {
+struct GraphViewerEntry {
     fs_node_id: Uuid,
     label: alloc::string::String,
 }
 
-impl App for LauncherApp {
+impl App for GraphViewerApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
-        let window = ctx.create_window("Launcher");
+        let window = ctx.create_window("Graph Viewer");
 
-        let mut app = LauncherApp {
+        let mut app = GraphViewerApp {
             window: window.clone(),
             entries: Vec::new(),
             selection_node_id: Uuid::nil(),
@@ -72,12 +72,12 @@ impl App for LauncherApp {
     }
 }
 
-impl LauncherApp {
+impl GraphViewerApp {
     fn sync_entries(&mut self, ctx: &mut AppContext<'_>, parent_id: Uuid) {
         let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
 
         // Create selection node
-        let selection_id = userland::simple_uuid(b"launcher_selection");
+        let selection_id = userland::simple_uuid(b"graph_viewer_selection");
         let mut sel_fields = graph::map();
         sel_fields.insert(canon::KIND, Value::Symbol(canon::cc('V', 'A')));
         sel_fields.insert(canon::SELECTED_INDEX, Value::I64(-1));
@@ -93,7 +93,7 @@ impl LauncherApp {
         }));
 
         // Create listbox widget (Control)
-        let listbox_id = userland::simple_uuid(b"launcher_listbox");
+        let listbox_id = userland::simple_uuid(b"graph_viewer_listbox");
         let mut list_fields = graph::map();
         list_fields.insert(canon::ROLE, Value::Text("primary_list".to_string()));
         list_fields.insert(
@@ -112,12 +112,12 @@ impl LauncherApp {
         // Read /bin
         if let Ok(bin_entries) = userland::fs::read_dir("/bin") {
             for entry in bin_entries {
-                if !entry.show_in_launcher {
+                if !entry.show_in_graph_viewer {
                     continue;
                 }
 
                 let item_id = userland::simple_uuid(
-                    alloc::format!("launcher_item_{}", entry.name).as_bytes(),
+                    alloc::format!("graph_viewer_item_{}", entry.name).as_bytes(),
                 );
                 let mut item_fields = graph::map();
                 item_fields.insert(canon::ROLE, Value::Text("list_item".to_string()));
@@ -130,7 +130,7 @@ impl LauncherApp {
                 graph::fiat(Some(item_id), canon::WIDGET, item_fields);
                 graph::grant_capability(widget_host_bundle, item_id, "CAN_READ");
 
-                self.entries.push(LauncherEntry {
+                self.entries.push(GraphViewerEntry {
                     fs_node_id: entry.id,
                     label: entry.name,
                 });
@@ -146,7 +146,7 @@ impl LauncherApp {
         if let Some(entry) = self.entries.get(idx) {
             if let Ok(node) = userland::fs::get_node_by_id(entry.fs_node_id) {
                 if let Some(bin_name) = node.bin_name {
-                    userland::println!("Launcher launching: {}", bin_name);
+                    userland::println!("Graph Viewer launching: {}", bin_name);
                     userland::sys::spawn(&bin_name);
                 }
             }

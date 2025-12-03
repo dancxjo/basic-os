@@ -213,8 +213,7 @@ dependencies = [
  "app-mouse-driver",
  "demo_app",
  "flate2",
- "init",
- "launcher",
+ "graph_viewer",
  "rootfs",
  "self_editing_demo",
  "serde",
@@ -551,6 +550,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "graph_viewer"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "hash32"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -726,7 +734,14 @@ dependencies = [
 name = "init"
 version = "0.1.0"
 dependencies = [
+ "app-framebuffer-driver",
+ "app-keyboard-driver",
+ "app-mouse-driver",
+ "compositor",
+ "text_editor",
+ "thing_abi",
  "userland",
+ "widget_host",
 ]
 
 [[package]]
@@ -755,6 +770,7 @@ dependencies = [
  "font8x8",
  "goblin",
  "heapless 0.8.0",
+ "init",
  "lazy_static",
  "libm",
  "limine",
@@ -771,15 +787,6 @@ dependencies = [
  "thingos_kernel_std",
  "uuid",
  "x86_64 0.14.13",
-]
-
-[[package]]
-name = "launcher"
-version = "0.1.0"
-dependencies = [
- "thing_abi",
- "userland",
- "uuid",
 ]
 
 [[package]]

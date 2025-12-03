@@ -106,7 +106,10 @@ fn create_app_file(app: &userland::apps_manifest::AppSpec, parent: Uuid) {
     // Metadata
     fields.insert(canon::BIN_NAME, Value::Text(app.bin_name.into()));
     fields.insert(canon::AUTOSTART, Value::Bool(app.autostart));
-    fields.insert(canon::SHOW_IN_LAUNCHER, Value::Bool(app.show_in_launcher));
+    fields.insert(
+        canon::SHOW_IN_GRAPH_VIEWER,
+        Value::Bool(app.show_in_graph_viewer),
+    );
 
     // Maybe add executable info
     fields.insert(canon::canon(b'E', b'X', b'E'), Value::Text(app.name.into()));

@@ -5,10 +5,26 @@ edition = "2021"
 
 [dependencies]
 userland = { path = "../../userland" }
+thing_abi = { path = "../../thing_abi" }
+compositor = { path = "../../compositor", optional = true }
+app-framebuffer-driver = { path = "../../drivers/framebuffer_driver", optional = true }
+app-keyboard-driver = { path = "../../drivers/keyboard_driver", optional = true }
+app-mouse-driver = { path = "../../drivers/mouse_driver", optional = true }
+widget_host = { path = "../../widgets/host", optional = true }
+text_editor = { path = "../../apps/text_editor", optional = true }
 
 [features]
 default = []
 std = ["userland/std"]
+kernel_standalone = [
+    "compositor",
+    "app-framebuffer-driver",
+    "app-keyboard-driver",
+    "app-mouse-driver",
+    "widget_host",
+    "text_editor",
+    "compositor/kernel_standalone",
+]
 
 [lib]
 name = "init"

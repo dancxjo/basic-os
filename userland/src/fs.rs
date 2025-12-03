@@ -24,7 +24,7 @@ pub struct FsNode {
     pub bundle_id: Option<Uuid>, // when this is a "bundle-backed" file
     pub bin_name: Option<String>,
     pub autostart: bool,
-    pub show_in_launcher: bool,
+    pub show_in_graph_viewer: bool,
 
     // For char devices:
     pub device_driver: Option<String>, // e.g. "console"
@@ -165,9 +165,9 @@ fn thing_to_fs_node(thing: &crate::GraphThing) -> Result<FsNode, FsError> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let show_in_launcher = thing
+    let show_in_graph_viewer = thing
         .fields
-        .get(&canon::SHOW_IN_LAUNCHER)
+        .get(&canon::SHOW_IN_GRAPH_VIEWER)
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
@@ -190,7 +190,7 @@ fn thing_to_fs_node(thing: &crate::GraphThing) -> Result<FsNode, FsError> {
         bundle_id,
         bin_name,
         autostart,
-        show_in_launcher,
+        show_in_graph_viewer,
         device_driver,
         device_id,
     })

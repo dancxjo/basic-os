@@ -3,6 +3,6 @@
 
 extern crate alloc;
 
-use launcher::LauncherApp;
+use graph_viewer::GraphViewerApp;
 
-userland::app_main!(LauncherApp);
+userland::app_main!(GraphViewerApp);

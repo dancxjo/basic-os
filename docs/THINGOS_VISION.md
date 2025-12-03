@@ -18,7 +18,7 @@ This document summarizes the intended architecture so agents can pick up work wi
 - Drivers
   - Declarative descriptors in `drivers/registry.rs`; emit init/fail events to the journal.
   - Keyboard emits key press events (with scancode payloads); mouse emits move events (dx/dy/buttons payloads).
-- System init (`system/inner.rs`) initializes the graph after the heap and replays the journal stub. The kernel boots drivers, the compositor bundle, and a single app selected by the launcher.
+- System init (`system/inner.rs`) initializes the graph after the heap and replays the journal stub. The kernel boots drivers, the compositor bundle, and a single app selected by the graph viewer.
 
 ## Gaps vs. vision
 

@@ -12,7 +12,6 @@ uuid = { version = "=1.10", default-features = false, features = [
 ] }
 unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 thing_abi = { path = "../thing_abi" }
-init = { path = "../apps/init", optional = true }
 demo_app = { path = "../apps/demo_app", optional = true }
 self_editing_demo = { path = "../apps/self_editing_demo", optional = true }
 app-mouse-driver = { path = "../drivers/mouse_driver", optional = true }
@@ -21,7 +20,7 @@ app-framebuffer-driver = { path = "../drivers/framebuffer_driver", optional = tr
 thing_viewer = { path = "../apps/thing_viewer", optional = true }
 text_editor = { path = "../apps/text_editor", optional = true }
 rootfs = { path = "../apps/rootfs", optional = true }
-launcher = { path = "../apps/launcher", optional = true }
+graph_viewer = { path = "../apps/graph_viewer", optional = true }
 widget_host = { path = "../widgets/host", optional = true }
 widget_button = { path = "../widgets/button" }
 x86_64 = { version = "0.14.11", default-features = false, features = [
@@ -43,13 +42,12 @@ kernel_standalone = [
   "app-mouse-driver/disable_panic_handler",
   "app-keyboard-driver/disable_panic_handler",
   "app-framebuffer-driver/disable_panic_handler",
-  "launcher/disable_panic_handler",
+  "graph_viewer/disable_panic_handler",
   "widget_host/disable_panic_handler",
   "x86_64",
   "userland/kernel_standalone",
   "userland/disable_panic_handler",
   "rootfs",
-  "init",
 ]
 
 [[bin]]
@@ -67,7 +65,6 @@ std = ["userland/std"]
 host = [
   "tiny_http",
   "std",
-  "init/std",
   "demo_app/std",
   "self_editing_demo/std",
   "app-mouse-driver/std",

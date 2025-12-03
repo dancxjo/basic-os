@@ -73,7 +73,7 @@ ThingOS supports distinct system modes that define the top-level UI and interact
 
 1.  **Sky Mode** (`Mode::Sky`)
     *   The default desktop environment.
-    *   Supports multiple overlapping windows, a desktop background (clouds), and a visible launcher.
+    *   Supports multiple overlapping windows, a desktop background (clouds), and a visible graph viewer.
     *   Standard window management (move, resize, minimize).
     *   Activated via `F1`.
 

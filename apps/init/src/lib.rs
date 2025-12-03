@@ -1,4 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "kernel_standalone")]
+pub mod desktop;
+
 use userland::canon;
 use userland::fs::{self, FsKind};
 use userland::prelude::*;
@@ -78,12 +82,12 @@ impl App for InitApp {
             userland::fiat(Some(req_id), canon::LAUNCH_REQUEST, fields);
 
             userland::println!("Init sequence complete. Entering idle loop.");
-            
+
             self.watch_id = Some(ctx.watch_graph(userland::ThingFilter {
                 kind: Some(canon::LAUNCH_REQUEST),
                 id: None,
             }));
-            
+
             self.launch_req_created = true;
         }
     }

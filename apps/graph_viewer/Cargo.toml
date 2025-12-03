@@ -1,5 +1,5 @@
 [package]
-name = "launcher"
+name = "graph_viewer"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,5 +14,5 @@ std = ["userland/std"]
 disable_panic_handler = []
 
 [[bin]]
-name = "launcher"
+name = "graph_viewer"
 path = "src/main.rs"

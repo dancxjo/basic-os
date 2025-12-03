@@ -40,13 +40,16 @@ thing_abi = { path = "../thing_abi" }
 compositor = { path = "../compositor", optional = true, default-features = false, features = [
     "kernel_standalone",
 ] }
+init = { path = "../apps/init", optional = true, default-features = false, features = [
+    "kernel_standalone",
+] }
 
 [features]
 # Default: simplest, safest mode
 default = ["standalone_compositor"]
 
 # Enable standalone compositor (cooperative single-process mode)
-standalone_compositor = ["compositor"]
+standalone_compositor = ["compositor", "init"]
 
 # Enable preemptive multitasking: scheduler, timer-driven context switching, user tasks
 kernel_multitask = []
