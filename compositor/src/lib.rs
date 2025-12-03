@@ -2064,6 +2064,7 @@ where
     }
 
     fn ingest_input_event(&mut self, thing: &userland::GraphThing) {
+        // println!("Compositor ingest: {:?}", thing);
         if let Some(kind) = thing.fields.get(&canon::KIND).and_then(|v| v.as_symbol()) {
             if kind == canon::MOVE {
                 let dx = thing
@@ -2076,6 +2077,11 @@ where
                     .get(&canon::DY)
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0);
+
+                if dx != 0 || dy != 0 {
+                    println!("Compositor move: dx={} dy={}", dx, dy);
+                }
+
                 let buttons = thing
                     .fields
                     .get(&canon::BUTTON)

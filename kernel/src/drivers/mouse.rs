@@ -46,7 +46,7 @@ pub fn init() -> Result<(), &'static str> {
 /// Low-level IRQ handler. Buffers raw bytes for legacy readers and emits graph-native events
 /// for the bound mouse driver bundles.
 pub extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    crate::serial_println!("IRQ12");
+    // crate::serial_println!("IRQ12");
     let mut data_port = Port::<u8>::new(0x60);
     let packet: u8 = unsafe { data_port.read() };
 

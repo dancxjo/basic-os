@@ -101,7 +101,7 @@ impl MouseDriver {
         // println!("Mouse byte: {:02x}", byte);
         let event = unsafe { MOUSE_DECODER.feed(byte) };
         if let Some(event) = event {
-            println!("Mouse event: {:?}", event);
+            // println!("Mouse event: {:?}", event);
             self.emit_mouse_event(event);
         }
     }

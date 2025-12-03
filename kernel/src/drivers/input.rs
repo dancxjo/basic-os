@@ -6,6 +6,7 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::Mutex;
+use x86_64::instructions::interrupts;
 
 /// Simple lock-free ring buffer for interrupt handlers.
 ///
@@ -49,18 +50,20 @@ impl<T: Copy + Default, const N: usize> InputBuffer<T, N> {
     }
 
     pub fn pop(&self) -> Option<T> {
-        let mut buf = self.buf.lock();
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Relaxed);
+        interrupts::without_interrupts(|| {
+            let mut buf = self.buf.lock();
+            let head = self.head.load(Ordering::Acquire);
+            let tail = self.tail.load(Ordering::Relaxed);
 
-        if head == tail {
-            return None;
-        }
+            if head == tail {
+                return None;
+            }
 
-        let value = buf[tail];
-        buf[tail] = self.default;
-        self.tail.store((tail + 1) % N, Ordering::Release);
-        Some(value)
+            let value = buf[tail];
+            let next = (tail + 1) % N;
+            self.tail.store(next, Ordering::Release);
+            Some(value)
+        })
     }
 
     pub fn clear(&self) {
