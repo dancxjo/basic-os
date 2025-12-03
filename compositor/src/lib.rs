@@ -483,6 +483,14 @@ impl Rect {
             height,
         }
     }
+
+    pub fn union(&self, other: Rect) -> Rect {
+        let x = min(self.x, other.x);
+        let y = min(self.y, other.y);
+        let max_x = max(self.x + self.width as i32, other.x + other.width as i32);
+        let max_y = max(self.y + self.height as i32, other.y + other.height as i32);
+        Rect::new(x, y, (max_x - x) as u32, (max_y - y) as u32)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -586,6 +594,9 @@ pub struct FrameInfo {
 pub trait FramebufferDevice<T> {
     fn geometry(&self) -> FramebufferGeometry;
     fn present(&mut self, frame: T);
+    fn present_partial(&mut self, frame: T, _dirty_rect: Rect) {
+        self.present(frame);
+    }
     fn frame_info(&self) -> Option<FrameInfo> {
         None
     }
@@ -596,13 +607,16 @@ pub trait RendererBackend {
     where
         Self: 'a;
     fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a>;
+    fn render_partial<'a>(&'a mut self, scene: &Scene, _dirty_rect: Rect) -> Self::Output<'a> {
+        self.render(scene)
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct Bitmap {
     pub width: usize,
     pub height: usize,
-    pixels: Arc<[u32]>,
+    pub pixels: Arc<[u32]>,
 }
 
 impl Bitmap {
@@ -761,6 +775,7 @@ pub struct Compositor<F, R> {
     watch_widgets: Option<WatchId>,
     fb_id: Option<Uuid>,
     fb_dirty: bool,
+    content_dirty: bool,
     auto_layout_done: bool,
     cursor: CursorState,
     cursor_sprites: CursorSprites,
@@ -777,6 +792,7 @@ pub struct Compositor<F, R> {
     active_widget: Option<Uuid>,
     debug_layout_mode: bool,
     debug_overlay_mode: bool,
+    cursor_prev_rect: Option<Rect>,
 }
 
 impl<F, R> Compositor<F, R>
@@ -811,6 +827,7 @@ where
             watch_widgets: None,
             fb_id: None,
             fb_dirty: false,
+            content_dirty: true,
             auto_layout_done: false,
             cursor: CursorState::new(width, height),
             cursor_sprites,
@@ -827,6 +844,7 @@ where
             active_widget: None,
             debug_layout_mode: true,
             debug_overlay_mode: false,
+            cursor_prev_rect: None,
         }
     }
 
@@ -958,6 +976,7 @@ where
             AppEvent::Thing { watch, thing } => {
                 if Some(*watch) == self.watch_surfaces {
                     self.ingest_surface(thing);
+                    self.content_dirty = true;
                 } else if Some(*watch) == self.watch_mouse {
                     if thing.kind == canon::INPUT_EVENT {
                         self.ingest_input_event(thing);
@@ -969,9 +988,13 @@ where
                 } else if Some(*watch) == self.watch_windows {
                     if let Some(window) = Window::load(thing) {
                         self.ingest_window(window);
+                        self.content_dirty = true;
                     }
                 } else if Some(*watch) == self.watch_cursor {
                     self.ingest_cursor(thing);
+                    // Cursor ingest might change cursor appearance, but position is handled by mouse events?
+                    // ingest_cursor updates cursor state?
+                    // Let's check ingest_cursor.
                 } else if Some(*watch) == self.watch_fb {
                     if thing.kind == canon::DISPLAY_FRAMEBUFFER {
                         self.fb_id = Some(thing.id);
@@ -979,6 +1002,7 @@ where
                     }
                 } else if Some(*watch) == self.watch_widgets {
                     self.ingest_widget(thing);
+                    self.content_dirty = true;
                 }
             }
             AppEvent::Edge { .. } => {
@@ -1081,6 +1105,21 @@ where
         }
     }
 
+    fn get_cursor_rect(&self) -> Option<Rect> {
+        if !self.cursor.visible {
+            return None;
+        }
+        let icon = self.cursor_sprites.for_kind(self.cursor.kind);
+        let w = icon.bitmap.width as u32;
+        let h = icon.bitmap.height as u32;
+        let hotspot = icon.hotspot;
+        
+        let x = self.cursor.x - hotspot.0;
+        let y = self.cursor.y - hotspot.1;
+        
+        Some(Rect::new(x, y, w, h))
+    }
+
     pub fn tick(&mut self) {
         let geo = self.fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
@@ -1091,6 +1130,13 @@ where
         self.ensure_active_window();
         self.update_cursor_kind();
         self.update_scrollbars();
+
+        let cursor_new_rect = self.get_cursor_rect();
+        let cursor_moved = cursor_new_rect != self.cursor_prev_rect;
+
+        if !self.fb_dirty && !self.content_dirty && !cursor_moved {
+            return;
+        }
 
         let mut scene = Scene::new(width as u32, height as u32);
         scene.push(SceneItem::Clear { color: CLEAR_COLOR });
@@ -1107,8 +1153,26 @@ where
 
         self.draw_cursor(&mut scene, width, height);
 
-        let frame = self.renderer.render(&scene);
-        self.fb_device.present(frame);
+        if self.fb_dirty || self.content_dirty {
+            let frame = self.renderer.render(&scene);
+            self.fb_device.present(frame);
+            self.content_dirty = false;
+        } else if cursor_moved {
+            let dirty_rect = if let Some(prev) = self.cursor_prev_rect {
+                if let Some(curr) = cursor_new_rect {
+                    prev.union(curr)
+                } else {
+                    prev
+                }
+            } else {
+                cursor_new_rect.unwrap_or(Rect::new(0, 0, 0, 0))
+            };
+
+            let frame = self.renderer.render_partial(&scene, dirty_rect);
+            self.fb_device.present_partial(frame, dirty_rect);
+        }
+
+        self.cursor_prev_rect = cursor_new_rect;
         self.publish_frame_info();
         self.frame_no = self.frame_no.wrapping_add(1);
     }
@@ -2781,6 +2845,7 @@ where
                 self.maximize_window(id);
             }
         }
+        self.content_dirty = true;
     }
 
     fn ensure_active_window(&mut self) {
@@ -2798,7 +2863,10 @@ where
             .filter(|(_, surface)| surface.window.active && surface.window.visible)
             .max_by_key(|(_, surface)| surface.window.z)
         {
-            self.active_window = Some(*id);
+            if self.active_window != Some(*id) {
+                self.active_window = Some(*id);
+                self.content_dirty = true;
+            }
             return;
         }
 
@@ -3816,7 +3884,13 @@ fn cursor_icon_from_mask(mask: CursorMask, fill: Rgba, outline: Rgba, _shadow: R
             ];
             let is_edge = neighbors.iter().any(|(nx, ny)| !mask.filled(*nx, *ny));
             let color = if is_edge { outline } else { fill };
-            pixels[y * w + x] = color.to_u32();
+            
+            // Premultiply alpha
+            let a = color.a as u32;
+            let r = (color.r as u32 * a) / 255;
+            let g = (color.g as u32 * a) / 255;
+            let b = (color.b as u32 * a) / 255;
+            pixels[y * w + x] = (a << 24) | (r << 16) | (g << 8) | b;
         }
     }
 

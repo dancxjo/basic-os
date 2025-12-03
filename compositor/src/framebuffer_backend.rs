@@ -118,6 +118,77 @@ impl RendererBackend for BitmapRenderer {
         }
         &self.storage
     }
+
+    fn render_partial<'a>(&'a mut self, scene: &Scene, dirty_rect: Rect) -> Self::Output<'a> {
+        let mut clip_stack: Vec<Option<Rect>> = Vec::new();
+        clip_stack.push(Some(dirty_rect));
+
+        for item in &scene.items {
+            match item {
+                SceneItem::Clear { color } => {
+                    raster_fill_rect(self, &dirty_rect, *color, Some(dirty_rect));
+                }
+                SceneItem::FillRect { rect, color } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_fill_rect(self, rect, *color, clip);
+                }
+                SceneItem::HatchRect {
+                    rect,
+                    color,
+                    spacing,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_hatch_rect(self, rect, *color, *spacing, clip);
+                }
+                SceneItem::BlitImage {
+                    rect,
+                    image,
+                    repeat,
+                    offset,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_blit_image(self, rect, image, *repeat, *offset, clip);
+                }
+                SceneItem::DrawText {
+                    origin,
+                    text,
+                    color,
+                    max_width,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_text(self, *origin, text, *color, *max_width, clip);
+                }
+                SceneItem::DrawTextBlock {
+                    rect,
+                    text,
+                    color,
+                    scroll_offset,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip);
+                }
+                SceneItem::DrawCursor {
+                    origin,
+                    sprite,
+                    hotspot,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_cursor_clipped(self, *origin, sprite, *hotspot, clip);
+                }
+                SceneItem::ClipPush { rect } => {
+                    let parent_clip = clip_stack.last().copied().flatten();
+                    let new_clip = parent_clip.and_then(|base| intersect_rect(base, *rect));
+                    clip_stack.push(new_clip);
+                }
+                SceneItem::ClipPop => {
+                    if clip_stack.len() > 1 {
+                        clip_stack.pop();
+                    }
+                }
+            }
+        }
+        &self.storage
+    }
 }
 
 fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
@@ -231,6 +302,40 @@ impl<'a> FramebufferDevice<&'a [u32]> for BitmapFramebufferDevice {
                 unsafe {
                     let dst_ptr = self.addr.add(dst_start);
                     let dst_row = core::slice::from_raw_parts_mut(dst_ptr, copy_width);
+                    dst_row.copy_from_slice(src_row);
+                }
+            }
+        }
+    }
+
+    fn present_partial(&mut self, frame: &'a [u32], dirty_rect: Rect) {
+        if self.addr.is_null() || self.pitch == 0 || self.height == 0 {
+            return;
+        }
+
+        let stride_u32 = self.pitch / 4;
+        
+        // Clip dirty rect to framebuffer bounds
+        let x = clamp_i32(dirty_rect.x, 0, self.width as i32) as usize;
+        let y = clamp_i32(dirty_rect.y, 0, self.height as i32) as usize;
+        let w = clamp_i32(dirty_rect.width as i32, 0, (self.width - x) as i32) as usize;
+        let h = clamp_i32(dirty_rect.height as i32, 0, (self.height - y) as i32) as usize;
+
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        for row in 0..h {
+            let curr_y = y + row;
+            let src_start = curr_y * self.width + x;
+            let src_end = src_start + w;
+            let dst_start = curr_y * stride_u32 + x;
+
+            if src_end <= frame.len() {
+                let src_row = &frame[src_start..src_end];
+                unsafe {
+                    let dst_ptr = self.addr.add(dst_start);
+                    let dst_row = core::slice::from_raw_parts_mut(dst_ptr, w);
                     dst_row.copy_from_slice(src_row);
                 }
             }
@@ -474,26 +579,118 @@ fn raster_draw_cursor(
     let end_x = clamp_i32(top_left_x + sprite.width as i32, 0, backend.width as i32);
     let end_y = clamp_i32(top_left_y + sprite.height as i32, 0, backend.height as i32);
 
+    let sprite_data = &sprite.pixels;
+    let sprite_width = sprite.width;
+
     for y in start_y..end_y {
-        for x in start_x..end_x {
-            let sx = (x - top_left_x) as usize;
-            let sy = (y - top_left_y) as usize;
-            let Some(px) = sprite.pixel(sx, sy) else {
-                continue;
-            };
+        let sy = (y - top_left_y) as usize;
+        let sx_start = (start_x - top_left_x) as usize;
+        let sx_end = (end_x - top_left_x) as usize;
+        let sprite_row = &sprite_data[sy * sprite_width + sx_start..sy * sprite_width + sx_end];
+        
+        let dst_row_start = (y as usize) * backend.width + (start_x as usize);
+        let dst_row = &mut backend.storage[dst_row_start..dst_row_start + (end_x - start_x) as usize];
+
+        for (px, dst) in sprite_row.iter().zip(dst_row.iter_mut()) {
+            let px = *px;
             let alpha = (px >> 24) & 0xFF;
             if alpha == 0 {
                 continue;
             }
-            let idx = (y as usize) * backend.width + (x as usize);
-            let dst = backend.storage[idx];
+            
             let out = if alpha == 0xFF {
                 px
             } else {
-                let color = (alpha << 24) | (px & 0x00FFFFFF);
-                userland::graphics::blend(color, dst)
+                let inv_a = 255 - alpha;
+                let dst_val = *dst;
+                let dst_r = (dst_val >> 16) & 0xFF;
+                let dst_g = (dst_val >> 8) & 0xFF;
+                let dst_b = dst_val & 0xFF;
+                
+                let src_r = (px >> 16) & 0xFF;
+                let src_g = (px >> 8) & 0xFF;
+                let src_b = px & 0xFF;
+                
+                let r = src_r + (dst_r * inv_a) / 255;
+                let g = src_g + (dst_g * inv_a) / 255;
+                let b = src_b + (dst_b * inv_a) / 255;
+                
+                0xFF000000 | (r << 16) | (g << 8) | b
             };
-            backend.storage[idx] = out;
+            *dst = out;
+        }
+    }
+}
+
+fn raster_draw_cursor_clipped(
+    backend: &mut BitmapRenderer,
+    origin: (i32, i32),
+    sprite: &Bitmap,
+    hotspot: (i32, i32),
+    clip: Option<Rect>,
+) {
+    if backend.width == 0 || sprite.width == 0 || sprite.height == 0 {
+        return;
+    }
+
+    let top_left_x = origin.0 - hotspot.0;
+    let top_left_y = origin.1 - hotspot.1;
+
+    let mut start_x = clamp_i32(top_left_x, 0, backend.width as i32);
+    let mut start_y = clamp_i32(top_left_y, 0, backend.height as i32);
+    let mut end_x = clamp_i32(top_left_x + sprite.width as i32, 0, backend.width as i32);
+    let mut end_y = clamp_i32(top_left_y + sprite.height as i32, 0, backend.height as i32);
+
+    if let Some(c) = clip {
+        start_x = max(start_x, c.x);
+        start_y = max(start_y, c.y);
+        end_x = min(end_x, c.x + c.width as i32);
+        end_y = min(end_y, c.y + c.height as i32);
+    }
+
+    if start_x >= end_x || start_y >= end_y {
+        return;
+    }
+
+    let sprite_data = &sprite.pixels;
+    let sprite_width = sprite.width;
+
+    for y in start_y..end_y {
+        let sy = (y - top_left_y) as usize;
+        let sx_start = (start_x - top_left_x) as usize;
+        let sx_end = (end_x - top_left_x) as usize;
+        let sprite_row = &sprite_data[sy * sprite_width + sx_start..sy * sprite_width + sx_end];
+        
+        let dst_row_start = (y as usize) * backend.width + (start_x as usize);
+        let dst_row = &mut backend.storage[dst_row_start..dst_row_start + (end_x - start_x) as usize];
+
+        for (px, dst) in sprite_row.iter().zip(dst_row.iter_mut()) {
+            let px = *px;
+            let alpha = (px >> 24) & 0xFF;
+            if alpha == 0 {
+                continue;
+            }
+            
+            let out = if alpha == 0xFF {
+                px
+            } else {
+                let inv_a = 255 - alpha;
+                let dst_val = *dst;
+                let dst_r = (dst_val >> 16) & 0xFF;
+                let dst_g = (dst_val >> 8) & 0xFF;
+                let dst_b = dst_val & 0xFF;
+                
+                let src_r = (px >> 16) & 0xFF;
+                let src_g = (px >> 8) & 0xFF;
+                let src_b = px & 0xFF;
+                
+                let r = src_r + (dst_r * inv_a) / 255;
+                let g = src_g + (dst_g * inv_a) / 255;
+                let b = src_b + (dst_b * inv_a) / 255;
+                
+                0xFF000000 | (r << 16) | (g << 8) | b
+            };
+            *dst = out;
         }
     }
 }
