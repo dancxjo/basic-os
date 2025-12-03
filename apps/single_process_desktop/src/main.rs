@@ -5,9 +5,9 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use compositor::{BitmapFramebufferDevice, BitmapRenderer, Compositor, FramebufferTarget};
-use userland::app::{create_app, DynApp};
+use userland::app::{create_app, App, AppState, DynApp};
 use userland::uuid::Uuid;
-use userland::{println, FramebufferGeometry, WatchManager};
+use userland::{println, AppContext, FramebufferGeometry, WatchManager};
 
 const FRAME_INTERVAL_SPINS: usize = 1_000_000;
 static mut BACKBUFFER_STORAGE: [u32; 8_388_608] = [0; 8_388_608];
@@ -61,10 +61,16 @@ pub extern "C" fn _start() -> ! {
         &mut watch_manager,
     ));
     println!("[INFO] starting mouse_driver in cooperative mode");
-    apps.push(create_app::<app_mouse_driver::MouseDriver>(
-        compositor_id,
-        &mut watch_manager,
-    ));
+    let mouse_app_id = watch_manager.register_app();
+    let mut mouse_app_state = AppState::new(compositor_id, mouse_app_id);
+    let mut mouse_driver = {
+        let mut ctx = AppContext {
+            watch_manager: &mut watch_manager,
+            state: &mut mouse_app_state,
+        };
+        app_mouse_driver::MouseDriver::init(&mut ctx)
+    };
+
     println!("[INFO] starting widget_host for semantic UI surfaces");
     apps.push(create_app::<widget_host::WidgetHost>(
         compositor_id,
@@ -76,11 +82,17 @@ pub extern "C" fn _start() -> ! {
         &mut watch_manager,
     ));
 
-    let mut participant_ids = alloc::vec![compositor_app_id];
+    let mut participant_ids = alloc::vec![compositor_app_id, mouse_app_id];
     participant_ids.extend(apps.iter().map(|app| app.app_id()));
 
     let mut tick: u64 = 0;
     loop {
+        let events = mouse_driver.poll_events();
+        for event in events {
+            compositor.on_mouse_event(event.dx as i64, event.dy as i64, event.buttons as u64);
+            mouse_driver.emit_mouse_event(event);
+        }
+
         watch_manager.process_graph(&participant_ids);
 
         for app in apps.iter_mut() {

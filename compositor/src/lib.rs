@@ -2127,6 +2127,43 @@ where
             .collect()
     }
 
+    pub fn on_mouse_event(&mut self, dx: i64, dy: i64, buttons: u64) {
+        if dx != 0 || dy != 0 {
+            // println!("Compositor move: dx={} dy={}", dx, dy);
+        }
+
+        let geo = self.fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
+        let prev_buttons = self.cursor.buttons;
+        self.cursor.update(dx, dy, buttons as u8, width, height);
+
+        let left_down = (buttons & 1) != 0;
+        let left_was_down = (prev_buttons & 1) != 0;
+        let left_pressed = left_down && !left_was_down;
+        let left_released = !left_down && left_was_down;
+
+        if left_pressed {
+            self.on_pointer_down();
+        }
+
+        if left_down {
+            self.continue_drag();
+            self.continue_widget_interaction();
+        } else if left_released {
+            if let Some(drag) = &self.drag_state {
+                if let DragKind::CloseButton = drag.kind {
+                    self.on_close_button_up(drag.window_id);
+                }
+            }
+            self.drag_state = None;
+            self.end_widget_interaction();
+        } else {
+            self.drag_state = None;
+        }
+
+        self.update_cursor_kind();
+    }
+
     fn ingest_input_event(&mut self, thing: &userland::GraphThing) {
         // println!("Compositor ingest: {:?}", thing);
         if let Some(kind) = thing.fields.get(&canon::KIND).and_then(|v| v.as_symbol()) {
@@ -2142,46 +2179,13 @@ where
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0);
 
-                if dx != 0 || dy != 0 {
-                    println!("Compositor move: dx={} dy={}", dx, dy);
-                }
-
                 let buttons = thing
                     .fields
                     .get(&canon::BUTTON)
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
 
-                let geo = self.fb_device.geometry();
-                let (width, height) = (geo.width as usize, geo.height as usize);
-                let prev_buttons = self.cursor.buttons;
-                self.cursor.update(dx, dy, buttons as u8, width, height);
-
-                let left_down = (buttons & 1) != 0;
-                let left_was_down = (prev_buttons & 1) != 0;
-                let left_pressed = left_down && !left_was_down;
-                let left_released = !left_down && left_was_down;
-
-                if left_pressed {
-                    self.on_pointer_down();
-                }
-
-                if left_down {
-                    self.continue_drag();
-                    self.continue_widget_interaction();
-                } else if left_released {
-                    if let Some(drag) = &self.drag_state {
-                        if let DragKind::CloseButton = drag.kind {
-                            self.on_close_button_up(drag.window_id);
-                        }
-                    }
-                    self.drag_state = None;
-                    self.end_widget_interaction();
-                } else {
-                    self.drag_state = None;
-                }
-
-                self.update_cursor_kind();
+                self.on_mouse_event(dx, dy, buttons);
             }
         }
     }

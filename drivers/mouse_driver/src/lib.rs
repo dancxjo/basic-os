@@ -44,20 +44,8 @@ impl App for MouseDriver {
     }
 
     fn tick(&mut self, _ctx: &mut AppContext<'_>, _tick: u64) {
-        if let Some(handle) = self.irq_handle {
-            let mut buf = [0u8; 16];
-            if let Some(dev) = self.device_handle {
-                loop {
-                    let n = sys::dev_read(dev, &mut buf);
-                    if n == 0 {
-                        break;
-                    }
-                    for i in 0..n {
-                        self.handle_byte(buf[i]);
-                    }
-                }
-            }
-            let _ = sys::irq_ack(handle);
+        for event in self.poll_events() {
+            self.emit_mouse_event(event);
         }
     }
 
@@ -97,16 +85,34 @@ impl App for MouseDriver {
 static mut MOUSE_DECODER: PacketDecoder = PacketDecoder::new();
 
 impl MouseDriver {
-    fn handle_byte(&self, byte: u8) {
-        // println!("Mouse byte: {:02x}", byte);
-        let event = unsafe { MOUSE_DECODER.feed(byte) };
-        if let Some(event) = event {
-            // println!("Mouse event: {:?}", event);
-            self.emit_mouse_event(event);
+    pub fn poll_events(&mut self) -> alloc::vec::Vec<MouseEvent> {
+        let mut events = alloc::vec::Vec::new();
+        if let Some(handle) = self.irq_handle {
+            let mut buf = [0u8; 16];
+            if let Some(dev) = self.device_handle {
+                loop {
+                    let n = sys::dev_read(dev, &mut buf);
+                    if n == 0 {
+                        break;
+                    }
+                    for i in 0..n {
+                        if let Some(event) = self.handle_byte(buf[i]) {
+                            events.push(event);
+                        }
+                    }
+                }
+            }
+            let _ = sys::irq_ack(handle);
         }
+        events
     }
 
-    fn emit_mouse_event(&self, event: MouseEvent) {
+    fn handle_byte(&self, byte: u8) -> Option<MouseEvent> {
+        // println!("Mouse byte: {:02x}", byte);
+        unsafe { MOUSE_DECODER.feed(byte) }
+    }
+
+    pub fn emit_mouse_event(&self, event: MouseEvent) {
         let mut move_fields = BTreeMap::new();
         move_fields.insert(canon::KIND, Value::Symbol(canon::MOVE));
         move_fields.insert(canon::DEVICE_ID, Value::Uuid(self.device_id));
@@ -130,11 +136,11 @@ impl MouseDriver {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct MouseEvent {
-    dx: i8,
-    dy: i8,
-    buttons: u8,
-    buttons_changed: bool,
+pub struct MouseEvent {
+    pub dx: i8,
+    pub dy: i8,
+    pub buttons: u8,
+    pub buttons_changed: bool,
 }
 
 #[derive(Clone, Copy)]
