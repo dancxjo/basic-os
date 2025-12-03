@@ -214,6 +214,7 @@ dependencies = [
  "demo_app",
  "flate2",
  "graph_viewer",
+ "init",
  "rootfs",
  "self_editing_demo",
  "serde",
@@ -734,14 +735,8 @@ dependencies = [
 name = "init"
 version = "0.1.0"
 dependencies = [
- "app-framebuffer-driver",
- "app-keyboard-driver",
- "app-mouse-driver",
- "compositor",
- "text_editor",
  "thing_abi",
  "userland",
- "widget_host",
 ]
 
 [[package]]
@@ -783,6 +778,7 @@ dependencies = [
  "sha2",
  "spin 0.10.0",
  "spinning_top 0.3.0",
+ "standalone",
  "thing_abi",
  "thingos_kernel_std",
  "uuid",
@@ -1516,6 +1512,20 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "standalone"
+version = "0.1.0"
+dependencies = [
+ "app-framebuffer-driver",
+ "app-keyboard-driver",
+ "app-mouse-driver",
+ "compositor",
+ "text_editor",
+ "thing_abi",
+ "userland",
+ "widget_host",
+]
 
 [[package]]
 name = "subtle"

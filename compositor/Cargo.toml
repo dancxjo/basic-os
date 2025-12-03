@@ -21,6 +21,7 @@ thing_viewer = { path = "../apps/thing_viewer", optional = true }
 text_editor = { path = "../apps/text_editor", optional = true }
 rootfs = { path = "../apps/rootfs", optional = true }
 graph_viewer = { path = "../apps/graph_viewer", optional = true }
+init = { path = "../apps/init", optional = true }
 widget_host = { path = "../widgets/host", optional = true }
 widget_button = { path = "../widgets/button" }
 x86_64 = { version = "0.14.11", default-features = false, features = [
@@ -49,16 +50,6 @@ kernel_standalone = [
   "userland/disable_panic_handler",
   "rootfs",
 ]
-
-[[bin]]
-name = "compositor"
-path = "src/main.rs"
-
-[lib]
-path = "src/lib.rs"
-
-[profile.release]
-panic = "abort"
 default = []
 demo-apps = []
 std = ["userland/std"]
@@ -71,4 +62,18 @@ host = [
   "app-keyboard-driver/std",
   "app-framebuffer-driver/std",
   "thing_viewer/std",
+  "init/std",
+  "rootfs/std",
+  "text_editor/std",
+  "widget_host/std",
 ]
+
+[[bin]]
+name = "compositor"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[profile.release]
+panic = "abort"

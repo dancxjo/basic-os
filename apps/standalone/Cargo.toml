@@ -1,0 +1,18 @@
+[package]
+name = "standalone"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+thing_abi = { path = "../../thing_abi" }
+compositor = { path = "../../compositor" }
+app-framebuffer-driver = { path = "../../drivers/framebuffer_driver" }
+app-keyboard-driver = { path = "../../drivers/keyboard_driver" }
+app-mouse-driver = { path = "../../drivers/mouse_driver" }
+widget_host = { path = "../../widgets/host" }
+text_editor = { path = "../../apps/text_editor" }
+
+[features]
+default = []
+std = ["userland/std"]

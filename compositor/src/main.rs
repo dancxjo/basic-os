@@ -139,7 +139,7 @@ fn main() {
     userland::ensure_kernel_runtime();
 
     // Register host apps
-    userland::sys::register_host_app("init", init::app_main);
+    userland::sys::register_host_app("init", userland::app::run_app::<init::InitApp>);
     userland::sys::register_host_app("demo_app", userland::app::run_app::<demo_app::DemoApp>);
     userland::sys::register_host_app("self_editing_demo", self_editing_demo::app_main);
     userland::sys::register_host_app(

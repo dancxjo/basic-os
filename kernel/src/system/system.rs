@@ -293,7 +293,7 @@ fn run_standalone_compositor() -> ! {
 
     // Safety: We are passing the raw framebuffer pointer to the compositor.
     // The kernel will not touch it anymore in this mode (cooperative single task).
-    init::desktop::run_desktop(runtime, syscall_handler);
+    standalone::run_desktop(runtime, syscall_handler);
 }
 
 #[cfg(feature = "kernel_multitask")]

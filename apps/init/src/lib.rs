@@ -1,8 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "kernel_standalone")]
-pub mod desktop;
-
 use userland::canon;
 use userland::fs::{self, FsKind};
 use userland::prelude::*;

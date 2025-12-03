@@ -1,4 +1,4 @@
-#![cfg(feature = "kernel_standalone")]
+#![no_std]
 
 extern crate alloc;
 
