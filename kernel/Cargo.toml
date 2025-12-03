@@ -38,9 +38,17 @@ uuid = { version = "=1.10", default-features = false, features = [
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 thing_abi = { path = "../thing_abi" }
 [features]
-default = ["apic", "threading"]
+# Default: simplest, safest mode
+default = []
+
+# Enable preemptive multitasking: scheduler, timer-driven context switching, user tasks
+kernel_multitask = []
+
+# Enable advanced MM: pools, page-table region, etc.
+mm_advanced = []
+
+# Existing toggles
 apic = []
-threading = []
 debug_heap_bump = []
 debug_frame_sanity = []
 debug_heap_canaries = []
