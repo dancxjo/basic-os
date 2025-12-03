@@ -1,13 +1,13 @@
 use crate::arch::x86_64::memory::{kernel_base, kernel_end};
 extern crate alloc;
-use alloc::boxed::Box;
 use crate::arch::x86_64::gdt::set_kernel_stack;
-use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_VIRT_BASE, KERNEL_STACK_TOP};
+use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_TOP, KERNEL_STACK_VIRT_BASE};
 use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
 use crate::task::scheduler::Task;
+use alloc::boxed::Box;
 use core::ptr;
 use goblin::elf::Elf;
 use log::info;
@@ -344,6 +344,10 @@ pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: Phys
         }
     }
     let entry_fn: extern "C" fn() = unsafe { core::mem::transmute(entry.as_u64()) };
-    let ctx = Box::new(prepare_context(entry_fn, stack_top.as_u64(), TaskMode::User));
+    let ctx = Box::new(prepare_context(
+        entry_fn,
+        stack_top.as_u64(),
+        TaskMode::User,
+    ));
     unsafe { jump_to_context(&*ctx, new_table) };
 }
