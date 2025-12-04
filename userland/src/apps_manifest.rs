@@ -33,19 +33,19 @@ pub static APPS: &[AppSpec] = &[
     AppSpec {
         name: "thing_viewer",
         bin_name: "thing_viewer",
-        autostart: true,
+        autostart: false,
         show_in_graph_viewer: true,
     },
     AppSpec {
         name: "text_editor",
         bin_name: "text_editor",
-        autostart: true,
+        autostart: false,
         show_in_graph_viewer: true,
     },
     AppSpec {
         name: "self_editing_demo",
         bin_name: "self_editing_demo",
-        autostart: true,
+        autostart: false,
         show_in_graph_viewer: true,
     },
     AppSpec {

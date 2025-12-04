@@ -39,7 +39,7 @@ const RESIZE_CORNER_SIZE: i32 = 8;
 const MIN_WINDOW_WIDTH: i32 = 140;
 const MIN_WINDOW_HEIGHT: i32 = 100;
 const CLOSE_BUTTON_SIZE: i32 = 28;
-const CLOSE_BUTTON_MARGIN_RIGHT: i32 = 8;
+const CLOSE_BUTTON_MARGIN_RIGHT: i32 = 2;
 const CLOSE_BUTTON_MARGIN_TOP: i32 = 2;
 const TITLE_TEXT_LEFT_PAD: i32 = 8;
 const TITLE_TEXT_TOP_OFFSET: i32 = 8;
@@ -78,7 +78,6 @@ fn create_close_button() -> (Uuid, ButtonState) {
     let mut props = BTreeMap::new();
     props.insert(canon::KIND, Value::Symbol(COMPOSITOR_WIDGET));
     props.insert(canon::TEXT, Value::Text("✕".to_string()));
-    props.insert(canon::ICON_NAME, Value::Text("close".to_string()));
     props.insert(canon::TARGET, Value::Text("close_window".to_string()));
 
     graph::fiat(Some(widget_id), COMPOSITOR_WIDGET, props);
@@ -87,8 +86,9 @@ fn create_close_button() -> (Uuid, ButtonState) {
         label: "✕".to_string(),
         target: "close_window".to_string(),
         pressed: false,
-        icon_char: '\u{2715}',
-        show_label: false,
+        hovered: false,
+        icon: None,
+        show_label: true,
     };
 
     (widget_id, state)
@@ -3137,7 +3137,9 @@ where
     fn draw_windows(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
         for id in self.ordered_window_ids() {
             if let Some(surface) = self.windows.get(&id).cloned() {
-                if self.debug_layout_mode {
+                if surface.window.is_root {
+                    self.draw_window_frameless(scene, &surface, fb_width, fb_height);
+                } else if self.debug_layout_mode {
                     self.draw_debug_window(scene, &surface, fb_width, fb_height);
                 } else {
                     self.draw_window(scene, &surface, fb_width, fb_height);
@@ -3402,6 +3404,17 @@ where
             rect: Rect::new(x + w - 2, y, 2, h as u32),
             color,
         });
+
+        if let Some(bitmap) = &widget.bitmap {
+            if let Some(bmp) = decode_bmp(bitmap) {
+                scene.push(SceneItem::BlitImage {
+                    rect: Rect::new(x, y, w as u32, h as u32),
+                    image: Arc::new(bmp),
+                    repeat: false,
+                    offset: (0, 0),
+                });
+            }
+        }
 
         if Some(widget.id) == self.active_widget {
             scene.push(SceneItem::HatchRect {

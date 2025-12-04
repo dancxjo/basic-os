@@ -110,18 +110,26 @@ impl App for WidgetHost {
                 if thing.kind == canon::WIDGET {
                     // Initialization
                     if !self.widgets.contains_key(&thing.id) {
-                        let width = thing
-                            .fields
-                            .get(&canon::WIDTH)
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(200) as u32;
-                        let height = thing
-                            .fields
-                            .get(&canon::HEIGHT)
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(200) as u32;
+                        let width_prop = thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64());
+                        let height_prop = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64());
 
-                        let context = WidgetContext {
+                        let mut width = width_prop.unwrap_or(200) as u32;
+                        let mut height = height_prop.unwrap_or(200) as u32;
+
+                        // Check widget kind
+                        let kind_sym = canon::cc('W', 'K');
+                        let widget_kind_str = match thing.fields.get(&kind_sym) {
+                            Some(Value::Text(s)) => Some(s.as_str()),
+                            _ => None,
+                        };
+
+                        if matches!(widget_kind_str, Some("toolbar_button") | Some("button"))
+                            && height_prop.is_none()
+                        {
+                            height = 32;
+                        }
+
+                        let mut context = WidgetContext {
                             widget_id: thing.id,
                             graph: GraphHandle,
                             events: WidgetEventRx,
@@ -132,13 +140,6 @@ impl App for WidgetHost {
                             },
                         };
 
-                        // Check widget kind
-                        let kind_sym = canon::cc('W', 'K');
-                        let widget_kind_str = match thing.fields.get(&kind_sym) {
-                            Some(Value::Text(s)) => Some(s.as_str()),
-                            _ => None,
-                        };
-
                         let state = match widget_kind_str {
                             Some("scrollbar_thumb") => {
                                 Some(WidgetState::Scrollbar(ScrollbarThumbWidget::init(&context)))
@@ -147,7 +148,36 @@ impl App for WidgetHost {
                                 Some(WidgetState::Toolbar(ToolbarWidget::init(&context)))
                             }
                             Some("toolbar_button") | Some("button") => {
-                                Some(WidgetState::Button(ButtonWidget::init(&context)))
+                                let state = ButtonWidget::init(&context);
+                                let (measured_w, measured_h) =
+                                    ButtonWidget::intrinsic_size(&state, height);
+                                let new_width = if width_prop.is_some() {
+                                    measured_w.max(width)
+                                } else {
+                                    measured_w
+                                };
+                                let new_height = if height_prop.is_some() {
+                                    measured_h.max(height)
+                                } else {
+                                    measured_h
+                                };
+
+                                if new_width != width || new_height != height {
+                                    width = new_width;
+                                    height = new_height;
+                                    context.framebuffer = SharedFramebuffer {
+                                        width,
+                                        height,
+                                        stride: width * 4,
+                                    };
+
+                                    let mut updates = graph::map();
+                                    updates.insert(canon::WIDTH, Value::U64(width as u64));
+                                    updates.insert(canon::HEIGHT, Value::U64(height as u64));
+                                    graph::fiat(Some(thing.id), canon::WIDGET, updates);
+                                }
+
+                                Some(WidgetState::Button(state))
                             }
                             Some("listbox_default") | Some("list") => Some(
                                 WidgetState::ListboxDefault(ListboxDefaultWidget::init(&context)),

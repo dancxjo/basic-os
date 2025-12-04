@@ -1,7 +1,7 @@
-use userland::prelude::*;
-use userland::{canon, graph, AppEvent};
-use userland::uuid::Uuid;
 use alloc::string::ToString;
+use userland::prelude::*;
+use userland::uuid::Uuid;
+use userland::{canon, graph, AppEvent};
 
 pub struct Terminal {
     window: WindowHandle,

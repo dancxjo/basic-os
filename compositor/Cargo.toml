@@ -65,6 +65,7 @@ host = [
   "init/std",
   "rootfs/std",
   "text_editor/std",
+  "graph_viewer/std",
   "widget_host/std",
 ]
 

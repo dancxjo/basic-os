@@ -73,7 +73,61 @@ impl App for DemoApp {
         add_widget("demo_button", "button", 100, 30, Some(button_extras), 1);
 
         // 3. Listbox Widget
-        add_widget("demo_listbox", "listbox_default", 150, 100, None, 2);
+        add_widget("demo_listbox", "listbox_default", 200, 200, None, 2);
+
+        // Populate listbox items
+        let listbox_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"demo_listbox");
+        let items = [
+            ("Home", "home"),
+            ("Menu", "menu"),
+            ("Settings", "settings"),
+            ("Close", "close"),
+            ("Back", "arrow-back"),
+            ("No Icon", ""),
+        ];
+
+        for (i, (label, icon)) in items.iter().enumerate() {
+            let item_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("item_{}", i).as_bytes());
+            let mut fields = graph::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::canon(b'I', b'T', b'M'))); // ITEM
+            fields.insert(canon::ITEM_LABEL, Value::Text(label.to_string()));
+            fields.insert(canon::ITEM_VALUE, Value::Text(format!("val_{}", i)));
+            fields.insert(canon::ICON_NAME, Value::Text(icon.to_string()));
+            fields.insert(canon::PARENT, Value::Uuid(listbox_id));
+
+            graph::fiat(Some(item_id), canon::canon(b'I', b'T', b'M'), fields);
+        }
+
+        // 3.5 Icon Buttons
+        let icon_buttons = ["home", "menu", "settings", "close", "arrow-back"];
+        for (i, icon) in icon_buttons.iter().enumerate() {
+            let label = match *icon {
+                "home" => "Home",
+                "menu" => "Menu",
+                "settings" => "Settings",
+                "close" => "Close",
+                "arrow-back" => "Back",
+                _ => *icon,
+            };
+            let col = (i as i64) % 3;
+            let row = (i as i64) / 3;
+            let x = 20 + col * 140;
+            let y = 60 + row * 60;
+
+            let mut extras = BTreeMap::new();
+            extras.insert(canon::TEXT, Value::Text(label.to_string()));
+            extras.insert(canon::ICON_NAME, Value::Text(icon.to_string()));
+            extras.insert(canon::X, Value::I64(x));
+            extras.insert(canon::Y, Value::I64(y));
+            add_widget(
+                &format!("btn_{}", icon),
+                "button",
+                120,
+                40,
+                Some(extras),
+                10 + i as u64,
+            );
+        }
 
         // 4. Scrollbar Widget
         add_widget("demo_scrollbar", "scrollbar_thumb", 20, 100, None, 3);
