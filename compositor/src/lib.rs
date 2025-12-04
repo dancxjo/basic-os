@@ -794,7 +794,6 @@ pub struct Compositor<F, R> {
     modes: [ModeSlot; 12],
     saved_sky_geometry: BTreeMap<Uuid, Rect>,
     theme: Theme,
-    background: Arc<Bitmap>,
     drag_state: Option<DragState>,
     alt_down: bool,
     shift_down: bool,
@@ -814,7 +813,6 @@ where
     pub fn new(fb_device: F, renderer: R) -> Self {
         let geo = fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
-        let background = load_background();
         let theme = THEME;
         let cursor_sprites = build_cursor_sprites();
 
@@ -848,7 +846,6 @@ where
             modes,
             saved_sky_geometry: BTreeMap::new(),
             theme,
-            background,
             drag_state: None,
             alt_down: false,
             shift_down: false,
@@ -3126,11 +3123,9 @@ where
     }
 
     fn draw_background(&self, scene: &mut Scene, width: usize, height: usize) {
-        scene.push(SceneItem::BlitImage {
+        scene.push(SceneItem::FillRect {
             rect: Rect::new(0, 0, width as u32, height as u32),
-            image: self.background.clone(),
-            repeat: true,
-            offset: (0, 0),
+            color: self.theme.client_bg,
         });
     }
 
@@ -4156,25 +4151,6 @@ fn sanitize_fb_info(info: FramebufferGeometry) -> FramebufferGeometry {
         pitch,
         bpp,
     }
-}
-
-fn load_background() -> Arc<Bitmap> {
-    let data = include_bytes!("../../clouds.bmp");
-    Arc::new(decode_bmp(data).unwrap_or_else(|| fallback_background()))
-}
-
-fn fallback_background() -> Bitmap {
-    let width = 64;
-    let height = 64;
-    let mut pixels = Vec::with_capacity(width * height);
-    for y in 0..height {
-        for x in 0..width {
-            let shade = 0x10 + ((x ^ y) as u32 & 0x3F);
-            let color = 0x00050505 * shade;
-            pixels.push(color);
-        }
-    }
-    Bitmap::new(width, height, pixels)
 }
 
 fn decode_bmp(data: &[u8]) -> Option<Bitmap> {

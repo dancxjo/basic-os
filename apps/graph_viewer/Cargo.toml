@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+font8x8 = { version = "0.3", default-features = false }
 userland = { path = "../../userland" }
 thing_abi = { path = "../../thing_abi" }
 uuid = { version = "1.10.0", default-features = false, features = ["v5"] }
