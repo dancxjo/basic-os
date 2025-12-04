@@ -1,0 +1,29 @@
+[package]
+name = "prefs_demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+uuid = { version = "=1.10", default-features = false, features = [
+    "v5",
+    "serde",
+] }
+
+[features]
+default = []
+std = ["userland/std"]
+host = ["std"]
+
+[[bin]]
+name = "prefs_demo"
+path = "src/main.rs"
+
+[profile.release]
+panic = "abort"
+
+[lib]
+path = "src/lib.rs"
+
+[unstable]
+build-std = ["core"]

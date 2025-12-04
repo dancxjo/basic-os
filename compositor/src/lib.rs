@@ -89,6 +89,8 @@ fn create_close_button() -> (Uuid, ButtonState) {
         hovered: false,
         icon: None,
         show_label: true,
+        bind_node: None,
+        bind_index: None,
     };
 
     (widget_id, state)
@@ -1468,6 +1470,8 @@ where
         }
         if widget.role == ROLE_TOOLBAR {
             return TOOLBAR_HEIGHT;
+        } else if widget.role == ROLE_TOOLBAR_BUTTON || widget.role == "toolbar_button" {
+            return widget.height.map(|v| v as i32).unwrap_or(32);
         } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
             let children: Vec<Uuid> = self
                 .widgets
@@ -1623,6 +1627,8 @@ where
             return Some(widget.id);
         } else if widget.role == ROLE_EDITOR_ROOT {
             return Some(widget.id);
+        } else if widget.role == ROLE_TOOLBAR_BUTTON || widget.role == "toolbar_button" {
+            return Some(widget.id);
         }
 
         if widget.role == ROLE_TOOLBAR_BUTTON {
@@ -1672,30 +1678,23 @@ where
         let (gap, spec) = if let Some(surface) = self.windows.get(&window_id) {
             let w = &surface.window;
             let gap = w.gap.unwrap_or(0);
-            let spec = if let Some(dir) = &w.flex_direction {
-                match dir.as_str() {
-                    "row" => LayoutSpec::Flex {
-                        direction: FlexDirection::Row,
-                        justify: self.parse_justify(w.justify_content.as_deref()),
-                        align: self.parse_align(w.align_items.as_deref()),
-                    },
-                    "column" => LayoutSpec::Flex {
-                        direction: FlexDirection::Column,
-                        justify: self.parse_justify(w.justify_content.as_deref()),
-                        align: self.parse_align(w.align_items.as_deref()),
-                    },
-                    _ => LayoutSpec::Flex {
-                        direction: FlexDirection::Column,
-                        justify: JustifyContent::Start,
-                        align: AlignItems::Stretch,
-                    },
-                }
+            let (direction, justify, align) = if let Some(dir) = w.flex_direction {
+                (
+                    dir,
+                    w.justify_content.unwrap_or_default(),
+                    w.align_items.unwrap_or(AlignItems::Start),
+                )
             } else {
-                LayoutSpec::Flex {
-                    direction: FlexDirection::Column,
-                    justify: JustifyContent::Start,
-                    align: AlignItems::Stretch,
-                }
+                (
+                    FlexDirection::Column,
+                    JustifyContent::Start,
+                    AlignItems::Stretch,
+                )
+            };
+            let spec = LayoutSpec::Flex {
+                direction,
+                justify,
+                align,
             };
             (gap, spec)
         } else {
@@ -1739,25 +1738,6 @@ where
         }
     }
 
-    fn parse_justify(&self, s: Option<&str>) -> JustifyContent {
-        match s {
-            Some("center") => JustifyContent::Center,
-            Some("end") | Some("flex-end") => JustifyContent::End,
-            Some("space-between") => JustifyContent::SpaceBetween,
-            Some("space-around") => JustifyContent::SpaceAround,
-            _ => JustifyContent::Start,
-        }
-    }
-
-    fn parse_align(&self, s: Option<&str>) -> AlignItems {
-        match s {
-            Some("center") => AlignItems::Center,
-            Some("end") | Some("flex-end") => AlignItems::End,
-            Some("stretch") => AlignItems::Stretch,
-            _ => AlignItems::Start,
-        }
-    }
-
     fn layout_and_draw_children(
         &self,
         scene: &mut Scene,
@@ -1782,6 +1762,30 @@ where
             .collect();
 
         let rects = layout::layout(container_rect, spec, &items, gap);
+
+        for (child_id, rect) in &rects {
+            if let Some(child) = self.widgets.get(child_id) {
+                if child.kind.is_none() {
+                    continue;
+                }
+                let width_changed = child.width.map(|w| w as u32 != rect.width).unwrap_or(true);
+                let height_changed = child
+                    .height
+                    .map(|h| h as u32 != rect.height)
+                    .unwrap_or(true);
+
+                if width_changed || height_changed {
+                    let mut updates = graph::map();
+                    if width_changed {
+                        updates.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                    }
+                    if height_changed {
+                        updates.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+                    }
+                    graph::fiat(Some(*child_id), canon::WIDGET, updates);
+                }
+            }
+        }
 
         for (child_id, rect) in rects {
             if let Some(child) = self.widgets.get(&child_id) {
@@ -1895,30 +1899,24 @@ where
                 .map(|w| w.id)
                 .collect();
 
-            let spec = if let Some(dir) = &widget.flex_direction {
-                match dir.as_str() {
-                    "row" => LayoutSpec::Flex {
-                        direction: FlexDirection::Row,
-                        justify: self.parse_justify(widget.justify_content.as_deref()),
-                        align: self.parse_align(widget.align_items.as_deref()),
-                    },
-                    "column" => LayoutSpec::Flex {
-                        direction: FlexDirection::Column,
-                        justify: self.parse_justify(widget.justify_content.as_deref()),
-                        align: self.parse_align(widget.align_items.as_deref()),
-                    },
-                    _ => LayoutSpec::Flex {
-                        direction: FlexDirection::Column,
-                        justify: JustifyContent::Start,
-                        align: AlignItems::Stretch,
-                    },
-                }
+            let (direction, justify, align) = if let Some(dir) = widget.flex_direction {
+                (
+                    dir,
+                    widget.justify_content.unwrap_or_default(),
+                    widget.align_items.unwrap_or(AlignItems::Start),
+                )
             } else {
-                LayoutSpec::Flex {
-                    direction: FlexDirection::Column,
-                    justify: JustifyContent::Start,
-                    align: AlignItems::Stretch,
-                }
+                (
+                    FlexDirection::Column,
+                    JustifyContent::Start,
+                    AlignItems::Stretch,
+                )
+            };
+
+            let spec = LayoutSpec::Flex {
+                direction,
+                justify,
+                align,
             };
 
             let gap = widget.gap.unwrap_or(0);
@@ -2400,68 +2398,6 @@ where
         }
     }
 
-    fn maximize_window(&mut self, window_id: Uuid) {
-        let geo = self.fb_device.geometry();
-        let width = geo.width as u64;
-        let height = geo.height as u64;
-        let top_offset = AUTO_TILE_TOP_OFFSET as u64;
-        let height = height.saturating_sub(top_offset);
-
-        if let Some(entry) = self.windows.get_mut(&window_id) {
-            entry.window.x = 0;
-            entry.window.y = top_offset;
-            entry.window.width = width;
-            entry.window.height = height;
-            entry.window.mode_index = Some(1); // F2
-        }
-
-        let mut props = BTreeMap::new();
-        props.insert(canon::X, Value::U64(0));
-        props.insert(canon::Y, Value::U64(top_offset));
-        props.insert(canon::WIDTH, Value::U64(width));
-        props.insert(canon::HEIGHT, Value::U64(height));
-        props.insert(canon::MODE_INDEX, Value::U64(1));
-
-        self.update_window_props(window_id, props);
-    }
-
-    fn handle_f2_switch(&mut self) {
-        if self.active_mode != 1 {
-            if let Some(active_id) = self.active_window {
-                let is_root = self
-                    .windows
-                    .get(&active_id)
-                    .map(|w| w.window.is_root)
-                    .unwrap_or(false);
-
-                if !is_root {
-                    let mut current_mode_idx = None;
-                    for (i, mode) in self.modes.iter().enumerate() {
-                        if mode.windows.contains(&active_id) {
-                            current_mode_idx = Some(i);
-                            break;
-                        }
-                    }
-
-                    if let Some(old_idx) = current_mode_idx {
-                        if old_idx != 1 {
-                            if let Some(pos) = self.modes[old_idx]
-                                .windows
-                                .iter()
-                                .position(|x| *x == active_id)
-                            {
-                                self.modes[old_idx].windows.remove(pos);
-                            }
-                            self.modes[1].windows.push(active_id);
-                            self.maximize_window(active_id);
-                        }
-                    }
-                }
-            }
-        }
-        self.switch_mode(1);
-    }
-
     pub fn switch_mode(&mut self, new_mode_idx: usize) {
         if self.active_mode == new_mode_idx {
             return;
@@ -2510,11 +2446,7 @@ where
                     self.fb_dirty = true;
                 } else if key.0 >= 0xF001 && key.0 <= 0xF00C {
                     let mode_idx = (key.0 - 0xF001) as usize;
-                    if mode_idx == 1 {
-                        self.handle_f2_switch();
-                    } else {
-                        self.switch_mode(mode_idx);
-                    }
+                    self.switch_mode(mode_idx);
                 } else if key == canon::cc('T', 'B') {
                     self.handle_tab_focus();
                 }

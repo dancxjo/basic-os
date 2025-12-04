@@ -24,6 +24,8 @@ widget_top_status_bar = { path = "../top_status_bar" }
 widget_status_widget = { path = "../status_widget" }
 widget_thing_inspector = { path = "../thing_inspector" }
 widget_graph_mini_viewer = { path = "../graph_mini_viewer" }
+widget_plain_text = { path = "../plain_text" }
+widget_dropdown = { path = "../dropdown" }
 
 [features]
 default = []

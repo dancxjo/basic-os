@@ -1,0 +1,13 @@
+[package]
+name = "widget_dropdown"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userland = { path = "../../userland" }
+thing_abi = { path = "../../thing_abi" }
+unifont = { version = "1.1.0+data-15.1.05", default-features = false }
+
+[features]
+default = []
+std = ["userland/std"]

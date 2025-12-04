@@ -2,28 +2,7 @@ use crate::Rect;
 use alloc::vec::Vec;
 use uuid::Uuid;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FlexDirection {
-    Row,
-    Column,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum JustifyContent {
-    Start,
-    Center,
-    End,
-    SpaceBetween,
-    SpaceAround,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AlignItems {
-    Start,
-    Center,
-    End,
-    Stretch,
-}
+pub use userland::flex::{AlignItems, FlexDirection, JustifyContent};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutSpec {

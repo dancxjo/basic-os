@@ -76,60 +76,60 @@ pub fn create_user_page_table(
     };
     // Copy kernel mappings into the new user page table so kernel code and data
     // remain accessible when the address space is switched.
-    info!("Mirroring kernel region...");
-    mirror_kernel_region(
-        &mut offset_page_table,
-        active_mapper,
-        frame_allocator,
-        (kernel_base()..kernel_end()).into(),
-    );
-    info!("Mirroring heap region...");
-    mirror_kernel_region(
-        &mut offset_page_table,
-        active_mapper,
-        frame_allocator,
-        (VirtAddr::new(HEAP_START)..VirtAddr::new(HEAP_START + HEAP_SIZE as u64)).into(),
-    );
-    info!("Mirroring kernel stack region...");
-    mirror_kernel_region(
-        &mut offset_page_table,
-        active_mapper,
-        frame_allocator,
-        (VirtAddr::new(KERNEL_STACK_VIRT_BASE)
-            ..VirtAddr::new(KERNEL_STACK_VIRT_BASE + (KERNEL_STACK_PAGES as u64 * 4096)))
-            .into(),
-    );
+    // info!("Mirroring kernel region...");
+    // mirror_kernel_region(
+    //     &mut offset_page_table,
+    //     active_mapper,
+    //     frame_allocator,
+    //     (kernel_base()..kernel_end()).into(),
+    // );
+    // info!("Mirroring heap region...");
+    // mirror_kernel_region(
+    //     &mut offset_page_table,
+    //     active_mapper,
+    //     frame_allocator,
+    //     (VirtAddr::new(HEAP_START)..VirtAddr::new(HEAP_START + HEAP_SIZE as u64)).into(),
+    // );
+    // info!("Mirroring kernel stack region...");
+    // mirror_kernel_region(
+    //     &mut offset_page_table,
+    //     active_mapper,
+    //     frame_allocator,
+    //     (VirtAddr::new(KERNEL_STACK_VIRT_BASE)
+    //         ..VirtAddr::new(KERNEL_STACK_VIRT_BASE + (KERNEL_STACK_PAGES as u64 * 4096)))
+    //         .into(),
+    // );
 
     // Mirror task stacks (scheduler uses a different region)
     const TASK_STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
     const MAX_TASKS_TO_MAP: u64 = 64;
     let task_stack_size = Task::stack_size(); // Keep mirrored size in sync with scheduler stacks.
-    info!("Mirroring task stack region...");
-    mirror_kernel_region(
-        &mut offset_page_table,
-        active_mapper,
-        frame_allocator,
-        (VirtAddr::new(TASK_STACK_REGION_BASE)
-            ..VirtAddr::new(TASK_STACK_REGION_BASE + MAX_TASKS_TO_MAP * task_stack_size))
-            .into(),
-    );
+    // info!("Mirroring task stack region...");
+    // mirror_kernel_region(
+    //     &mut offset_page_table,
+    //     active_mapper,
+    //     frame_allocator,
+    //     (VirtAddr::new(TASK_STACK_REGION_BASE)
+    //         ..VirtAddr::new(TASK_STACK_REGION_BASE + MAX_TASKS_TO_MAP * task_stack_size))
+    //         .into(),
+    // );
 
     // Ensure MMIO regions like the local APIC remain accessible.
     const APIC_BASE: u64 = 0xfee0_0000;
-    mirror_kernel_region(
-        &mut offset_page_table,
-        active_mapper,
-        frame_allocator,
-        (VirtAddr::new(APIC_BASE)..VirtAddr::new(APIC_BASE + 0x1000)).into(),
-    );
+    // mirror_kernel_region(
+    //     &mut offset_page_table,
+    //     active_mapper,
+    //     frame_allocator,
+    //     (VirtAddr::new(APIC_BASE)..VirtAddr::new(APIC_BASE + 0x1000)).into(),
+    // );
 
     const HPET_BASE: u64 = 0xfed0_0000;
-    mirror_kernel_region(
-        &mut offset_page_table,
-        active_mapper,
-        frame_allocator,
-        (VirtAddr::new(HPET_BASE)..VirtAddr::new(HPET_BASE + 0x1000)).into(),
-    );
+    // mirror_kernel_region(
+    //     &mut offset_page_table,
+    //     active_mapper,
+    //     frame_allocator,
+    //     (VirtAddr::new(HPET_BASE)..VirtAddr::new(HPET_BASE + 0x1000)).into(),
+    // );
 
     // Verify kernel mapping
     let kernel_func_addr = VirtAddr::new(jump_to_user as usize as u64);

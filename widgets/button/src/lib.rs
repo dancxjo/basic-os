@@ -5,10 +5,11 @@ extern crate alloc;
 use alloc::string::String;
 use thing_abi::GraphPropsGetRequest;
 use userland::graph::get_props;
+use userland::graph::{set_props, GraphPropsRequest};
 
 use core::convert::TryInto;
 use userland::widget_abi::*;
-use userland::{canon, Value};
+use userland::{canon, Symbol, Value};
 
 #[derive(Clone, Debug)]
 pub struct Icon {
@@ -58,6 +59,7 @@ const LABEL_SIDE_PADDING: i32 = 8;
 const MIN_BUTTON_WIDTH: i32 = 24;
 const DEFAULT_GLYPH_WIDTH: i32 = 8;
 const TEXT_HEIGHT: i32 = 16;
+const BIND_INDEX_SYM: Symbol = canon::canon(b'I', b'D', b'X');
 
 pub struct ButtonWidget;
 
@@ -69,6 +71,8 @@ pub struct State {
     pub hovered: bool,
     pub icon: Option<Icon>,
     pub show_label: bool,
+    pub bind_node: Option<userland::uuid::Uuid>,
+    pub bind_index: Option<i64>,
 }
 
 impl WidgetAbi for ButtonWidget {
@@ -80,13 +84,22 @@ impl WidgetAbi for ButtonWidget {
         let mut target = String::new();
         let mut icon_name = String::new();
         let mut show_label = true;
+        let mut bind_node = None;
+        let mut bind_index = None;
 
         // Define a local symbol for SHOW_LABEL until it's standardized
         let show_label_sym = canon::canon(b'S', b'H', b'L');
 
         let req = GraphPropsGetRequest {
             node: ctx.widget_id,
-            keys: alloc::vec![canon::TEXT, canon::TARGET, canon::ICON_NAME, show_label_sym],
+            keys: alloc::vec![
+                canon::TEXT,
+                canon::TARGET,
+                canon::ICON_NAME,
+                show_label_sym,
+                canon::BINDS,
+                BIND_INDEX_SYM,
+            ],
         };
 
         if let Some(props) = get_props(req) {
@@ -102,6 +115,12 @@ impl WidgetAbi for ButtonWidget {
             if let Some(Value::Bool(b)) = props.get(&show_label_sym) {
                 show_label = *b;
             }
+            if let Some(Value::Uuid(b)) = props.get(&canon::BINDS) {
+                bind_node = Some(*b);
+            }
+            if let Some(Value::I64(idx)) = props.get(&BIND_INDEX_SYM) {
+                bind_index = Some(*idx);
+            }
         }
 
         let icon = load_icon(icon_name.as_str());
@@ -113,6 +132,8 @@ impl WidgetAbi for ButtonWidget {
             hovered: false,
             icon,
             show_label,
+            bind_node,
+            bind_index,
         }
     }
 
@@ -241,15 +262,14 @@ impl WidgetAbi for ButtonWidget {
             }
             WidgetEvent::Input(InputEvent::MouseUp { .. }) => {
                 if state.pressed {
+                    activate(state);
                     state.pressed = false;
-                    // Trigger launch
-                    if !state.target.is_empty() {
-                        // Emit LaunchRequest
-                        let mut fields = userland::map();
-                        fields.insert(canon::PACKAGE, Value::Text(state.target.clone()));
-                        fields.insert(canon::NAME, Value::Text(state.label.clone()));
-                        userland::fiat(None, canon::LAUNCH_REQUEST, fields);
-                    }
+                }
+            }
+            WidgetEvent::Input(InputEvent::KeyDown { key }) => {
+                let sym = Symbol::new(key);
+                if sym == canon::cc('E', 'N') || sym == canon::cc(' ', ' ') {
+                    activate(state);
                 }
             }
             WidgetEvent::Input(InputEvent::MouseMove { .. }) => {
@@ -436,3 +456,24 @@ fn parse_bmp_metadata(bmp: &[u8]) -> Option<(i32, i32, usize, bool)> {
 }
 
 include!("helpers.rs");
+
+fn activate(state: &State) {
+    if let Some(bind_node) = state.bind_node {
+        if let Some(idx) = state.bind_index {
+            let mut updates = userland::map();
+            updates.insert(canon::SELECTED_INDEX, Value::I64(idx));
+            set_props(GraphPropsRequest {
+                node: bind_node,
+                props: updates,
+            });
+        }
+    }
+
+    if !state.target.is_empty() {
+        // Emit LaunchRequest
+        let mut fields = userland::map();
+        fields.insert(canon::PACKAGE, Value::Text(state.target.clone()));
+        fields.insert(canon::NAME, Value::Text(state.label.clone()));
+        userland::fiat(None, canon::LAUNCH_REQUEST, fields);
+    }
+}

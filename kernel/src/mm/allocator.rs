@@ -12,7 +12,7 @@ use x86_64::{
 
 use crate::arch::x86_64::memory::{kernel_base, kernel_end};
 #[cfg(not(feature = "mm_advanced"))]
-use crate::bootloader::collect_memory_regions;
+use crate::bootloader::{collect_memory_regions, get_hhdm_offset};
 #[cfg(feature = "debug_heap_bump")]
 use crate::mm::bump_allocator::BumpAllocator;
 #[cfg(all(not(feature = "debug_heap_bump"), feature = "debug_heap_canaries"))]
@@ -110,23 +110,83 @@ impl BootFrameAllocator {
         let mut usable_ranges: [Option<Range<usize>>; 32] = Default::default();
         let mut range_count = 0;
 
+        // Calculate physical stack range to exclude
+        let rsp: u64;
+        unsafe { core::arch::asm!("mov {}, rsp", out(reg) rsp) };
+        let hhdm = get_hhdm_offset().as_u64();
+        let phys_rsp = rsp.checked_sub(hhdm).expect("RSP below HHDM offset?");
+
+        // Reserve 128KB below RSP and 4KB above (stack grows down)
+        // Align to page boundaries
+        let stack_phys_start = (phys_rsp.saturating_sub(0x20000)) & !0xFFF;
+        let stack_phys_end = (phys_rsp + 0x1000 + 0xFFF) & !0xFFF;
+
+        log::info!(
+            "BootFrameAllocator: Reserving stack {:#x} - {:#x}",
+            stack_phys_start,
+            stack_phys_end
+        );
+
+        // FORCE RESERVE the observed stack collision range
+        let collision_start = 0x37a5000;
+        let collision_end = 0x37e6000;
+        log::warn!(
+            "BootFrameAllocator: FORCE RESERVING collision range {:#x} - {:#x}",
+            collision_start,
+            collision_end
+        );
+
         for region in collect_memory_regions().iter() {
             if region.kind != "usable" {
                 continue;
             }
 
-            let start = core::cmp::max(region.base, SANITY_FORBIDDEN_RANGE.end);
-            let end = region.base + region.len;
-            if start >= end {
+            let region_start = core::cmp::max(region.base, SANITY_FORBIDDEN_RANGE.end);
+            let region_end = region.base + region.len;
+
+            if region_start >= region_end {
                 continue;
             }
 
-            if range_count >= usable_ranges.len() {
-                break;
-            }
+            // We need to exclude BOTH the boot stack AND the collision range.
+            // This is getting complicated to do with simple splits.
+            // Instead, let's just add the ranges that are valid.
 
-            usable_ranges[range_count] = Some(start as usize..end as usize);
-            range_count += 1;
+            // Helper to add a range if it's valid
+            let mut add_range = |start: u64, end: u64| {
+                if start < end {
+                    if range_count < usable_ranges.len() {
+                        usable_ranges[range_count] = Some(start as usize..end as usize);
+                        range_count += 1;
+                    }
+                }
+            };
+
+            // We have potentially 2 holes: Boot Stack and Collision Range.
+            // Let's sort them.
+            let mut holes = [
+                (stack_phys_start, stack_phys_end),
+                (collision_start, collision_end),
+            ];
+            holes.sort_by_key(|h| h.0);
+
+            let mut current = region_start;
+            for (hole_start, hole_end) in holes.iter() {
+                // Add segment before hole
+                let seg_end = core::cmp::min(region_end, *hole_start);
+                add_range(current, seg_end);
+
+                // Advance current past hole
+                current = core::cmp::max(current, *hole_end);
+            }
+            // Add remaining segment
+            add_range(current, region_end);
+        }
+
+        for i in 0..range_count {
+            if let Some(r) = &usable_ranges[i] {
+                log::info!("Range {}: {:#x} - {:#x}", i, r.start, r.end);
+            }
         }
 
         assert!(range_count > 0, "BootFrameAllocator found no usable ranges");
@@ -247,12 +307,10 @@ impl BootFrameAllocator {
                 }
 
                 self.next = aligned + 0x1000;
-
-                // if self.used_frames.contains(&aligned) {
-                //     continue;
-                // }
-
-                // self.used_frames.insert(aligned);
+                // log::info!("Allocated {:#x}, next={:#x}", aligned, self.next);
+                if aligned == 0x37a5000 {
+                    log::warn!("Allocating 0x37a5000! next was {:#x}", aligned);
+                }
                 return Some(aligned);
             } else {
                 self.current_range += 1;
@@ -271,6 +329,11 @@ unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
         let addr = self.allocate_frame_internal()?;
         let phys_addr = PhysAddr::new(addr as u64);
+
+        if addr >= 0x37a5000 && addr <= 0x37e6000 {
+            log::warn!("Allocating frame in STACK RANGE: {:#x}", addr);
+        }
+
         check_reserved_ranges(phys_addr);
         SANITY_CAPTURE.lock().record(phys_addr);
         let frame = PhysFrame::from_start_address(phys_addr).ok();

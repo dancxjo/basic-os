@@ -189,6 +189,7 @@ dependencies = [
  "init",
  "keyboard-driver",
  "mouse-driver",
+ "prefs_demo",
  "rootfs",
  "self_editing_demo",
  "serde",
@@ -1089,6 +1090,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "prefs_demo"
+version = "0.1.0"
+dependencies = [
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1878,6 +1887,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget_dropdown"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
+]
+
+[[package]]
 name = "widget_graph_mini_viewer"
 version = "0.1.0"
 dependencies = [
@@ -1895,12 +1913,14 @@ dependencies = [
  "uuid",
  "widget_button",
  "widget_checkbox",
+ "widget_dropdown",
  "widget_graph_mini_viewer",
  "widget_image",
  "widget_launcher_entry",
  "widget_listbox_default",
  "widget_notification_dialog",
  "widget_notification_toast",
+ "widget_plain_text",
  "widget_radio_button",
  "widget_scrollbar_thumb",
  "widget_status_widget",
@@ -1950,6 +1970,15 @@ dependencies = [
  "unifont",
  "userland",
  "uuid",
+]
+
+[[package]]
+name = "widget_plain_text"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
 ]
 
 [[package]]

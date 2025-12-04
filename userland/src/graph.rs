@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 use core::convert::TryFrom;
 use core::fmt;
 
+use crate::flex::{AlignItems, FlexDirection, JustifyContent};
 use crate::runtime;
 use crate::{canon, sys, Symbol, Value};
 use thing_abi::{AbiRequest, AbiResponse, GrantCapabilityRequest, Map, WatchQuery};
@@ -392,9 +393,9 @@ pub struct Window {
     pub mode_index: Option<u8>,
     pub window_rect: Option<WindowRect>,
     pub gap: Option<i32>,
-    pub flex_direction: Option<String>,
-    pub justify_content: Option<String>,
-    pub align_items: Option<String>,
+    pub flex_direction: Option<FlexDirection>,
+    pub justify_content: Option<JustifyContent>,
+    pub align_items: Option<AlignItems>,
 }
 
 impl Thingable for Window {
@@ -468,15 +469,15 @@ impl Thingable for Window {
         let flex_direction = thing
             .fields
             .get(&canon::cc('F', 'D'))
-            .and_then(extract_text);
+            .and_then(FlexDirection::from_value);
         let justify_content = thing
             .fields
             .get(&canon::cc('J', 'C'))
-            .and_then(extract_text);
+            .and_then(JustifyContent::from_value);
         let align_items = thing
             .fields
             .get(&canon::cc('A', 'I'))
-            .and_then(extract_text);
+            .and_then(AlignItems::from_value);
 
         Some(Self {
             id: thing.id,
@@ -525,13 +526,13 @@ impl Window {
             map.insert(canon::GAP, Value::I64(gap.into()));
         }
         if let Some(dir) = &self.flex_direction {
-            map.insert(canon::cc('F', 'D'), Value::Text(dir.clone()));
+            map.insert(canon::cc('F', 'D'), dir.to_value());
         }
         if let Some(justify) = &self.justify_content {
-            map.insert(canon::cc('J', 'C'), Value::Text(justify.clone()));
+            map.insert(canon::cc('J', 'C'), justify.to_value());
         }
         if let Some(align) = &self.align_items {
-            map.insert(canon::cc('A', 'I'), Value::Text(align.clone()));
+            map.insert(canon::cc('A', 'I'), align.to_value());
         }
         map
     }

@@ -14,12 +14,14 @@ use userland::widget_abi::{
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_button::ButtonWidget;
 use widget_checkbox::CheckboxWidget;
+use widget_dropdown::DropdownWidget;
 use widget_graph_mini_viewer::GraphMiniViewerWidget;
 use widget_image::ImageWidget;
 use widget_launcher_entry::ThingWidget;
 use widget_listbox_default::ListboxDefaultWidget;
 use widget_notification_dialog::NotificationDialog;
 use widget_notification_toast::NotificationToast;
+use widget_plain_text::PlainTextWidget;
 use widget_radio_button::RadioButtonWidget;
 use widget_scrollbar_thumb::ScrollbarThumbWidget;
 use widget_status_widget::StatusWidget;
@@ -42,6 +44,8 @@ enum WidgetState {
     StatusWidget(<StatusWidget as WidgetAbi>::State),
     ThingInspector(<ThingInspectorWidget as WidgetAbi>::State),
     GraphMiniViewer(<GraphMiniViewerWidget as WidgetAbi>::State),
+    PlainText(<PlainTextWidget as WidgetAbi>::State),
+    Dropdown(<DropdownWidget as WidgetAbi>::State),
 }
 
 struct WidgetInstance {
@@ -222,6 +226,12 @@ impl App for WidgetHost {
                             Some("graph_mini_viewer") => Some(WidgetState::GraphMiniViewer(
                                 GraphMiniViewerWidget::init(&context),
                             )),
+                            Some("plain_text") => {
+                                Some(WidgetState::PlainText(PlainTextWidget::init(&context)))
+                            }
+                            Some("dropdown") | Some("select") => {
+                                Some(WidgetState::Dropdown(DropdownWidget::init(&context)))
+                            }
                             _ => {
                                 // Default to launcher for now if unspecified or unknown
                                 Some(WidgetState::Thing(ThingWidget::init(&context)))
@@ -239,6 +249,33 @@ impl App for WidgetHost {
                                     prev_down: false,
                                 },
                             );
+                        }
+                    }
+                    if let Some(instance) = self.widgets.get_mut(&thing.id) {
+                        let mut resized = false;
+                        if let Some(new_w) =
+                            thing.fields.get(&canon::WIDTH).and_then(|v| v.as_u64())
+                        {
+                            let new_w = new_w as u32;
+                            if new_w != instance.width {
+                                instance.width = new_w;
+                                resized = true;
+                            }
+                        }
+                        if let Some(new_h) =
+                            thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64())
+                        {
+                            let new_h = new_h as u32;
+                            if new_h != instance.height {
+                                instance.height = new_h;
+                                resized = true;
+                            }
+                        }
+
+                        if resized {
+                            let len = (instance.width.saturating_mul(instance.height) as usize)
+                                .saturating_mul(4);
+                            instance.framebuffer = vec![0; len];
                         }
                     }
 
@@ -309,6 +346,8 @@ impl App for WidgetHost {
                                 WidgetState::GraphMiniViewer(s) => {
                                     GraphMiniViewerWidget::handle_event(s, e)
                                 }
+                                WidgetState::PlainText(s) => PlainTextWidget::handle_event(s, e),
+                                WidgetState::Dropdown(s) => DropdownWidget::handle_event(s, e),
                             }
                         }
                     }
@@ -367,6 +406,10 @@ impl App for WidgetHost {
                                     WidgetState::GraphMiniViewer(s) => {
                                         GraphMiniViewerWidget::handle_event(s, e)
                                     }
+                                    WidgetState::PlainText(s) => {
+                                        PlainTextWidget::handle_event(s, e)
+                                    }
+                                    WidgetState::Dropdown(s) => DropdownWidget::handle_event(s, e),
                                 }
                             }
                         }
@@ -421,6 +464,12 @@ impl App for WidgetHost {
                 }
                 WidgetState::GraphMiniViewer(s) => {
                     GraphMiniViewerWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::PlainText(s) => {
+                    PlainTextWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::Dropdown(s) => {
+                    DropdownWidget::draw(s, &mut instance.framebuffer, rect)
                 }
             }
 

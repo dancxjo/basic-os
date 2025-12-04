@@ -3,6 +3,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
+use userland::flex::{AlignItems, FlexDirection, JustifyContent};
 use userland::prelude::*;
 use userland::{canon, graph, AppEvent, Symbol, ThingFilter};
 use uuid::Uuid;
@@ -98,11 +99,17 @@ impl App for DemoApp {
             mode_index: Some(1), // F2
             window_rect: None,
             gap: Some(sizes.gap),
-            flex_direction: Some("column".into()),
-            justify_content: Some("start".into()),
-            align_items: Some("stretch".into()),
+            flex_direction: Some(FlexDirection::Column),
+            justify_content: Some(JustifyContent::Start),
+            align_items: Some(AlignItems::Stretch),
         };
         let window = ctx.create_window_with(window_fields);
+
+        // Selection node for list/toolbar binding
+        let selection_node = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"demo_selection");
+        let mut selection_fields = graph::map();
+        selection_fields.insert(canon::SELECTED_INDEX, Value::I64(0));
+        graph::fiat(Some(selection_node), canon::WIDGET, selection_fields);
 
         // Top bar (fixed height)
         let top_bar_id = create_widget(
@@ -126,14 +133,14 @@ impl App for DemoApp {
             None,
             &[
                 (canon::ROLE, Value::Text("window_root".into())),
-                (canon::cc('F', 'D'), Value::Text("row".into())),
+                (canon::cc('F', 'D'), FlexDirection::Row.to_value()),
                 (canon::GAP, Value::I64((sizes.gap / 2).into())),
                 (canon::HEIGHT, Value::U64(40)),
                 (canon::cc('F', 'G'), Value::I64(0)),
                 (canon::cc('F', 'S'), Value::I64(0)),
             ],
         );
-        for entry in DASHBOARD_ENTRIES {
+        for (i, entry) in DASHBOARD_ENTRIES.iter().enumerate() {
             create_widget(
                 entry.label,
                 "toolbar_button",
@@ -144,16 +151,14 @@ impl App for DemoApp {
                     (canon::TARGET, Value::Text(entry.target.into())),
                     (canon::ICON_NAME, Value::Text(entry.icon.into())),
                     (canon::canon(b'S', b'H', b'L'), Value::Bool(true)),
+                    (canon::ROLE, Value::Text("control.toolbar_button".into())),
+                    (canon::BINDS, Value::Uuid(selection_node)),
+                    (canon::canon(b'I', b'D', b'X'), Value::I64(i as i64)),
+                    (canon::FOCUSABLE, Value::Bool(true)),
                 ],
                 widget_host_bundle,
             );
         }
-
-        // Selection node for list binding
-        let selection_node = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"demo_selection");
-        let mut selection_fields = graph::map();
-        selection_fields.insert(canon::SELECTED_INDEX, Value::I64(0));
-        graph::fiat(Some(selection_node), canon::WIDGET, selection_fields);
 
         // Body container (row: rail | main | sidebar)
         let body_id = create_container(
@@ -162,7 +167,7 @@ impl App for DemoApp {
             None,
             &[
                 (canon::ROLE, Value::Text("window_root".into())),
-                (canon::cc('F', 'D'), Value::Text("row".into())),
+                (canon::cc('F', 'D'), FlexDirection::Row.to_value()),
                 (canon::GAP, Value::I64(sizes.gap.into())),
                 (canon::cc('F', 'G'), Value::I64(1)),
                 (canon::cc('F', 'S'), Value::I64(1)),
@@ -180,6 +185,7 @@ impl App for DemoApp {
                 (canon::cc('F', 'G'), Value::I64(0)),
                 (canon::cc('F', 'S'), Value::I64(0)),
                 (canon::BINDS, Value::Uuid(selection_node)),
+                (canon::FOCUSABLE, Value::Bool(true)),
             ],
             widget_host_bundle,
         );
@@ -208,7 +214,7 @@ impl App for DemoApp {
             Some(body_id),
             &[
                 (canon::ROLE, Value::Text("window_root".into())),
-                (canon::cc('F', 'D'), Value::Text("column".into())),
+                (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
                 (canon::GAP, Value::I64(sizes.gap.into())),
                 (canon::WIDTH, Value::U64(sizes.sidebar_w)),
                 (canon::cc('F', 'G'), Value::I64(0)),
@@ -240,6 +246,78 @@ impl App for DemoApp {
                 (canon::HEIGHT, Value::U64(260)),
                 (canon::cc('F', 'G'), Value::I64(1)),
                 (canon::cc('F', 'S'), Value::I64(1)),
+            ],
+            widget_host_bundle,
+        );
+
+        // Controls panel (checkbox/radio/image)
+        let controls_panel = create_container(
+            "controls_panel",
+            &window,
+            Some(sidebar_id),
+            &[
+                (canon::ROLE, Value::Text("window_root".into())),
+                (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
+                (canon::GAP, Value::I64(6)),
+                (canon::cc('F', 'G'), Value::I64(0)),
+                (canon::cc('F', 'S'), Value::I64(0)),
+            ],
+        );
+
+        create_widget(
+            "control_checkbox",
+            "checkbox",
+            &window,
+            Some(controls_panel),
+            &[
+                (canon::TEXT, Value::Text("Enable feature".into())),
+                (canon::WIDTH, Value::U64(160)),
+                (canon::HEIGHT, Value::U64(28)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+
+        create_widget(
+            "control_radio_a",
+            "radio_button",
+            &window,
+            Some(controls_panel),
+            &[
+                (canon::TEXT, Value::Text("Mode A".into())),
+                (canon::WIDTH, Value::U64(140)),
+                (canon::HEIGHT, Value::U64(28)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+
+        create_widget(
+            "control_radio_b",
+            "radio_button",
+            &window,
+            Some(controls_panel),
+            &[
+                (canon::TEXT, Value::Text("Mode B".into())),
+                (canon::WIDTH, Value::U64(140)),
+                (canon::HEIGHT, Value::U64(28)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+
+        create_widget(
+            "control_image",
+            "image",
+            &window,
+            Some(controls_panel),
+            &[
+                (canon::WIDTH, Value::U64(120)),
+                (canon::HEIGHT, Value::U64(80)),
+                (
+                    canon::cc('I', 'D'),
+                    Value::Bytes(build_solid_image(120, 80, 0x70, 0x90, 0xFF)),
+                ),
             ],
             widget_host_bundle,
         );

@@ -24,6 +24,7 @@ graph_viewer = { path = "../apps/graph_viewer", optional = true }
 init = { path = "../apps/init", optional = true }
 widget_host = { path = "../widgets/host", optional = true }
 widget_button = { path = "../widgets/button" }
+prefs_demo = { path = "../apps/prefs_demo", optional = true }
 x86_64 = { version = "0.14.11", default-features = false, features = [
   "instructions",
 ], optional = true }
@@ -67,6 +68,7 @@ host = [
   "text_editor/std",
   "graph_viewer/std",
   "widget_host/std",
+  "prefs_demo/std",
 ]
 
 [[bin]]

@@ -1,4 +1,5 @@
 use crate::app::AppContext;
+use crate::flex::{AlignItems, FlexDirection, JustifyContent};
 use crate::{canon, graph, Symbol, Thingable, Value};
 use alloc::string::String;
 use thing_abi::GraphThing;
@@ -8,6 +9,7 @@ use uuid::Uuid;
 pub struct Widget {
     pub id: Uuid,
     pub role: String,
+    pub kind: Option<String>,
     pub parent: Option<Uuid>,
     pub visible: bool,
     pub enabled: bool,
@@ -22,9 +24,9 @@ pub struct Widget {
     pub height: Option<u64>,
     pub x: Option<u64>,
     pub y: Option<u64>,
-    pub flex_direction: Option<String>,
-    pub justify_content: Option<String>,
-    pub align_items: Option<String>,
+    pub flex_direction: Option<FlexDirection>,
+    pub justify_content: Option<JustifyContent>,
+    pub align_items: Option<AlignItems>,
     pub flex_grow: Option<f32>,
     pub flex_shrink: Option<f32>,
     pub gap: Option<i32>,
@@ -44,6 +46,14 @@ impl Widget {
             })
         {
             self.role = role;
+        }
+
+        if let Some(kind) = thing
+            .fields
+            .get(&canon::cc('W', 'K'))
+            .and_then(graph::extract_text)
+        {
+            self.kind = Some(kind);
         }
 
         if let Some(parent) = thing.fields.get(&canon::PARENT).and_then(|v| v.as_uuid()) {
@@ -134,21 +144,21 @@ impl Widget {
         if let Some(fd) = thing
             .fields
             .get(&canon::cc('F', 'D'))
-            .and_then(graph::extract_text)
+            .and_then(FlexDirection::from_value)
         {
             self.flex_direction = Some(fd);
         }
         if let Some(jc) = thing
             .fields
             .get(&canon::cc('J', 'C'))
-            .and_then(graph::extract_text)
+            .and_then(JustifyContent::from_value)
         {
             self.justify_content = Some(jc);
         }
         if let Some(ai) = thing
             .fields
             .get(&canon::cc('A', 'I'))
-            .and_then(graph::extract_text)
+            .and_then(AlignItems::from_value)
         {
             self.align_items = Some(ai);
         }
@@ -192,6 +202,10 @@ impl Thingable for Widget {
                     .and_then(graph::extract_text)
             })
             .unwrap_or_default();
+        let kind = thing
+            .fields
+            .get(&canon::cc('W', 'K'))
+            .and_then(graph::extract_text);
         let parent = thing.fields.get(&canon::PARENT).and_then(|v| v.as_uuid());
         let visible = thing
             .fields
@@ -241,15 +255,15 @@ impl Thingable for Widget {
         let flex_direction = thing
             .fields
             .get(&canon::cc('F', 'D'))
-            .and_then(graph::extract_text);
+            .and_then(FlexDirection::from_value);
         let justify_content = thing
             .fields
             .get(&canon::cc('J', 'C'))
-            .and_then(graph::extract_text);
+            .and_then(JustifyContent::from_value);
         let align_items = thing
             .fields
             .get(&canon::cc('A', 'I'))
-            .and_then(graph::extract_text);
+            .and_then(AlignItems::from_value);
         let flex_grow = thing
             .fields
             .get(&canon::cc('F', 'G'))
@@ -269,6 +283,7 @@ impl Thingable for Widget {
         Some(Widget {
             id: thing.id,
             role,
+            kind,
             parent,
             visible,
             enabled,

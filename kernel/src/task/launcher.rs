@@ -152,9 +152,13 @@ pub extern "C" fn start_user_task() {
         labels.push(canon::DRIVER);
     }
     info!("Creating task node for {}", module.name);
+    crate::serial_println!("DEBUG: calling create_task");
     let task_id = graph::create_task(module.bundle, module.name, labels);
+    crate::serial_println!("DEBUG: create_task returned");
     info!("create_task returned.");
+    crate::serial_println!("DEBUG: logging task_id");
     info!("Task node created: {}", task_id);
+    crate::serial_println!("DEBUG: checking driver");
 
     if module.bundle_type == BundleType::Driver {
         if let Some((device_id, _)) = driver_caps_for_name(module.name) {

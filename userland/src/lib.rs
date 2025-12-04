@@ -7,6 +7,7 @@ pub mod app;
 pub mod apps_manifest;
 pub mod drivers;
 pub mod errors;
+pub mod flex;
 pub mod fs;
 pub mod graph;
 pub mod graph_viewer;
@@ -263,6 +264,7 @@ pub mod canon {
 pub mod prelude {
     pub use crate::app::{App, AppContext, WindowHandle};
     pub use crate::app_main;
+    pub use crate::flex::{AlignItems, FlexDirection, JustifyContent};
     pub use crate::graph::{
         declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, find_by_kind,
         grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state,
@@ -273,6 +275,7 @@ pub mod prelude {
 }
 
 pub use app::{App, AppContext, AppRunner, DynApp, WindowHandle};
+pub use flex::{AlignItems, FlexDirection, JustifyContent};
 pub use graph::{
     declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, find_by_kind,
     grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state, update_thing,

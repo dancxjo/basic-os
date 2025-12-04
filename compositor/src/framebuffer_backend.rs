@@ -416,7 +416,15 @@ fn raster_blit_image(
             } else {
                 continue;
             };
-            backend.storage[row + xx] = color;
+            let alpha = (color >> 24) & 0xFF;
+            if alpha == 0 {
+                continue;
+            } else if alpha == 0xFF {
+                backend.storage[row + xx] = color;
+            } else {
+                let bg = backend.storage[row + xx];
+                backend.storage[row + xx] = userland::graphics::blend(color, bg);
+            }
         }
     }
 }
