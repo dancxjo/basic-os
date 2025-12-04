@@ -13,6 +13,7 @@ use userland::{canon, graph, AppEvent, ThingFilter};
 use uuid::Uuid;
 
 const CLOUDS_BMP: &[u8] = include_bytes!("../../../clouds.bmp");
+const ICON_HOME: &[u8] = include_bytes!("../../../widgets/button/icons/home.bmp");
 
 pub struct GraphViewerApp {
     window: WindowHandle,
@@ -21,14 +22,15 @@ pub struct GraphViewerApp {
     watch_id: Option<userland::watch::WatchId>,
     width: u64,
     height: u64,
+    scroll_y: i64,
+    scrollbar_id: Option<Uuid>,
 }
 
 struct NodeInfo {
-    x: i64,
-    y: i64,
-    widget_id: Option<Uuid>,
+    // x, y removed as we layout dynamically
     label: String,
     icon_name: Option<String>,
+    kind: String,
 }
 
 struct EdgeInfo {
@@ -61,6 +63,30 @@ impl App for GraphViewerApp {
         };
         let window = ctx.create_window_with(window_fields);
 
+        // Create scrollbar
+        let scrollbar_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"graph_viewer_scrollbar");
+        let mut sb_fields = graph::map();
+        sb_fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+        sb_fields.insert(
+            canon::cc('W', 'K'),
+            Value::Text("scrollbar_thumb".to_string()),
+        );
+        sb_fields.insert(canon::X, Value::I64((width - 20) as i64));
+        sb_fields.insert(canon::Y, Value::I64(0));
+        sb_fields.insert(canon::WIDTH, Value::U64(20));
+        sb_fields.insert(canon::HEIGHT, Value::U64(height));
+        sb_fields.insert(canon::PARENT, Value::Uuid(window.window_id()));
+        sb_fields.insert(canon::VISIBLE, Value::Bool(true));
+        sb_fields.insert(canon::VIEWPORT_HEIGHT, Value::I64(height as i64));
+        sb_fields.insert(canon::CONTENT_HEIGHT, Value::I64(0));
+        sb_fields.insert(canon::SCROLL_Y, Value::I64(0));
+        graph::fiat(Some(scrollbar_id), canon::WIDGET, sb_fields);
+
+        // Grant access to widget host
+        let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
+        graph::grant_capability(widget_host_bundle, scrollbar_id, "CAN_READ");
+        graph::grant_capability(widget_host_bundle, scrollbar_id, "CAN_WRITE"); // Scrollbar updates itself
+
         let mut app = GraphViewerApp {
             window: window.clone(),
             nodes: BTreeMap::new(),
@@ -68,6 +94,8 @@ impl App for GraphViewerApp {
             watch_id: None,
             width,
             height,
+            scroll_y: 0,
+            scrollbar_id: Some(scrollbar_id),
         };
 
         // Watch everything
@@ -83,6 +111,15 @@ impl App for GraphViewerApp {
     fn on_event(&mut self, ctx: &mut AppContext<'_>, ev: AppEvent) {
         match ev {
             AppEvent::Thing { thing, .. } => {
+                // Check if it's our scrollbar
+                if Some(thing.id) == self.scrollbar_id {
+                    if let Some(Value::I64(y)) = thing.fields.get(&canon::SCROLL_Y) {
+                        self.scroll_y = *y;
+                        self.redraw(ctx);
+                    }
+                    return;
+                }
+
                 // Update node
                 let label = thing
                     .fields
@@ -100,53 +137,34 @@ impl App for GraphViewerApp {
                     _ => None,
                 });
 
-                if let Some(node) = self.nodes.get_mut(&thing.id) {
-                    node.label = label.clone();
-                    node.icon_name = icon_name.clone();
-                    // Update widget label if exists
-                    if let Some(widget_id) = node.widget_id {
-                        let mut updates = graph::map();
-                        updates.insert(canon::TEXT, Value::Text(node.label.clone()));
-                        if let Some(icon) = &node.icon_name {
-                            updates.insert(canon::ICON_NAME, Value::Text(icon.clone()));
-                        }
-                        graph::fiat(Some(widget_id), canon::WIDGET, updates);
-                    }
-                } else {
-                    // New node
-                    // Simple grid layout
-                    let idx = self.nodes.len() as i64;
-                    let cols = 10;
-                    let spacing_x = 200;
-                    let spacing_y = 160;
-                    let margin_x = 50;
-                    let margin_y = 50;
+                let kind = format!("{:?}", thing.kind);
 
-                    let x = (idx % cols) * spacing_x + margin_x;
-                    let y = (idx / cols) * spacing_y + margin_y;
+                self.nodes.insert(
+                    thing.id,
+                    NodeInfo {
+                        label,
+                        icon_name,
+                        kind,
+                    },
+                );
 
-                    let widget_id =
-                        self.create_node_widget(ctx, x, y, &label, icon_name.as_deref());
-
-                    self.nodes.insert(
-                        thing.id,
-                        NodeInfo {
-                            x,
-                            y,
-                            widget_id: Some(widget_id),
-                            label,
-                            icon_name,
-                        },
-                    );
-                    self.redraw(ctx);
+                // Update scrollbar content height
+                if let Some(sb_id) = self.scrollbar_id {
+                    let row_height = 30;
+                    let content_height = self.nodes.len() as i64 * row_height;
+                    let mut updates = graph::map();
+                    updates.insert(canon::CONTENT_HEIGHT, Value::I64(content_height));
+                    graph::fiat(Some(sb_id), canon::WIDGET, updates);
                 }
+
+                self.redraw(ctx);
             }
             AppEvent::Edge { edge, .. } => {
                 self.edges.push(EdgeInfo {
                     src: edge.src,
                     dst: edge.dst,
                 });
-                self.redraw(ctx);
+                // self.redraw(ctx); // Edges not shown in list view
             }
         }
     }
@@ -155,38 +173,6 @@ impl App for GraphViewerApp {
 }
 
 impl GraphViewerApp {
-    fn create_node_widget(
-        &self,
-        _ctx: &mut AppContext<'_>,
-        x: i64,
-        y: i64,
-        label: &str,
-        icon_name: Option<&str>,
-    ) -> Uuid {
-        let widget_id = userland::simple_uuid(alloc::format!("node_{}_{}", x, y).as_bytes());
-        let mut fields = graph::map();
-        fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
-        fields.insert(canon::cc('W', 'K'), Value::Text("button".to_string()));
-        fields.insert(canon::TEXT, Value::Text(label.to_string()));
-        if let Some(icon) = icon_name {
-            fields.insert(canon::ICON_NAME, Value::Text(icon.to_string()));
-        }
-        fields.insert(canon::X, Value::I64(x));
-        fields.insert(canon::Y, Value::I64(y));
-        fields.insert(canon::WIDTH, Value::U64(80));
-        fields.insert(canon::HEIGHT, Value::U64(30));
-        fields.insert(canon::PARENT, Value::Uuid(self.window.window_id()));
-        fields.insert(canon::VISIBLE, Value::Bool(true));
-
-        graph::fiat(Some(widget_id), canon::WIDGET, fields);
-
-        // Grant access to widget host
-        let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
-        graph::grant_capability(widget_host_bundle, widget_id, "CAN_READ");
-
-        widget_id
-    }
-
     fn redraw(&self, ctx: &mut AppContext<'_>) {
         let width = self.width as usize;
         let height = self.height as usize;
@@ -227,21 +213,52 @@ impl GraphViewerApp {
             }
         }
 
-        // Draw edges
-        for edge in &self.edges {
-            if let (Some(src), Some(dst)) = (self.nodes.get(&edge.src), self.nodes.get(&edge.dst)) {
-                // Draw line from center of nodes
-                draw_line(
-                    &mut pixels,
-                    width,
-                    src.x + 40,
-                    src.y + 15,
-                    dst.x + 40,
-                    dst.y + 15,
-                    0xFF000000,
-                );
+        // Draw list items
+        let row_height = 30;
+        let header_height = 30;
+        let list_y_offset = header_height;
+
+        let mut y = list_y_offset - self.scroll_y as i32;
+
+        for (id, node) in &self.nodes {
+            if y + row_height > list_y_offset && y < height as i32 {
+                // Draw row background (alternating slightly for visibility)
+                // let bg = if (y / row_height) % 2 == 0 { 0xFFEEEEEE } else { 0xFFDDDDDD };
+                // draw_rect(&mut pixels, width, 0, y, width as i32, row_height, bg);
+
+                // Draw Icon
+                draw_bmp_bytes(&mut pixels, width, 10, y + 3, ICON_HOME);
+
+                // Draw Label
+                draw_text(&mut pixels, width, 50, y + 7, &node.label, 0x000000);
+
+                // Draw Kind
+                draw_text(&mut pixels, width, 300, y + 7, &node.kind, 0x444444);
+
+                // Draw ID
+                draw_text(&mut pixels, width, 500, y + 7, &id.to_string(), 0x888888);
             }
+            y += row_height;
         }
+
+        // Draw Header (Last, to clip items)
+        draw_rect(
+            &mut pixels,
+            width,
+            0,
+            0,
+            width as i32,
+            header_height,
+            0xCCCCCC,
+        );
+        draw_text(&mut pixels, width, 10, 7, "Icon", 0x000000);
+        draw_text(&mut pixels, width, 50, 7, "Name", 0x000000);
+        draw_text(&mut pixels, width, 300, 7, "Kind", 0x000000);
+        draw_text(&mut pixels, width, 500, 7, "ID", 0x000000);
+
+        // Debug: Node count
+        let count_str = format!("Count: {}", self.nodes.len());
+        draw_text(&mut pixels, width, 800, 7, &count_str, 0xFF0000);
 
         // Encode BMP
         let bmp_data = encode_bmp(width, height, &pixels);
@@ -249,30 +266,105 @@ impl GraphViewerApp {
     }
 }
 
-fn draw_line(pixels: &mut [u32], width: usize, x0: i64, y0: i64, x1: i64, y1: i64, color: u32) {
-    let mut x0 = x0;
-    let mut y0 = y0;
-    let dx = (x1 - x0).abs();
-    let dy = -(y1 - y0).abs();
-    let sx = if x0 < x1 { 1 } else { -1 };
-    let sy = if y0 < y1 { 1 } else { -1 };
-    let mut err = dx + dy;
+fn draw_rect(pixels: &mut [u32], width: usize, x: i32, y: i32, w: i32, h: i32, color: u32) {
+    for row in 0..h {
+        let dst_y = y + row;
+        if dst_y < 0 || dst_y >= (pixels.len() / width) as i32 {
+            continue;
+        }
+        for col in 0..w {
+            let dst_x = x + col;
+            if dst_x < 0 || dst_x >= width as i32 {
+                continue;
+            }
+            pixels[dst_y as usize * width + dst_x as usize] = color;
+        }
+    }
+}
 
-    loop {
-        if x0 >= 0 && x0 < width as i64 && y0 >= 0 && y0 < (pixels.len() / width) as i64 {
-            pixels[y0 as usize * width + x0 as usize] = color;
+fn draw_text(pixels: &mut [u32], width: usize, x: i32, y: i32, text: &str, color: u32) {
+    let mut cx = x;
+    for c in text.chars() {
+        if let Some(glyph) = unifont::get_glyph(c) {
+            let glyph_width = glyph.get_width() as i32;
+            for row in 0..16 {
+                let dst_y = y + row;
+                if dst_y < 0 || dst_y >= (pixels.len() / width) as i32 {
+                    continue;
+                }
+                for col in 0..glyph_width {
+                    let dst_x = cx + col;
+                    if dst_x < 0 || dst_x >= width as i32 {
+                        continue;
+                    }
+                    if glyph.get_pixel(col as usize, row as usize) {
+                        pixels[dst_y as usize * width + dst_x as usize] = color;
+                    }
+                }
+            }
+            cx += glyph_width;
+        } else {
+            cx += 8;
         }
-        if x0 == x1 && y0 == y1 {
-            break;
-        }
-        let e2 = 2 * err;
-        if e2 >= dy {
-            err += dy;
-            x0 += sx;
-        }
-        if e2 <= dx {
-            err += dx;
-            y0 += sy;
+    }
+}
+
+fn draw_bmp_bytes(pixels: &mut [u32], width: usize, x: i32, y: i32, bmp: &[u8]) {
+    if bmp.len() < 54 {
+        return;
+    }
+    let w = i32::from_le_bytes(bmp[18..22].try_into().unwrap_or([0; 4])).abs();
+    let h = i32::from_le_bytes(bmp[22..26].try_into().unwrap_or([0; 4])).abs();
+    let offset = u32::from_le_bytes(bmp[10..14].try_into().unwrap_or([0; 4])) as usize;
+    let top_down = i32::from_le_bytes(bmp[22..26].try_into().unwrap_or([0; 4])) < 0;
+
+    if w <= 0 || h <= 0 || offset >= bmp.len() {
+        return;
+    }
+
+    for row in 0..h {
+        for col in 0..w {
+            let src_row = if top_down { row } else { h - 1 - row };
+            let src_idx = offset + (src_row as usize * w as usize + col as usize) * 4;
+
+            if src_idx + 4 > bmp.len() {
+                continue;
+            }
+
+            let b = bmp[src_idx];
+            let g = bmp[src_idx + 1];
+            let r = bmp[src_idx + 2];
+            let a = bmp[src_idx + 3];
+
+            if a == 0 {
+                continue;
+            }
+
+            let dst_x = x + col;
+            let dst_y = y + row;
+
+            if dst_x < 0
+                || dst_x >= width as i32
+                || dst_y < 0
+                || dst_y >= (pixels.len() / width) as i32
+            {
+                continue;
+            }
+
+            // Simple alpha blending over existing pixel
+            // Existing pixel is 0x00RRGGBB
+            let dst_idx = dst_y as usize * width + dst_x as usize;
+            let dst_pixel = pixels[dst_idx];
+            let dst_r = ((dst_pixel >> 16) & 0xFF) as u8;
+            let dst_g = ((dst_pixel >> 8) & 0xFF) as u8;
+            let dst_b = (dst_pixel & 0xFF) as u8;
+
+            let inv_a = 255 - a;
+            let out_r = ((r as u16 * a as u16 + dst_r as u16 * inv_a as u16) / 255) as u8;
+            let out_g = ((g as u16 * a as u16 + dst_g as u16 * inv_a as u16) / 255) as u8;
+            let out_b = ((b as u16 * a as u16 + dst_b as u16 * inv_a as u16) / 255) as u8;
+
+            pixels[dst_idx] = ((out_r as u32) << 16) | ((out_g as u32) << 8) | (out_b as u32);
         }
     }
 }

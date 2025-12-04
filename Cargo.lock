@@ -555,6 +555,7 @@ name = "graph_viewer"
 version = "0.1.0"
 dependencies = [
  "thing_abi",
+ "unifont",
  "userland",
  "uuid",
 ]
@@ -1877,6 +1878,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget_graph_mini_viewer"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
+]
+
+[[package]]
 name = "widget_host"
 version = "0.1.0"
 dependencies = [
@@ -1885,6 +1895,7 @@ dependencies = [
  "uuid",
  "widget_button",
  "widget_checkbox",
+ "widget_graph_mini_viewer",
  "widget_image",
  "widget_launcher_entry",
  "widget_listbox_default",
@@ -1892,7 +1903,10 @@ dependencies = [
  "widget_notification_toast",
  "widget_radio_button",
  "widget_scrollbar_thumb",
+ "widget_status_widget",
+ "widget_thing_inspector",
  "widget_toolbar",
+ "widget_top_status_bar",
 ]
 
 [[package]]
@@ -1956,10 +1970,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget_status_widget"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
+]
+
+[[package]]
+name = "widget_thing_inspector"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
+]
+
+[[package]]
 name = "widget_toolbar"
 version = "0.1.0"
 dependencies = [
  "thing_abi",
+ "userland",
+]
+
+[[package]]
+name = "widget_top_status_bar"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
  "userland",
 ]
 

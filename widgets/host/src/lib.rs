@@ -14,6 +14,7 @@ use userland::widget_abi::{
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_button::ButtonWidget;
 use widget_checkbox::CheckboxWidget;
+use widget_graph_mini_viewer::GraphMiniViewerWidget;
 use widget_image::ImageWidget;
 use widget_launcher_entry::ThingWidget;
 use widget_listbox_default::ListboxDefaultWidget;
@@ -21,7 +22,10 @@ use widget_notification_dialog::NotificationDialog;
 use widget_notification_toast::NotificationToast;
 use widget_radio_button::RadioButtonWidget;
 use widget_scrollbar_thumb::ScrollbarThumbWidget;
+use widget_status_widget::StatusWidget;
+use widget_thing_inspector::ThingInspectorWidget;
 use widget_toolbar::ToolbarWidget;
+use widget_top_status_bar::TopStatusBarWidget;
 
 enum WidgetState {
     Thing(<ThingWidget as WidgetAbi>::State),
@@ -34,6 +38,10 @@ enum WidgetState {
     NotificationToast(<NotificationToast as WidgetAbi>::State),
     NotificationDialog(<NotificationDialog as WidgetAbi>::State),
     Image(<ImageWidget as WidgetAbi>::State),
+    TopStatusBar(<TopStatusBarWidget as WidgetAbi>::State),
+    StatusWidget(<StatusWidget as WidgetAbi>::State),
+    ThingInspector(<ThingInspectorWidget as WidgetAbi>::State),
+    GraphMiniViewer(<GraphMiniViewerWidget as WidgetAbi>::State),
 }
 
 struct WidgetInstance {
@@ -202,6 +210,18 @@ impl App for WidgetHost {
                             Some("thing_tile") => {
                                 Some(WidgetState::Thing(ThingWidget::init(&context)))
                             }
+                            Some("top_status_bar") => Some(WidgetState::TopStatusBar(
+                                TopStatusBarWidget::init(&context),
+                            )),
+                            Some("status_widget") => {
+                                Some(WidgetState::StatusWidget(StatusWidget::init(&context)))
+                            }
+                            Some("thing_inspector") => Some(WidgetState::ThingInspector(
+                                ThingInspectorWidget::init(&context),
+                            )),
+                            Some("graph_mini_viewer") => Some(WidgetState::GraphMiniViewer(
+                                GraphMiniViewerWidget::init(&context),
+                            )),
                             _ => {
                                 // Default to launcher for now if unspecified or unknown
                                 Some(WidgetState::Thing(ThingWidget::init(&context)))
@@ -279,6 +299,16 @@ impl App for WidgetHost {
                                     NotificationDialog::handle_event(s, e)
                                 }
                                 WidgetState::Image(s) => ImageWidget::handle_event(s, e),
+                                WidgetState::TopStatusBar(s) => {
+                                    TopStatusBarWidget::handle_event(s, e)
+                                }
+                                WidgetState::StatusWidget(s) => StatusWidget::handle_event(s, e),
+                                WidgetState::ThingInspector(s) => {
+                                    ThingInspectorWidget::handle_event(s, e)
+                                }
+                                WidgetState::GraphMiniViewer(s) => {
+                                    GraphMiniViewerWidget::handle_event(s, e)
+                                }
                             }
                         }
                     }
@@ -325,6 +355,18 @@ impl App for WidgetHost {
                                         NotificationDialog::handle_event(s, e)
                                     }
                                     WidgetState::Image(s) => ImageWidget::handle_event(s, e),
+                                    WidgetState::TopStatusBar(s) => {
+                                        TopStatusBarWidget::handle_event(s, e)
+                                    }
+                                    WidgetState::StatusWidget(s) => {
+                                        StatusWidget::handle_event(s, e)
+                                    }
+                                    WidgetState::ThingInspector(s) => {
+                                        ThingInspectorWidget::handle_event(s, e)
+                                    }
+                                    WidgetState::GraphMiniViewer(s) => {
+                                        GraphMiniViewerWidget::handle_event(s, e)
+                                    }
                                 }
                             }
                         }
@@ -368,6 +410,18 @@ impl App for WidgetHost {
                     NotificationDialog::draw(s, &mut instance.framebuffer, rect)
                 }
                 WidgetState::Image(s) => ImageWidget::draw(s, &mut instance.framebuffer, rect),
+                WidgetState::TopStatusBar(s) => {
+                    TopStatusBarWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::StatusWidget(s) => {
+                    StatusWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::ThingInspector(s) => {
+                    ThingInspectorWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::GraphMiniViewer(s) => {
+                    GraphMiniViewerWidget::draw(s, &mut instance.framebuffer, rect)
+                }
             }
 
             // Publish

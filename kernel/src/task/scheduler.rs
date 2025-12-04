@@ -57,7 +57,7 @@ pub struct Task {
 }
 
 impl Task {
-    const STACK_PAGES: u64 = 16; // Reduced from 64 to 16 to debug double fault
+    const STACK_PAGES: u64 = 64; // 64 pages (256KB)
     const STACK_SIZE: u64 = 4096 * Self::STACK_PAGES;
     const MAGIC: u64 = 0x5441534B5F4D4147;
 

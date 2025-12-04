@@ -20,6 +20,10 @@ widget_notification_dialog = { path = "../notification_dialog" }
 widget_image = { path = "../image" }
 widget_checkbox = { path = "../checkbox" }
 widget_radio_button = { path = "../radio_button" }
+widget_top_status_bar = { path = "../top_status_bar" }
+widget_status_widget = { path = "../status_widget" }
+widget_thing_inspector = { path = "../thing_inspector" }
+widget_graph_mini_viewer = { path = "../graph_mini_viewer" }
 
 [features]
 default = []

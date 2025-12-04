@@ -460,10 +460,23 @@ impl Thingable for Window {
 
         let window_rect = WindowRect::from_optional_value(thing.fields.get(&canon::WINDOW_RECT));
 
-        let gap = thing.fields.get(&canon::GAP).and_then(|v| v.as_i64()).map(|v| v as i32);
-        let flex_direction = thing.fields.get(&canon::cc('F', 'D')).and_then(extract_text);
-        let justify_content = thing.fields.get(&canon::cc('J', 'C')).and_then(extract_text);
-        let align_items = thing.fields.get(&canon::cc('A', 'I')).and_then(extract_text);
+        let gap = thing
+            .fields
+            .get(&canon::GAP)
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32);
+        let flex_direction = thing
+            .fields
+            .get(&canon::cc('F', 'D'))
+            .and_then(extract_text);
+        let justify_content = thing
+            .fields
+            .get(&canon::cc('J', 'C'))
+            .and_then(extract_text);
+        let align_items = thing
+            .fields
+            .get(&canon::cc('A', 'I'))
+            .and_then(extract_text);
 
         Some(Self {
             id: thing.id,

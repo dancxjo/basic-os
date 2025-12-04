@@ -45,8 +45,8 @@ standalone = { path = "../apps/standalone", optional = true, default-features = 
 
 [features]
 # Default: simplest, safest mode
-default = ["standalone_compositor"]
-
+#default = ["standalone_compositor"]
+default = ["kernel_multitask"]
 # Enable standalone compositor (cooperative single-process mode)
 standalone_compositor = ["compositor", "standalone"]
 
