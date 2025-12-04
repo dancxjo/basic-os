@@ -755,9 +755,18 @@ impl CursorState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Sky,
-    Max,
+pub struct Mode {
+    slot: usize,
+}
+
+impl Mode {
+    pub const fn new(slot: usize) -> Self {
+        Self { slot }
+    }
+
+    pub const fn slot(self) -> usize {
+        self.slot
+    }
 }
 
 pub struct Compositor<F, R> {
@@ -781,6 +790,7 @@ pub struct Compositor<F, R> {
     cursor_sprites: CursorSprites,
     active_window: Option<Uuid>,
     active_mode: Mode,
+    mode_windows: [Option<Uuid>; 12],
     saved_sky_geometry: BTreeMap<Uuid, Rect>,
     theme: Theme,
     background: Arc<Bitmap>,
@@ -832,7 +842,8 @@ where
             cursor: CursorState::new(width, height),
             cursor_sprites,
             active_window: None,
-            active_mode: Mode::Sky,
+            active_mode: Mode::new(0),
+            mode_windows: [None; 12],
             saved_sky_geometry: BTreeMap::new(),
             theme,
             background,
@@ -1141,15 +1152,7 @@ where
         let mut scene = Scene::new(width as u32, height as u32);
         scene.push(SceneItem::Clear { color: CLEAR_COLOR });
 
-        match self.active_mode {
-            Mode::Sky => {
-                self.draw_background(&mut scene, width, height);
-                self.draw_windows(&mut scene, width, height);
-            }
-            Mode::Max => {
-                self.draw_max_mode(&mut scene, width, height);
-            }
-        }
+        self.draw_max_mode(&mut scene, width, height);
 
         self.draw_cursor(&mut scene, width, height);
 
@@ -2224,25 +2227,22 @@ where
             return;
         }
 
-        match new_mode {
-            Mode::Max => self.enter_max_mode(),
-            Mode::Sky => self.exit_max_mode(),
-        }
-
         self.active_mode = new_mode;
+        if let Some(id) = self
+            .mode_windows
+            .get(self.active_mode.slot())
+            .and_then(|m| *m)
+        {
+            self.set_active_window(Some(id));
+        }
         self.fb_dirty = true;
     }
 
-    fn enter_max_mode(&mut self) {
-        if let Some(active_id) = self.active_window {
-            self.maximize_window(active_id);
-        }
-    }
-
-    fn exit_max_mode(&mut self) {
-        let ids: Vec<Uuid> = self.saved_sky_geometry.keys().cloned().collect();
-        for id in ids {
-            self.restore_window(id);
+    fn activate_slot(&mut self, slot: usize) {
+        let clamped = slot.min(self.mode_windows.len().saturating_sub(1));
+        self.switch_mode(Mode::new(clamped));
+        if clamped == 0 && self.mode_windows[clamped].is_none() {
+            let _ = userland::sys::spawn("graph_viewer");
         }
     }
 
@@ -2278,17 +2278,6 @@ where
             props.insert(canon::WIDTH, Value::U64(rect.width as u64));
             props.insert(canon::HEIGHT, Value::U64(rect.height as u64));
             self.update_window_props(window_id, props);
-        }
-    }
-
-    fn handle_f12(&mut self) {
-        if let Some(active) = self.active_window {
-            self.switch_mode(Mode::Max);
-            if self.active_mode == Mode::Max {
-                self.maximize_window(active);
-            }
-        } else {
-            self.switch_mode(Mode::Sky);
         }
     }
 
@@ -2330,12 +2319,9 @@ where
                 {
                     self.debug_overlay_mode = !self.debug_overlay_mode;
                     self.fb_dirty = true;
-                } else if key == canon::Symbol::new(0xF001) {
-                    self.switch_mode(Mode::Sky);
-                } else if key == canon::Symbol::new(0xF002) {
-                    self.switch_mode(Mode::Max);
-                } else if key == canon::Symbol::new(0xF00C) {
-                    self.handle_f12();
+                } else if (0xF001..=0xF00C).contains(&key.raw()) {
+                    let slot = (key.raw() as usize).saturating_sub(0xF001);
+                    self.activate_slot(slot);
                 } else if key == canon::cc('T', 'B') {
                     self.handle_tab_focus();
                 }
@@ -2836,18 +2822,19 @@ where
             self.update_window_props(id, props);
             self.active_window = Some(id);
             self.bump_window(id);
+            if let Some(slot_entry) = self.mode_windows.get_mut(self.active_mode.slot()) {
+                *slot_entry = Some(id);
+            }
         } else {
             self.active_window = None;
             self.update_graph_state();
         }
 
-        if self.active_mode == Mode::Max {
-            if let Some(prev) = prev_window {
-                self.restore_window(prev);
-            }
-            if let Some(id) = window_id {
-                self.maximize_window(id);
-            }
+        if let Some(prev) = prev_window {
+            self.saved_sky_geometry.remove(&prev);
+        }
+        if let Some(id) = window_id {
+            self.maximize_window(id);
         }
         self.content_dirty = true;
     }
@@ -3021,6 +3008,20 @@ where
         if let Some(target) = self.windows.get(&window_id).and_then(|w| w.window.target) {
             if let Some(entry) = self.windows.get_mut(&window_id) {
                 entry.surface_id = Some(target);
+            }
+        }
+        if let Some(title) = self
+            .windows
+            .get(&window_id)
+            .map(|surface| surface.window.title.as_str())
+        {
+            if title == "Graph Viewer" {
+                self.mode_windows[0] = Some(window_id);
+                self.active_mode = Mode::new(0);
+            } else if self.mode_windows[self.active_mode.slot()].is_none() {
+                if let Some(slot) = self.mode_windows.get_mut(self.active_mode.slot()) {
+                    *slot = Some(window_id);
+                }
             }
         }
         let is_active = self
@@ -3345,7 +3346,7 @@ where
             }
         }
 
-        self.draw_background(scene, fb_width, fb_height);
+        scene.push(SceneItem::Clear { color: CLEAR_COLOR });
     }
 
     fn draw_window_frameless(
