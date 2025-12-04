@@ -31,12 +31,6 @@ pub static APPS: &[AppSpec] = &[
         show_in_graph_viewer: true,
     },
     AppSpec {
-        name: "prefs_demo",
-        bin_name: "prefs_demo",
-        autostart: true,
-        show_in_graph_viewer: true,
-    },
-    AppSpec {
         name: "thing_viewer",
         bin_name: "thing_viewer",
         autostart: false,
@@ -57,12 +51,6 @@ pub static APPS: &[AppSpec] = &[
     AppSpec {
         name: "graph_viewer",
         bin_name: "graph_viewer",
-        autostart: true,
-        show_in_graph_viewer: false,
-    },
-    AppSpec {
-        name: "widget_host",
-        bin_name: "widget_host",
         autostart: true,
         show_in_graph_viewer: false,
     },

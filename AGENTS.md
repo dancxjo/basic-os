@@ -86,6 +86,10 @@ Any kernel code that dereferences user pointers must assume that **CR3 is the ac
 Kernel code must never assume that pointers are valid without explicit validation.
 Invalid user pointers must fault the *task*, not the kernel.
 
+## Known issues
+
+- `cargo test -p userland` currently fails if the `third_party/ascii` vendored crate is missing. Ensure that path exists locally or update the dependency before relying on workspace tests.
+
 ### Timer Double Fault Masking Page Faults
 - Symptom: right after user tasks start, the first timer tick prints a switch log and then hits `EXCEPTION: DOUBLE FAULT` with no preceding page-fault trace entry.
 - Root cause: kernel task stacks were enlarged to 64 pages, but `create_user_page_table` only mirrored 16 pages per stack into the user CR3. When a timer interrupt fires in user mode, the CPU switches to the top of the kernel stack, which is unmapped in the user page table, so the stack switch faults and escalates to a double fault before the page-fault handler runs.

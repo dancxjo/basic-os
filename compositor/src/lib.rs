@@ -802,7 +802,7 @@ pub struct Compositor<F, R> {
     alt_down: bool,
     shift_down: bool,
     state_node: Uuid,
-    widgets: BTreeMap<Uuid, userland::semantic_ui::Widget>,
+    widgets: BTreeMap<Uuid, userland::ui_graph::Widget>,
     active_widget: Option<Uuid>,
     debug_layout_mode: bool,
     debug_overlay_mode: bool,
@@ -1465,7 +1465,7 @@ where
         false
     }
 
-    fn get_widget_height(&self, widget: &userland::semantic_ui::Widget, w: i32, h: i32) -> i32 {
+    fn get_widget_height(&self, widget: &userland::ui_graph::Widget, w: i32, h: i32) -> i32 {
         if !widget.visible {
             return 0;
         }
@@ -1556,7 +1556,7 @@ where
 
     fn hit_test_widget_recursive(
         &self,
-        widget: &userland::semantic_ui::Widget,
+        widget: &userland::ui_graph::Widget,
         x: i32,
         y: i32,
         w: i32,
@@ -1807,7 +1807,7 @@ where
         &self,
         scene: &mut Scene,
         window_id: Uuid,
-        widget: &userland::semantic_ui::Widget,
+        widget: &userland::ui_graph::Widget,
         x: i32,
         y: i32,
         w: i32,
@@ -2018,7 +2018,7 @@ where
     fn draw_toolbar_button(
         &self,
         scene: &mut Scene,
-        widget: &userland::semantic_ui::Widget,
+        widget: &userland::ui_graph::Widget,
         x: i32,
         y: i32,
         w: i32,
@@ -2510,7 +2510,7 @@ where
     }
 
     fn collect_focusable_widgets(&self, parent_id: Uuid, list: &mut Vec<Uuid>) {
-        let mut children: Vec<&userland::semantic_ui::Widget> = self
+        let mut children: Vec<&userland::ui_graph::Widget> = self
             .widgets
             .values()
             .filter(|w| w.parent == Some(parent_id))
@@ -3089,7 +3089,7 @@ where
                 }
             }
         } else {
-            if let Some(widget) = userland::semantic_ui::Widget::load(thing) {
+            if let Some(widget) = userland::ui_graph::Widget::load(thing) {
                 if let Some(parent_id) = widget.parent {
                     if let Some(scroll_y) =
                         thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
@@ -3445,7 +3445,7 @@ where
     fn draw_debug_widget_box(
         &self,
         scene: &mut Scene,
-        widget: &userland::semantic_ui::Widget,
+        widget: &userland::ui_graph::Widget,
         x: i32,
         y: i32,
         w: i32,

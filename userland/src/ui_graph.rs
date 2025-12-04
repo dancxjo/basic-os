@@ -1,3 +1,10 @@
+//! Helpers for defining widget and cursor metadata in the graph.
+//!
+//! The utilities in this module describe the UI surface in semantic terms
+//! (roles, labels, layout hints) without binding to a particular renderer or
+//! widget implementation. Applications can build a UI tree by emitting
+//! `WIDGET` and `CURSOR` Things with the appropriate properties, then attach
+//! their own rendering logic on top.
 use crate::app::AppContext;
 use crate::flex::{AlignItems, FlexDirection, JustifyContent};
 use crate::{canon, graph, Symbol, Thingable, Value};
@@ -493,13 +500,14 @@ pub fn toolbar_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::canon;
     use crate::graph;
     use crate::runtime::host_runtime;
     use crate::runtime::set_runtime;
     use thing_host::HostRuntime;
 
     #[test]
-    fn test_semantic_ui_graph() {
+    fn test_ui_graph() {
         // Initialize host runtime for testing
         let runtime = HostRuntime::new();
         set_runtime(runtime);
@@ -509,20 +517,20 @@ mod tests {
 
         // Create a scroll container
         let scroll_container_id = create_widget("scroll_container", true, true, None);
-        graph::that(window_id, "CHILD", scroll_container_id, 0);
+        graph::that(window_id, canon::CHILD, scroll_container_id, 0);
 
         // Create content
         let content_id = create_widget("list", true, true, None);
-        graph::that(scroll_container_id, "HAS_CONTENT", content_id, 0);
+        graph::that(scroll_container_id, canon::HAS_CONTENT, content_id, 0);
 
         // Create cursor
         let cursor_id = create_cursor("vertical", 0, 100, 1000);
-        graph::that(scroll_container_id, "HAS_CURSOR", cursor_id, 0);
+        graph::that(scroll_container_id, canon::HAS_CURSOR, cursor_id, 0);
 
         // Create scrollbar
         let scrollbar_id = create_widget("scrollbar", true, true, None);
-        graph::that(window_id, "CHILD", scrollbar_id, 0);
-        graph::that(scrollbar_id, "CONTROLS", cursor_id, 0);
+        graph::that(window_id, canon::CHILD, scrollbar_id, 0);
+        graph::that(scrollbar_id, canon::CONTROLS, cursor_id, 0);
 
         // Verify the graph structure
         let window_thing = graph::load_thing::<Widget>(window_id).expect("Window not found");

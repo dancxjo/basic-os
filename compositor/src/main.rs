@@ -166,10 +166,6 @@ fn main() {
         "text_editor",
         userland::app::run_app::<text_editor::TextEditor>,
     );
-    userland::sys::register_host_app(
-        "prefs_demo",
-        userland::app::run_app::<prefs_demo::PrefsDemoApp>,
-    );
     #[cfg(feature = "graph_viewer")]
     userland::sys::register_host_app(
         "graph_viewer",

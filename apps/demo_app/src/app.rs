@@ -4,9 +4,14 @@ use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
 use userland::flex::{AlignItems, FlexDirection, JustifyContent};
+use userland::graph::{GraphPropsGetRequest, GraphPropsRequest};
 use userland::prelude::*;
-use userland::{canon, graph, AppEvent, Symbol, ThingFilter};
+use userland::questions::{attach_question_to_form, ensure_form, ensure_question_with_answer};
+use userland::{
+    canon, graph, AnswerValue, AppEvent, InteractionBinding, QuestionBinding, Symbol, ThingFilter,
+};
 use uuid::Uuid;
+use widget_checkbox::CHECKED;
 
 const SMOKE_KIND: Symbol = canon::canon(b'G', b'S', b'M');
 const NODE_NAME: &str = "graph-smoke-node";
@@ -24,6 +29,8 @@ pub struct DemoApp {
     entries: &'static [DashboardEntry],
     key_count: usize,
     key_log: VecDeque<String>,
+    prefs: PrefsShowcase,
+    questions: QuestionShowcase,
 }
 
 struct LayoutNumbers {
@@ -338,6 +345,9 @@ impl App for DemoApp {
 
         windows.insert(window.window_id(), window);
 
+        let prefs = PrefsShowcase::new(ctx, widget_host_bundle);
+        let questions = QuestionShowcase::new(ctx, widget_host_bundle);
+
         let entries = DASHBOARD_ENTRIES;
         let mut app = DemoApp {
             _windows: windows,
@@ -351,6 +361,8 @@ impl App for DemoApp {
             entries,
             key_count: 0,
             key_log: VecDeque::new(),
+            prefs,
+            questions,
         };
 
         app.update_selection(ctx, 0);
@@ -388,6 +400,9 @@ impl App for DemoApp {
                     }
                 }
             }
+
+            self.prefs.handle_event(&thing);
+            self.questions.handle_event(&thing);
         }
     }
 
@@ -461,6 +476,728 @@ impl DemoApp {
         launch_fields.insert(canon::PACKAGE, Value::Text(entry.target.into()));
         launch_fields.insert(canon::NAME, Value::Text(entry.label.into()));
         graph::fiat(None, canon::LAUNCH_REQUEST, launch_fields);
+    }
+}
+
+const OPTIONS_SYM: Symbol = canon::canon(b'O', b'P', b'T');
+const QUESTION_ROW_HEIGHT: u64 = 48;
+
+struct PrefsShowcase {
+    main_window: WindowHandle,
+    dialog_window: WindowHandle,
+    buttons_window: WindowHandle,
+    transition_value: Uuid,
+    footer_widget: Uuid,
+}
+
+impl PrefsShowcase {
+    fn new(ctx: &mut AppContext<'_>, widget_host_bundle: Uuid) -> Self {
+        let transition_value = create_transition_value_node(widget_host_bundle);
+        ctx.watch_graph(ThingFilter {
+            kind: Some(canon::WIDGET),
+            id: Some(transition_value),
+        });
+
+        let main_window = Self::create_main_window(ctx, widget_host_bundle);
+        let (dialog_window, footer_widget) =
+            Self::create_dialog_window(ctx, widget_host_bundle, transition_value);
+        let buttons_window = Self::create_buttons_window(ctx, widget_host_bundle);
+
+        PrefsShowcase {
+            main_window,
+            dialog_window,
+            buttons_window,
+            transition_value,
+            footer_widget,
+        }
+    }
+
+    fn handle_event(&self, thing: &graph::GraphThing) {
+        if thing.id != self.transition_value {
+            return;
+        }
+
+        let value_text = thing
+            .fields
+            .get(&canon::ITEM_VALUE)
+            .and_then(graph::extract_text)
+            .or_else(|| thing.fields.get(&canon::TEXT).and_then(graph::extract_text))
+            .unwrap_or_else(|| String::from("None"));
+
+        let mut fields = graph::map();
+        fields.insert(
+            canon::TEXT,
+            Value::Text(format!("Graph emits: {value_text}")),
+        );
+        graph::fiat(Some(self.footer_widget), canon::WIDGET, fields);
+    }
+
+    fn create_main_window(ctx: &mut AppContext<'_>, widget_host_bundle: Uuid) -> WindowHandle {
+        let window_width: u64 = 1120;
+        let window_height: u64 = 760;
+        let window_fields = userland::graph::Window {
+            id: Uuid::nil(),
+            title: String::from("Mode F3 Test App"),
+            x: 64,
+            y: 64,
+            width: window_width,
+            height: window_height,
+            z: 0,
+            visible: true,
+            target: None,
+            active: false,
+            is_root: true,
+            mode_index: Some(2),
+            window_rect: None,
+            gap: Some(16),
+            flex_direction: Some(FlexDirection::Column),
+            justify_content: Some(JustifyContent::Start),
+            align_items: Some(AlignItems::Stretch),
+        };
+        let window = ctx.create_window_with(window_fields);
+
+        let root = create_container(
+            "f3_root",
+            &window,
+            None,
+            &[
+                (canon::ROLE, Value::Text("window_root".into())),
+                (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
+                (canon::cc('J', 'C'), JustifyContent::SpaceBetween.to_value()),
+                (canon::GAP, Value::I64(12)),
+                (canon::cc('F', 'G'), Value::I64(1)),
+                (canon::cc('F', 'S'), Value::I64(1)),
+                (canon::cc('A', 'I'), AlignItems::Stretch.to_value()),
+            ],
+        );
+
+        let intro = create_widget(
+            "f3_intro",
+            "plain_text",
+            &window,
+            Some(root),
+            &[
+                (
+                    canon::TEXT,
+                    Value::Text(String::from(
+                        "This root window sits on Mode F3. It uses a plain text widget so we can \
+show a simple, readable message directly in the client area.",
+                    )),
+                ),
+                (canon::WIDTH, Value::U64(window_width)),
+                (canon::HEIGHT, Value::U64(120)),
+                (canon::cc('F', 'S'), Value::I64(0)),
+                (canon::cc('F', 'G'), Value::I64(0)),
+            ],
+            widget_host_bundle,
+        );
+        graph::grant_capability(widget_host_bundle, intro, "CAN_FOCUS");
+
+        let content = create_container(
+            "f3_content",
+            &window,
+            Some(root),
+            &[
+                (canon::ROLE, Value::Text("content".into())),
+                (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
+                (canon::GAP, Value::I64(20)),
+                (canon::cc('F', 'G'), Value::I64(1)),
+                (canon::cc('F', 'S'), Value::I64(1)),
+            ],
+        );
+
+        let font_row = create_container(
+            "prefs_font_row",
+            &window,
+            Some(content),
+            &[
+                (canon::cc('F', 'D'), FlexDirection::Row.to_value()),
+                (canon::GAP, Value::I64(8)),
+                (canon::cc('F', 'G'), Value::I64(0)),
+            ],
+        );
+        create_widget(
+            "prefs_font_label",
+            "plain_text",
+            &window,
+            Some(font_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("Font:"))),
+                (canon::WIDTH, Value::U64(80)),
+                (canon::HEIGHT, Value::U64(24)),
+            ],
+            widget_host_bundle,
+        );
+        create_widget(
+            "prefs_font_value",
+            "plain_text",
+            &window,
+            Some(font_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("Monospace 12"))),
+                (canon::WIDTH, Value::U64(180)),
+                (canon::HEIGHT, Value::U64(28)),
+                (canon::cc('F', 'G'), Value::I64(1)),
+            ],
+            widget_host_bundle,
+        );
+
+        let transition_row = create_container(
+            "prefs_transition_row",
+            &window,
+            Some(content),
+            &[
+                (canon::ROLE, Value::Text("window_root".into())),
+                (canon::cc('F', 'D'), FlexDirection::Row.to_value()),
+                (canon::GAP, Value::I64(10)),
+                (canon::cc('F', 'G'), Value::I64(0)),
+            ],
+        );
+        let transition_dropdown_id =
+            Uuid::new_v5(&Uuid::NAMESPACE_OID, b"prefs_transition_dropdown");
+        create_widget(
+            "prefs_transition_label",
+            "plain_text",
+            &window,
+            Some(transition_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("Transition:"))),
+                (canon::WIDTH, Value::U64(120)),
+                (canon::HEIGHT, Value::U64(24)),
+                (canon::ROLE, Value::Text(String::from("label"))),
+                (canon::LABEL_FOR, Value::Uuid(transition_dropdown_id)),
+            ],
+            widget_host_bundle,
+        );
+        create_widget(
+            "prefs_transition_dropdown",
+            "select",
+            &window,
+            Some(transition_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("None"))),
+                (canon::WIDTH, Value::U64(200)),
+                (canon::HEIGHT, Value::U64(32)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+                (canon::SELECTED_INDEX, Value::I64(0)),
+                (canon::ROLE, Value::Text(String::from("select"))),
+                (canon::BINDS, Value::Uuid(transition_value)),
+                (
+                    OPTIONS_SYM,
+                    Value::List(vec![
+                        Value::Text(String::from("None")),
+                        Value::Text(String::from("Slide")),
+                        Value::Text(String::from("Fade")),
+                        Value::Text(String::from("Zoom")),
+                    ]),
+                ),
+                (canon::cc('F', 'G'), Value::I64(1)),
+            ],
+            widget_host_bundle,
+        );
+
+        let footer_hint = create_widget(
+            "prefs_footer_hint",
+            "plain_text",
+            &window,
+            Some(content),
+            &[
+                (canon::TEXT, Value::Text(String::from("Graph emits: None"))),
+                (canon::WIDTH, Value::U64(300)),
+                (canon::HEIGHT, Value::U64(28)),
+            ],
+            widget_host_bundle,
+        );
+        graph::that(window.window_id(), "contains", footer_hint, 0);
+
+        window
+    }
+
+    fn create_dialog_window(
+        ctx: &mut AppContext<'_>,
+        widget_host_bundle: Uuid,
+        transition_value_node: Uuid,
+    ) -> (WindowHandle, Uuid) {
+        let window_width: u64 = 480;
+        let window_height: u64 = 520;
+        let window_fields = userland::graph::Window {
+            id: Uuid::nil(),
+            title: String::from("Dialog & Form Controls"),
+            x: 1280,
+            y: 64,
+            width: window_width,
+            height: window_height,
+            z: 0,
+            visible: true,
+            target: None,
+            active: false,
+            is_root: false,
+            mode_index: None,
+            window_rect: None,
+            gap: Some(12),
+            flex_direction: Some(FlexDirection::Column),
+            justify_content: Some(JustifyContent::Start),
+            align_items: Some(AlignItems::Stretch),
+        };
+        let window = ctx.create_window_with(window_fields);
+
+        let dialog_root = create_container(
+            "prefs_dialog_root",
+            &window,
+            None,
+            &[
+                (canon::ROLE, Value::Text("window_root".into())),
+                (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
+                (canon::cc('J', 'C'), JustifyContent::Start.to_value()),
+                (canon::GAP, Value::I64(10)),
+                (canon::cc('F', 'G'), Value::I64(1)),
+                (canon::cc('F', 'S'), Value::I64(1)),
+            ],
+        );
+
+        let buttons_row = create_container(
+            "prefs_buttons",
+            &window,
+            Some(dialog_root),
+            &[
+                (canon::cc('F', 'D'), FlexDirection::Row.to_value()),
+                (canon::GAP, Value::I64(16)),
+                (canon::cc('F', 'G'), Value::I64(0)),
+            ],
+        );
+        let confirm_button = create_widget(
+            "prefs_confirm",
+            "button",
+            &window,
+            Some(buttons_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("Confirm"))),
+                (canon::WIDTH, Value::U64(120)),
+                (canon::HEIGHT, Value::U64(32)),
+                (canon::cc('F', 'G'), Value::I64(1)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+        let cancel_button = create_widget(
+            "prefs_cancel",
+            "button",
+            &window,
+            Some(buttons_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("Cancel"))),
+                (canon::WIDTH, Value::U64(120)),
+                (canon::HEIGHT, Value::U64(32)),
+                (canon::cc('F', 'G'), Value::I64(1)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+        ensure_action_interaction(
+            transition_value_node,
+            Some(confirm_button),
+            Some("Apply transition"),
+            Some("Act on the current transition choice"),
+        );
+        ensure_action_interaction(
+            transition_value_node,
+            Some(cancel_button),
+            Some("Cancel transition"),
+            Some("Dismiss transition changes"),
+        );
+
+        let transition_row = create_container(
+            "prefs_dialog_transition",
+            &window,
+            Some(dialog_root),
+            &[
+                (canon::cc('F', 'D'), FlexDirection::Row.to_value()),
+                (canon::GAP, Value::I64(12)),
+            ],
+        );
+        create_widget(
+            "prefs_dialog_transition_label",
+            "plain_text",
+            &window,
+            Some(transition_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("Transition:"))),
+                (canon::WIDTH, Value::U64(120)),
+                (canon::HEIGHT, Value::U64(28)),
+                (canon::ROLE, Value::Text(String::from("label"))),
+            ],
+            widget_host_bundle,
+        );
+        create_widget(
+            "prefs_dialog_transition_select",
+            "select",
+            &window,
+            Some(transition_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("None"))),
+                (canon::WIDTH, Value::U64(220)),
+                (canon::HEIGHT, Value::U64(32)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+                (canon::SELECTED_INDEX, Value::I64(0)),
+                (canon::ROLE, Value::Text(String::from("select"))),
+                (canon::BINDS, Value::Uuid(transition_value_node)),
+                (
+                    OPTIONS_SYM,
+                    Value::List(vec![
+                        Value::Text(String::from("None")),
+                        Value::Text(String::from("Slide")),
+                        Value::Text(String::from("Fade")),
+                        Value::Text(String::from("Zoom")),
+                    ]),
+                ),
+            ],
+            widget_host_bundle,
+        );
+
+        let footer_hint = create_widget(
+            "prefs_dialog_footer_hint",
+            "plain_text",
+            &window,
+            Some(dialog_root),
+            &[
+                (canon::TEXT, Value::Text(String::from("Graph emits: None"))),
+                (canon::WIDTH, Value::U64(300)),
+                (canon::HEIGHT, Value::U64(28)),
+            ],
+            widget_host_bundle,
+        );
+        (window, footer_hint)
+    }
+
+    fn create_buttons_window(ctx: &mut AppContext<'_>, widget_host_bundle: Uuid) -> WindowHandle {
+        let window_width: u64 = 320;
+        let window_height: u64 = 240;
+        let window_fields = userland::graph::Window {
+            id: Uuid::nil(),
+            title: String::from("Buttons & Toggles"),
+            x: 1280,
+            y: 640,
+            width: window_width,
+            height: window_height,
+            z: 0,
+            visible: true,
+            target: None,
+            active: false,
+            is_root: false,
+            mode_index: None,
+            window_rect: None,
+            gap: Some(12),
+            flex_direction: Some(FlexDirection::Column),
+            justify_content: Some(JustifyContent::Start),
+            align_items: Some(AlignItems::Stretch),
+        };
+        let window = ctx.create_window_with(window_fields);
+
+        let button_root = create_container(
+            "prefs_button_root",
+            &window,
+            None,
+            &[
+                (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
+                (canon::GAP, Value::I64(10)),
+            ],
+        );
+        create_widget(
+            "prefs_button_primary",
+            "button",
+            &window,
+            Some(button_root),
+            &[
+                (canon::TEXT, Value::Text(String::from("Primary"))),
+                (canon::WIDTH, Value::U64(160)),
+                (canon::HEIGHT, Value::U64(36)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+        create_widget(
+            "prefs_button_secondary",
+            "button",
+            &window,
+            Some(button_root),
+            &[
+                (canon::TEXT, Value::Text(String::from("Secondary"))),
+                (canon::WIDTH, Value::U64(160)),
+                (canon::HEIGHT, Value::U64(36)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+
+        let toggle_row = create_container(
+            "prefs_button_toggle_row",
+            &window,
+            Some(button_root),
+            &[(canon::cc('F', 'D'), FlexDirection::Row.to_value())],
+        );
+        create_widget(
+            "prefs_toggle_label",
+            "plain_text",
+            &window,
+            Some(toggle_row),
+            &[
+                (canon::TEXT, Value::Text(String::from("Notifications"))),
+                (canon::WIDTH, Value::U64(180)),
+                (canon::HEIGHT, Value::U64(24)),
+            ],
+            widget_host_bundle,
+        );
+        create_widget(
+            "prefs_toggle",
+            "checkbox",
+            &window,
+            Some(toggle_row),
+            &[
+                (canon::WIDTH, Value::U64(120)),
+                (canon::HEIGHT, Value::U64(24)),
+                (canon::FOCUSABLE, Value::Bool(true)),
+                (CHECKED, Value::Bool(true)),
+            ],
+            widget_host_bundle,
+        );
+
+        window
+    }
+}
+
+struct BoundQuestion {
+    widget_id: Uuid,
+    binding: QuestionBinding,
+    interaction: InteractionBinding,
+}
+
+struct QuestionShowcase {
+    window: WindowHandle,
+    questions: Vec<BoundQuestion>,
+}
+
+impl QuestionShowcase {
+    fn new(ctx: &mut AppContext<'_>, widget_host_bundle: Uuid) -> Self {
+        let (window, root) = Self::create_window(ctx);
+        let form_id = ensure_form(None, "Semantic question demo");
+
+        let mut questions = Vec::new();
+        let question_one_label = "Enable Neo4j backend?";
+        let question_one_desc = "Toggles the graph persistence layer";
+        let (q1, _a1, b1) = ensure_question_with_answer(
+            None,
+            None,
+            question_one_label,
+            Some(question_one_desc),
+            AnswerValue::Bool(false),
+        );
+        attach_question_to_form(form_id, q1);
+        let neo_widget =
+            Self::create_yes_no_widget("neo4j_toggle", &window, root, &b1, widget_host_bundle);
+        questions.push(BoundQuestion {
+            widget_id: neo_widget,
+            binding: b1,
+            interaction: ensure_question_interaction(
+                &b1,
+                Some(neo_widget),
+                Some(question_one_label),
+                Some(question_one_desc),
+            ),
+        });
+
+        let question_two_label = "Allow telemetry?";
+        let question_two_desc = "Share anonymous usage to improve stability";
+        let (q2, _a2, b2) = ensure_question_with_answer(
+            None,
+            None,
+            question_two_label,
+            Some(question_two_desc),
+            AnswerValue::Bool(true),
+        );
+        attach_question_to_form(form_id, q2);
+        let telemetry_widget =
+            Self::create_yes_no_widget("telemetry_toggle", &window, root, &b2, widget_host_bundle);
+        questions.push(BoundQuestion {
+            widget_id: telemetry_widget,
+            binding: b2,
+            interaction: ensure_question_interaction(
+                &b2,
+                Some(telemetry_widget),
+                Some(question_two_label),
+                Some(question_two_desc),
+            ),
+        });
+
+        for bound in &questions {
+            ctx.watch_graph(ThingFilter {
+                kind: Some(canon::WIDGET),
+                id: Some(bound.widget_id),
+            });
+            ctx.watch_graph(ThingFilter {
+                kind: Some(canon::ANSWER),
+                id: Some(bound.binding.answer),
+            });
+            ctx.watch_graph(ThingFilter {
+                kind: Some(canon::INTERACTION),
+                id: Some(bound.interaction.interaction),
+            });
+        }
+
+        QuestionShowcase { window, questions }
+    }
+
+    fn handle_event(&self, thing: &graph::GraphThing) {
+        for bound in &self.questions {
+            if thing.id == bound.widget_id {
+                if let Some(value) = thing.fields.get(&CHECKED).and_then(|v| v.as_bool()) {
+                    let _ = bound.binding.set_answer(AnswerValue::Bool(value));
+                }
+            }
+
+            if thing.id == bound.binding.answer {
+                if let Some(AnswerValue::Bool(value)) = QuestionBinding::read_answer(thing) {
+                    Self::push_widget_state(bound.widget_id, value);
+                }
+            }
+
+            if thing.id == bound.interaction.interaction {
+                if let Some(label) = thing
+                    .fields
+                    .get(&canon::LABEL)
+                    .and_then(graph::extract_text)
+                {
+                    Self::push_widget_label(bound.widget_id, &label);
+                }
+            }
+        }
+    }
+
+    fn create_window(ctx: &mut AppContext<'_>) -> (WindowHandle, Uuid) {
+        let window_fields = userland::graph::Window {
+            id: Uuid::nil(),
+            title: "Question Demo".to_string(),
+            x: 120,
+            y: 120,
+            width: 480,
+            height: 360,
+            z: 0,
+            visible: true,
+            target: None,
+            active: false,
+            is_root: false,
+            mode_index: Some(3),
+            window_rect: None,
+            gap: Some(12),
+            flex_direction: Some(FlexDirection::Column),
+            justify_content: Some(JustifyContent::Start),
+            align_items: Some(AlignItems::Stretch),
+        };
+        let window = ctx.create_window_with(window_fields);
+
+        let root = create_container(
+            "question_root",
+            &window,
+            None,
+            &[
+                (canon::ROLE, Value::Text("window_root".into())),
+                (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
+                (canon::GAP, Value::I64(12)),
+                (canon::cc('F', 'G'), Value::I64(1)),
+                (canon::cc('F', 'S'), Value::I64(1)),
+                (canon::cc('A', 'I'), AlignItems::Stretch.to_value()),
+            ],
+        );
+
+        Self::create_intro_text(&window, root);
+        (window, root)
+    }
+
+    fn create_yes_no_widget(
+        name: &str,
+        window: &WindowHandle,
+        parent: Uuid,
+        binding: &QuestionBinding,
+        widget_host_bundle: Uuid,
+    ) -> Uuid {
+        let widget_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
+        let mut fields = graph::map();
+        fields.insert(canon::cc('W', 'K'), Value::Text("checkbox".into()));
+        fields.insert(canon::PARENT, Value::Uuid(parent));
+        fields.insert(canon::TEXT, Value::Text(Self::load_label(binding)));
+        fields.insert(canon::HEIGHT, Value::U64(QUESTION_ROW_HEIGHT));
+        fields.insert(canon::WIDTH, Value::U64(320));
+        fields.insert(canon::VISIBLE, Value::Bool(true));
+        fields.insert(CHECKED, Value::Bool(Self::load_answer(binding)));
+        fields.insert(canon::FOCUSABLE, Value::Bool(true));
+        graph::fiat(Some(widget_id), canon::WIDGET, fields);
+        graph::grant_capability(widget_host_bundle, widget_id, "CAN_READ");
+        graph::that(window.window_id(), "contains", widget_id, 0);
+        widget_id
+    }
+
+    fn create_intro_text(window: &WindowHandle, parent: Uuid) {
+        let widget_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"question_intro");
+        let mut fields = graph::map();
+        fields.insert(canon::PARENT, Value::Uuid(parent));
+        fields.insert(canon::cc('W', 'K'), Value::Text("plain_text".into()));
+        fields.insert(
+            canon::TEXT,
+            Value::Text(
+                "Questions are graph things. Widgets are just one view over those semantic nodes."
+                    .into(),
+            ),
+        );
+        fields.insert(canon::HEIGHT, Value::U64(72));
+        fields.insert(canon::WIDTH, Value::U64(440));
+        fields.insert(canon::cc('F', 'S'), Value::I64(0));
+        graph::fiat(Some(widget_id), canon::WIDGET, fields);
+        graph::that(window.window_id(), "contains", widget_id, 0);
+    }
+
+    fn load_label(binding: &QuestionBinding) -> String {
+        let request = GraphPropsGetRequest {
+            node: binding.question,
+            keys: alloc::vec![canon::LABEL],
+        };
+        match graph::get_props(request)
+            .as_ref()
+            .and_then(|props| graph::extract_text(props.get(&canon::LABEL)?))
+        {
+            Some(label) => label,
+            None => "Question".to_string(),
+        }
+    }
+
+    fn load_answer(binding: &QuestionBinding) -> bool {
+        let request = GraphPropsGetRequest {
+            node: binding.answer,
+            keys: alloc::vec![canon::VALUE_BOOL],
+        };
+        match graph::get_props(request)
+            .as_ref()
+            .and_then(|props| props.get(&canon::VALUE_BOOL).and_then(|v| v.as_bool()))
+        {
+            Some(val) => val,
+            None => false,
+        }
+    }
+
+    fn push_widget_state(widget_id: Uuid, checked: bool) {
+        let mut props = graph::map();
+        props.insert(CHECKED, Value::Bool(checked));
+        graph::set_props(thing_abi::GraphPropsRequest {
+            node: widget_id,
+            props,
+        });
+    }
+
+    fn push_widget_label(widget_id: Uuid, label: &str) {
+        let mut props = graph::map();
+        props.insert(canon::TEXT, Value::Text(label.into()));
+        graph::set_props(GraphPropsRequest {
+            node: widget_id,
+            props,
+        });
     }
 }
 

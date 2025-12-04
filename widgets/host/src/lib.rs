@@ -13,7 +13,7 @@ use userland::widget_abi::{
 };
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_button::ButtonWidget;
-use widget_checkbox::CheckboxWidget;
+use widget_checkbox::{CheckboxWidget, CHECKED};
 use widget_dropdown::DropdownWidget;
 use widget_graph_mini_viewer::GraphMiniViewerWidget;
 use widget_image::ImageWidget;
@@ -491,6 +491,9 @@ impl App for WidgetHost {
             // Publish
             let mut updates = graph::map();
             updates.insert(canon::BITMAP, Value::Bytes(instance.framebuffer.clone()));
+            if let WidgetState::Checkbox(state) = &instance.state {
+                updates.insert(CHECKED, Value::Bool(state.checked));
+            }
             // Don't update width/height here as we read it from the thing initially.
             graph::fiat(Some(*id), canon::WIDGET, updates);
         }

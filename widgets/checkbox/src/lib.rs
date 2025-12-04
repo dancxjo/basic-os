@@ -11,7 +11,7 @@ use userland::{canon, Symbol, Value};
 
 pub struct CheckboxWidget;
 
-const CHECKED: Symbol = canon::canon(b'C', b'H', b'K');
+pub const CHECKED: Symbol = canon::canon(b'C', b'H', b'K');
 
 #[derive(Clone, Debug)]
 pub struct State {

@@ -13,9 +13,11 @@ pub mod graph;
 pub mod graph_viewer;
 pub mod graphics;
 pub mod heap;
+pub mod interactions;
+pub mod questions;
 pub mod runtime;
-pub mod semantic_ui;
 pub mod sys;
+pub mod ui_graph;
 pub mod watch;
 pub mod widget_abi;
 
@@ -240,6 +242,20 @@ pub mod canon {
     pub const ITEM: Symbol = canon(b'I', b'T', b'M');
     pub const ITEM_LABEL: Symbol = canon(b'I', b'T', b'L');
     pub const ITEM_VALUE: Symbol = canon(b'I', b'T', b'V');
+    pub const QUESTION: Symbol = canon(b'Q', b'U', b'E');
+    pub const ANSWER: Symbol = canon(b'A', b'N', b'S');
+    pub const FORM: Symbol = canon(b'F', b'O', b'R');
+    pub const HAS_ANSWER: Symbol = canon(b'H', b'A', b'N');
+    pub const FORM_CONTAINS: Symbol = canon(b'F', b'C', b'N');
+    pub const ANSWER_KIND: Symbol = canon(b'A', b'K', b'D');
+    pub const VALUE_BOOL: Symbol = canon(b'V', b'B', b'L');
+    pub const VALUE_TEXT: Symbol = canon(b'V', b'T', b'X');
+    pub const VALUE_NUMBER: Symbol = canon(b'V', b'N', b'M');
+    pub const INTERACTION: Symbol = canon(b'I', b'T', b'N');
+    pub const INTERACTION_KIND: Symbol = canon(b'I', b'K', b'D');
+    pub const USES_WIDGET: Symbol = canon(b'U', b'W', b'D');
+    pub const RESULT_WRITES: Symbol = canon(b'R', b'S', b'W');
+    pub const RESULT_EXECUTES: Symbol = canon(b'R', b'S', b'E');
     pub const SELECTED_INDEX: Symbol = canon(b'S', b'E', b'L');
     pub const FOCUSED_INDEX: Symbol = canon(b'F', b'O', b'C');
     pub const THEME: Symbol = canon(b'T', b'H', b'M');
@@ -270,6 +286,13 @@ pub mod prelude {
         grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state,
         update_thing, QueueState, SharedBuffer, Surface, Thingable, Window,
     };
+    pub use crate::interactions::{
+        ensure_action_interaction, ensure_question_interaction, InteractionBinding, InteractionKind,
+    };
+    pub use crate::questions::{
+        attach_question_to_form, ensure_form, ensure_question_with_answer, AnswerKind, AnswerValue,
+        QuestionBinding,
+    };
     pub use crate::watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
     pub use crate::{print, println, Value};
 }
@@ -280,6 +303,10 @@ pub use graph::{
     declare_queue_state, declare_shared_buffer, extract_text, fiat, fiat_thing, find_by_kind,
     grant_capability, load_thing, load_things_of_kind, map, that, update_queue_state, update_thing,
     GraphEdge, GraphThing, NodePattern, QueueState, SharedBuffer, Surface, Thingable, Window,
+};
+pub use questions::{
+    attach_question_to_form, ensure_form, ensure_question_with_answer, AnswerKind, AnswerValue,
+    QuestionBinding,
 };
 pub use watch::{AppEvent, EventFilter, ThingFilter, WatchId, WatchManager};
 
