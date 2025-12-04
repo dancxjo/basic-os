@@ -98,6 +98,9 @@ pub mod canon {
     pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
     pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
     pub const TITLE: Symbol = canon(b'T', b'T', b'L');
+    pub const IS_ROOT: Symbol = canon(b'I', b'S', b'R');
+    pub const MODE_INDEX: Symbol = canon(b'M', b'D', b'X');
+    pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
     pub const X: Symbol = canon(b'X', b' ', b' ');
     pub const TOOLBAR: Symbol = canon(b'T', b'L', b'B');
     pub const TOOLBAR_BUTTON: Symbol = canon(b'T', b'B', b'T');
@@ -155,7 +158,6 @@ pub mod canon {
     pub const OWNER: Symbol = canon(b'O', b'W', b'N');
     pub const OWNS: Symbol = canon(b'O', b'W', b'S');
     pub const HAS_CONTENT: Symbol = canon(b'H', b'C', b'T');
-    pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');
     pub const COLOR: Symbol = canon(b'C', b'L', b'R');
     pub const VISIBLE: Symbol = canon(b'V', b'S', b'B');
     pub const ACTIVE: Symbol = canon(b'A', b'C', b'T');

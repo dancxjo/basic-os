@@ -4,14 +4,28 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-userland = { path = "../../userland" }
+userland = { path = "../../userland", features = [
+    "disable_panic_handler",
+    "kernel_standalone",
+] }
 thing_abi = { path = "../../thing_abi" }
 compositor = { path = "../../compositor" }
-app-framebuffer-driver = { path = "../../drivers/framebuffer_driver" }
-app-keyboard-driver = { path = "../../drivers/keyboard_driver" }
-app-mouse-driver = { path = "../../drivers/mouse_driver" }
-widget_host = { path = "../../widgets/host" }
+app-framebuffer-driver = { path = "../../drivers/framebuffer_driver", features = [
+    "disable_panic_handler",
+] }
+app-keyboard-driver = { path = "../../drivers/keyboard_driver", features = [
+    "disable_panic_handler",
+] }
+app-mouse-driver = { path = "../../drivers/mouse_driver", features = [
+    "disable_panic_handler",
+] }
+widget_host = { path = "../../widgets/host", features = [
+    "disable_panic_handler",
+] }
 text_editor = { path = "../../apps/text_editor" }
+graph_viewer = { path = "../../apps/graph_viewer", features = [
+    "disable_panic_handler",
+] }
 
 [features]
 default = []

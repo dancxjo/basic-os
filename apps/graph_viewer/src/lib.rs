@@ -8,6 +8,8 @@ use userland::prelude::*;
 use userland::{canon, graph, AppEvent, ThingFilter};
 use uuid::Uuid;
 
+const CLOUDS_BMP: &[u8] = include_bytes!("../../../clouds.bmp");
+
 pub struct GraphViewerApp {
     window: WindowHandle,
     entries: Vec<GraphViewerEntry>,
@@ -24,7 +26,22 @@ struct GraphViewerEntry {
 
 impl App for GraphViewerApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
-        let window = ctx.create_window("Graph Viewer");
+        let mut window_fields = userland::graph::Window {
+            id: Uuid::nil(),
+            title: "Graph Viewer".to_string(),
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+            z: 0,
+            visible: true,
+            target: None,
+            active: false,
+            is_root: true,
+            mode_index: Some(0), // F1
+            window_rect: None,
+        };
+        let window = ctx.create_window_with(window_fields);
 
         let mut app = GraphViewerApp {
             window: window.clone(),
@@ -36,6 +53,10 @@ impl App for GraphViewerApp {
         };
 
         app.sync_entries(ctx, window.window_id());
+
+        // Draw background
+        ctx.draw_bitmap(&window, CLOUDS_BMP);
+        ctx.draw_text(&window, format_args!(""));
 
         // Watch window for active state
         app.window_watch = Some(ctx.watch_graph(ThingFilter {

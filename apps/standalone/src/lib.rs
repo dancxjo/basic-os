@@ -8,6 +8,8 @@ use userland::app::{create_app, App, AppState, DynApp};
 use userland::uuid::Uuid;
 use userland::{println, AppContext, FramebufferGeometry, WatchManager};
 
+mod terminal;
+
 const FRAME_INTERVAL_SPINS: usize = 1_000_000;
 static mut BACKBUFFER_STORAGE: [u32; 8_388_608] = [0; 8_388_608];
 
@@ -74,6 +76,18 @@ pub fn run_desktop(
         };
         app_mouse_driver::MouseDriver::init(&mut ctx)
     };
+
+    println!("[INFO] starting graph_viewer (F1 root)");
+    apps.push(create_app::<graph_viewer::GraphViewerApp>(
+        compositor_id,
+        &mut watch_manager,
+    ));
+
+    println!("[INFO] starting terminal (F12 root)");
+    apps.push(create_app::<terminal::Terminal>(
+        compositor_id,
+        &mut watch_manager,
+    ));
 
     println!("[INFO] starting widget_host for semantic UI surfaces");
     apps.push(create_app::<widget_host::WidgetHost>(

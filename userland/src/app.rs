@@ -114,6 +114,8 @@ impl<'a> AppContext<'a> {
             visible: true,
             target: None,
             active: false,
+            is_root: false,
+            mode_index: None,
             window_rect: None,
         };
         self.create_window_with(window_fields)

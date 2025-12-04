@@ -1521,6 +1521,7 @@ dependencies = [
  "app-keyboard-driver",
  "app-mouse-driver",
  "compositor",
+ "graph_viewer",
  "text_editor",
  "thing_abi",
  "userland",

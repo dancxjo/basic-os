@@ -388,6 +388,8 @@ pub struct Window {
     pub visible: bool,
     pub target: Option<Uuid>,
     pub active: bool,
+    pub is_root: bool,
+    pub mode_index: Option<u8>,
     pub window_rect: Option<WindowRect>,
 }
 
@@ -435,14 +437,26 @@ impl Thingable for Window {
             .get(&canon::VISIBLE)
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let target = thing.fields.get(&canon::TARGET).and_then(|v| v.as_uuid());
         let active = thing
             .fields
             .get(&canon::ACTIVE)
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let target = thing.fields.get(&canon::TARGET).and_then(|v| v.as_uuid());
+        let is_root = thing
+            .fields
+            .get(&canon::IS_ROOT)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let mode_index = thing
+            .fields
+            .get(&canon::MODE_INDEX)
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u8);
+
         let window_rect = WindowRect::from_optional_value(thing.fields.get(&canon::WINDOW_RECT));
-        Some(Window {
+
+        Some(Self {
             id: thing.id,
             width,
             height,
@@ -453,6 +467,8 @@ impl Thingable for Window {
             visible,
             target,
             active,
+            is_root,
+            mode_index,
             window_rect,
         })
     }
@@ -469,6 +485,10 @@ impl Window {
         map.insert(canon::Z, Value::I64(self.z));
         map.insert(canon::VISIBLE, Value::Bool(self.visible));
         map.insert(canon::ACTIVE, Value::Bool(self.active));
+        map.insert(canon::IS_ROOT, Value::Bool(self.is_root));
+        if let Some(idx) = self.mode_index {
+            map.insert(canon::MODE_INDEX, Value::U64(idx as u64));
+        }
         if let Some(target) = self.target {
             map.insert(canon::TARGET, Value::Uuid(target));
         }

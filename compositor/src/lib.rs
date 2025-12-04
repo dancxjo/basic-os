@@ -754,10 +754,21 @@ impl CursorState {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Sky,
-    Max,
+#[derive(Clone, Debug)]
+pub struct ModeSlot {
+    pub mode_index: u8,
+    pub root_window: Option<Uuid>,
+    pub windows: Vec<Uuid>,
+}
+
+impl ModeSlot {
+    pub fn new(index: u8) -> Self {
+        Self {
+            mode_index: index,
+            root_window: None,
+            windows: Vec::new(),
+        }
+    }
 }
 
 pub struct Compositor<F, R> {
@@ -765,7 +776,6 @@ pub struct Compositor<F, R> {
     fb_device: F,
     renderer: R,
     windows: BTreeMap<Uuid, WindowSurface>,
-    window_order: Vec<Uuid>,
     watch_surfaces: Option<WatchId>,
     watch_windows: Option<WatchId>,
     watch_mouse: Option<WatchId>,
@@ -780,7 +790,8 @@ pub struct Compositor<F, R> {
     cursor: CursorState,
     cursor_sprites: CursorSprites,
     active_window: Option<Uuid>,
-    active_mode: Mode,
+    active_mode: usize,
+    modes: [ModeSlot; 12],
     saved_sky_geometry: BTreeMap<Uuid, Rect>,
     theme: Theme,
     background: Arc<Bitmap>,
@@ -812,12 +823,13 @@ where
         fields.insert(canon::NAME, Value::Text("CompositorState".into()));
         userland::fiat(Some(state_node), canon::COMPOSITOR, fields);
 
+        let modes = core::array::from_fn(|i| ModeSlot::new(i as u8));
+
         Self {
             frame_no: 0,
             fb_device,
             renderer,
             windows: BTreeMap::new(),
-            window_order: Vec::new(),
             watch_surfaces: None,
             watch_windows: None,
             watch_mouse: None,
@@ -832,7 +844,8 @@ where
             cursor: CursorState::new(width, height),
             cursor_sprites,
             active_window: None,
-            active_mode: Mode::Sky,
+            active_mode: 0,
+            modes,
             saved_sky_geometry: BTreeMap::new(),
             theme,
             background,
@@ -882,7 +895,7 @@ where
 
         // Window order (front to back)
         let mut order_ids = Vec::new();
-        for id in self.window_order.iter().rev() {
+        for id in self.ordered_window_ids().iter().rev() {
             order_ids.push(Value::Uuid(*id));
         }
         fields.insert(canon::ABOVE, Value::List(order_ids));
@@ -1120,6 +1133,83 @@ where
         Some(Rect::new(x, y, w, h))
     }
 
+    fn draw_root_window(
+        &self,
+        scene: &mut Scene,
+        surface: &WindowSurface,
+        fb_width: usize,
+        fb_height: usize,
+    ) {
+        let x = 0;
+        let y = 0;
+        let w = fb_width;
+        let h = fb_height;
+
+        scene.push(SceneItem::ClipPush {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+        });
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+            color: self.theme.client_bg,
+        });
+
+        if let Some(bmp) = &surface.bitmap {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(x as i32, y as i32, bmp.width as u32, bmp.height as u32),
+                image: bmp.clone(),
+                repeat: false,
+                offset: (0, 0),
+            });
+        } else if !surface.text.is_empty() {
+            scene.push(SceneItem::DrawTextBlock {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                text: surface.text.clone(),
+                color: COLOR_TEXT,
+                scroll_offset: surface.scroll_y,
+            });
+        }
+
+        let has_widgets = self
+            .widgets
+            .values()
+            .any(|w| w.parent == Some(surface.window.id));
+
+        if has_widgets {
+            let layout = WindowLayout {
+                title_x: 0,
+                title_y: 0,
+                title_w: 0,
+                title_h: 0,
+                client_x: x as i32,
+                client_y: y as i32,
+                client_w: w as i32,
+                client_h: h as i32,
+            };
+            self.draw_widgets(scene, surface.window.id, &layout, layout.client_w);
+        }
+
+        scene.push(SceneItem::ClipPop);
+    }
+
+    fn draw_mode(&mut self, scene: &mut Scene, width: usize, height: usize) {
+        let mode = &self.modes[self.active_mode];
+
+        if let Some(root_id) = mode.root_window {
+            if let Some(surface) = self.windows.get(&root_id).cloned() {
+                self.draw_root_window(scene, &surface, width, height);
+            }
+        } else {
+            self.draw_background(scene, width, height);
+        }
+
+        for id in &mode.windows {
+            if let Some(surface) = self.windows.get(id).cloned() {
+                self.draw_window(scene, &surface, width, height);
+            }
+        }
+    }
+
     pub fn tick(&mut self) {
         let geo = self.fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
@@ -1141,15 +1231,7 @@ where
         let mut scene = Scene::new(width as u32, height as u32);
         scene.push(SceneItem::Clear { color: CLEAR_COLOR });
 
-        match self.active_mode {
-            Mode::Sky => {
-                self.draw_background(&mut scene, width, height);
-                self.draw_windows(&mut scene, width, height);
-            }
-            Mode::Max => {
-                self.draw_max_mode(&mut scene, width, height);
-            }
-        }
+        self.draw_mode(&mut scene, width, height);
 
         self.draw_cursor(&mut scene, width, height);
 
@@ -2081,38 +2163,23 @@ where
     }
 
     fn ordered_window_ids(&self) -> Vec<Uuid> {
-        let mut ordered: Vec<Uuid> = self
-            .windows
-            .iter()
-            .filter_map(|(id, surface)| surface.window.visible.then_some(*id))
-            .collect();
-
-        ordered.sort_by(|a, b| {
-            use core::cmp::Ordering;
-            let a_surface = self
-                .windows
-                .get(a)
-                .expect("ordered window missing from compositor state");
-            let b_surface = self
-                .windows
-                .get(b)
-                .expect("ordered window missing from compositor state");
-
-            let z_cmp = a_surface.window.z.cmp(&b_surface.window.z);
-            if z_cmp != Ordering::Equal {
-                return z_cmp;
+        let mode = &self.modes[self.active_mode];
+        let mut ids = Vec::new();
+        if let Some(root) = mode.root_window {
+            if let Some(w) = self.windows.get(&root) {
+                if w.window.visible {
+                    ids.push(root);
+                }
             }
-
-            let idx = |id: &Uuid| {
-                self.window_order
-                    .iter()
-                    .position(|w| w == id)
-                    .unwrap_or(usize::MAX)
-            };
-            idx(a).cmp(&idx(b))
-        });
-
-        ordered
+        }
+        for &id in &mode.windows {
+            if let Some(w) = self.windows.get(&id) {
+                if w.window.visible {
+                    ids.push(id);
+                }
+            }
+        }
+        ids
     }
 
     fn visible_window_ids(&self) -> Vec<Uuid> {
@@ -2219,77 +2286,74 @@ where
         }
     }
 
-    pub fn switch_mode(&mut self, new_mode: Mode) {
-        if self.active_mode == new_mode {
+    fn maximize_window(&mut self, window_id: Uuid) {
+        let geo = self.fb_device.geometry();
+        let width = geo.width as u64;
+        let height = geo.height as u64;
+        let top_offset = AUTO_TILE_TOP_OFFSET as u64;
+        let height = height.saturating_sub(top_offset);
+
+        if let Some(entry) = self.windows.get_mut(&window_id) {
+            entry.window.x = 0;
+            entry.window.y = top_offset;
+            entry.window.width = width;
+            entry.window.height = height;
+            entry.window.mode_index = Some(1); // F2
+        }
+
+        let mut props = BTreeMap::new();
+        props.insert(canon::X, Value::U64(0));
+        props.insert(canon::Y, Value::U64(top_offset));
+        props.insert(canon::WIDTH, Value::U64(width));
+        props.insert(canon::HEIGHT, Value::U64(height));
+        props.insert(canon::MODE_INDEX, Value::U64(1));
+
+        self.update_window_props(window_id, props);
+    }
+
+    fn handle_f2_switch(&mut self) {
+        if self.active_mode != 1 {
+            if let Some(active_id) = self.active_window {
+                let is_root = self
+                    .windows
+                    .get(&active_id)
+                    .map(|w| w.window.is_root)
+                    .unwrap_or(false);
+
+                if !is_root {
+                    let mut current_mode_idx = None;
+                    for (i, mode) in self.modes.iter().enumerate() {
+                        if mode.windows.contains(&active_id) {
+                            current_mode_idx = Some(i);
+                            break;
+                        }
+                    }
+
+                    if let Some(old_idx) = current_mode_idx {
+                        if old_idx != 1 {
+                            if let Some(pos) = self.modes[old_idx]
+                                .windows
+                                .iter()
+                                .position(|x| *x == active_id)
+                            {
+                                self.modes[old_idx].windows.remove(pos);
+                            }
+                            self.modes[1].windows.push(active_id);
+                            self.maximize_window(active_id);
+                        }
+                    }
+                }
+            }
+        }
+        self.switch_mode(1);
+    }
+
+    pub fn switch_mode(&mut self, new_mode_idx: usize) {
+        if self.active_mode == new_mode_idx {
             return;
         }
-
-        match new_mode {
-            Mode::Max => self.enter_max_mode(),
-            Mode::Sky => self.exit_max_mode(),
-        }
-
-        self.active_mode = new_mode;
+        self.active_mode = new_mode_idx;
         self.fb_dirty = true;
-    }
-
-    fn enter_max_mode(&mut self) {
-        if let Some(active_id) = self.active_window {
-            self.maximize_window(active_id);
-        }
-    }
-
-    fn exit_max_mode(&mut self) {
-        let ids: Vec<Uuid> = self.saved_sky_geometry.keys().cloned().collect();
-        for id in ids {
-            self.restore_window(id);
-        }
-    }
-
-    fn maximize_window(&mut self, window_id: Uuid) {
-        if let Some(surface) = self.windows.get(&window_id) {
-            if !self.saved_sky_geometry.contains_key(&window_id) {
-                self.saved_sky_geometry.insert(
-                    window_id,
-                    Rect::new(
-                        surface.window.x as i32,
-                        surface.window.y as i32,
-                        surface.window.width as u32,
-                        surface.window.height as u32,
-                    ),
-                );
-            }
-
-            let geo = self.fb_device.geometry();
-            let mut props = BTreeMap::new();
-            props.insert(canon::X, Value::U64(0));
-            props.insert(canon::Y, Value::U64(0));
-            props.insert(canon::WIDTH, Value::U64(geo.width as u64));
-            props.insert(canon::HEIGHT, Value::U64(geo.height as u64));
-            self.update_window_props(window_id, props);
-        }
-    }
-
-    fn restore_window(&mut self, window_id: Uuid) {
-        if let Some(rect) = self.saved_sky_geometry.remove(&window_id) {
-            let mut props = BTreeMap::new();
-            props.insert(canon::X, Value::U64(rect.x as u64));
-            props.insert(canon::Y, Value::U64(rect.y as u64));
-            props.insert(canon::WIDTH, Value::U64(rect.width as u64));
-            props.insert(canon::HEIGHT, Value::U64(rect.height as u64));
-            self.update_window_props(window_id, props);
-        }
-    }
-
-    fn handle_f12(&mut self) {
-        if let Some(active) = self.active_window {
-            self.switch_mode(Mode::Max);
-            if self.active_mode == Mode::Max {
-                self.maximize_window(active);
-            }
-        } else {
-            self.switch_mode(Mode::Sky);
-        }
     }
 
     fn ingest_key_event(&mut self, thing: &userland::GraphThing) {
@@ -2330,12 +2394,13 @@ where
                 {
                     self.debug_overlay_mode = !self.debug_overlay_mode;
                     self.fb_dirty = true;
-                } else if key == canon::Symbol::new(0xF001) {
-                    self.switch_mode(Mode::Sky);
-                } else if key == canon::Symbol::new(0xF002) {
-                    self.switch_mode(Mode::Max);
-                } else if key == canon::Symbol::new(0xF00C) {
-                    self.handle_f12();
+                } else if key.0 >= 0xF001 && key.0 <= 0xF00C {
+                    let mode_idx = (key.0 - 0xF001) as usize;
+                    if mode_idx == 1 {
+                        self.handle_f2_switch();
+                    } else {
+                        self.switch_mode(mode_idx);
+                    }
                 } else if key == canon::cc('T', 'B') {
                     self.handle_tab_focus();
                 }
@@ -2841,14 +2906,6 @@ where
             self.update_graph_state();
         }
 
-        if self.active_mode == Mode::Max {
-            if let Some(prev) = prev_window {
-                self.restore_window(prev);
-            }
-            if let Some(id) = window_id {
-                self.maximize_window(id);
-            }
-        }
         self.content_dirty = true;
     }
 
@@ -3015,6 +3072,22 @@ where
             );
         }
 
+        if is_new {
+            let window = &self.windows[&window_id].window;
+            let target_mode = window
+                .mode_index
+                .map(|i| i as usize)
+                .unwrap_or(self.active_mode);
+
+            if target_mode < self.modes.len() {
+                if window.is_root {
+                    self.modes[target_mode].root_window = Some(window_id);
+                } else {
+                    self.modes[target_mode].windows.push(window_id);
+                }
+            }
+        }
+
         if let Some(prev_max_z) = prev_max_z {
             self.ensure_window_has_unique_z(window_id, prev_max_z);
         }
@@ -3041,10 +3114,14 @@ where
     }
 
     fn bump_window(&mut self, window_id: Uuid) {
-        if let Some(pos) = self.window_order.iter().position(|w| *w == window_id) {
-            self.window_order.remove(pos);
+        // Find which mode contains this window and bump it
+        for mode in &mut self.modes {
+            if let Some(pos) = mode.windows.iter().position(|w| *w == window_id) {
+                mode.windows.remove(pos);
+                mode.windows.push(window_id);
+                break;
+            }
         }
-        self.window_order.push(window_id);
         self.update_graph_state();
     }
 
@@ -3752,6 +3829,8 @@ fn default_window(id: Uuid) -> Window {
         visible: true,
         target: None,
         active: false,
+        is_root: false,
+        mode_index: None,
         window_rect: None,
     }
 }
