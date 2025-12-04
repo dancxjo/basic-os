@@ -98,6 +98,27 @@ impl App for DemoApp {
             graph::fiat(Some(item_id), canon::canon(b'I', b'T', b'M'), fields);
         }
 
+        // 3.1 Checkbox Widget
+        let checked_sym = canon::canon(b'C', b'H', b'K');
+        let mut checkbox_extras = BTreeMap::new();
+        checkbox_extras.insert(canon::TEXT, Value::Text(String::from("Check Me")));
+        checkbox_extras.insert(checked_sym, Value::Bool(true));
+        add_widget(
+            "demo_checkbox",
+            "checkbox",
+            120,
+            20,
+            Some(checkbox_extras),
+            6,
+        );
+
+        // 3.2 Radio Button Widget
+        let selected_sym = canon::canon(b'S', b'E', b'L');
+        let mut radio_extras = BTreeMap::new();
+        radio_extras.insert(canon::TEXT, Value::Text(String::from("Radio Option")));
+        radio_extras.insert(selected_sym, Value::Bool(true));
+        add_widget("demo_radio", "radio_button", 120, 20, Some(radio_extras), 7);
+
         // 3.5 Icon Buttons
         let icon_buttons = ["home", "menu", "settings", "close", "arrow-back"];
         for (i, icon) in icon_buttons.iter().enumerate() {

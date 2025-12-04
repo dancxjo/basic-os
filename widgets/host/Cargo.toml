@@ -18,6 +18,8 @@ widget_listbox_default = { path = "../listbox_default" }
 widget_notification_toast = { path = "../notification_toast" }
 widget_notification_dialog = { path = "../notification_dialog" }
 widget_image = { path = "../image" }
+widget_checkbox = { path = "../checkbox" }
+widget_radio_button = { path = "../radio_button" }
 
 [features]
 default = []

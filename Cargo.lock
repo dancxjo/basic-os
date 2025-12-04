@@ -1868,6 +1868,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget_checkbox"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
+]
+
+[[package]]
 name = "widget_host"
 version = "0.1.0"
 dependencies = [
@@ -1875,11 +1884,13 @@ dependencies = [
  "userland",
  "uuid",
  "widget_button",
+ "widget_checkbox",
  "widget_image",
  "widget_launcher_entry",
  "widget_listbox_default",
  "widget_notification_dialog",
  "widget_notification_toast",
+ "widget_radio_button",
  "widget_scrollbar_thumb",
  "widget_toolbar",
 ]
@@ -1925,6 +1936,15 @@ dependencies = [
  "unifont",
  "userland",
  "uuid",
+]
+
+[[package]]
+name = "widget_radio_button"
+version = "0.1.0"
+dependencies = [
+ "thing_abi",
+ "unifont",
+ "userland",
 ]
 
 [[package]]
