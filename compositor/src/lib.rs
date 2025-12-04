@@ -27,7 +27,7 @@ mod framebuffer_backend;
 mod layout;
 
 pub use framebuffer_backend::{BitmapFramebufferDevice, BitmapRenderer};
-pub use layout::{LayoutItem, LayoutSpec};
+pub use layout::{AlignItems, FlexDirection, JustifyContent, LayoutItem, LayoutSpec};
 
 const FONT_HEIGHT: usize = 16;
 const TITLE_BAR_HEIGHT: usize = 32;
@@ -1665,27 +1665,65 @@ where
 
         let x_offset = layout.client_x;
         let width = widget_area_width.max(0);
-        let mut y_offset = layout.client_y;
-        let mut remaining_h = layout.client_h.max(0);
+        let y_offset = layout.client_y;
+        let height = layout.client_h.max(0);
 
-        for widget_id in relative_widgets {
-            if remaining_h <= 0 {
-                break;
-            }
+        // Determine layout spec from window properties
+        let (gap, spec) = if let Some(surface) = self.windows.get(&window_id) {
+            let w = &surface.window;
+            let gap = w.gap.unwrap_or(0);
+            let spec = if let Some(dir) = &w.flex_direction {
+                match dir.as_str() {
+                    "row" => LayoutSpec::Flex {
+                        direction: FlexDirection::Row,
+                        justify: self.parse_justify(w.justify_content.as_deref()),
+                        align: self.parse_align(w.align_items.as_deref()),
+                    },
+                    "column" => LayoutSpec::Flex {
+                        direction: FlexDirection::Column,
+                        justify: self.parse_justify(w.justify_content.as_deref()),
+                        align: self.parse_align(w.align_items.as_deref()),
+                    },
+                    _ => LayoutSpec::Flex {
+                        direction: FlexDirection::Column,
+                        justify: JustifyContent::Start,
+                        align: AlignItems::Stretch,
+                    },
+                }
+            } else {
+                LayoutSpec::Flex {
+                    direction: FlexDirection::Column,
+                    justify: JustifyContent::Start,
+                    align: AlignItems::Stretch,
+                }
+            };
+            (gap, spec)
+        } else {
+            (
+                0,
+                LayoutSpec::Flex {
+                    direction: FlexDirection::Column,
+                    justify: JustifyContent::Start,
+                    align: AlignItems::Stretch,
+                },
+            )
+        };
 
-            if let Some(widget) = self.widgets.get(&widget_id) {
-                let child_h = self.draw_widget_recursive(
-                    scene,
-                    window_id,
-                    widget,
-                    x_offset,
-                    y_offset,
-                    width,
-                    remaining_h,
-                );
-                y_offset += child_h;
-                remaining_h = remaining_h.saturating_sub(child_h);
-            }
+        // Use layout engine for relative widgets
+        if !relative_widgets.is_empty() {
+            self.layout_and_draw_children(
+                scene,
+                window_id,
+                Rect::new(
+                    x_offset as i32,
+                    y_offset as i32,
+                    width as u32,
+                    height as u32,
+                ),
+                &relative_widgets,
+                spec,
+                gap,
+            );
         }
 
         for widget_id in overlay_widgets {
@@ -1697,6 +1735,65 @@ where
                         scene, window_id, widget, x as i32, y as i32, w as i32, h as i32,
                     );
                 }
+            }
+        }
+    }
+
+    fn parse_justify(&self, s: Option<&str>) -> JustifyContent {
+        match s {
+            Some("center") => JustifyContent::Center,
+            Some("end") | Some("flex-end") => JustifyContent::End,
+            Some("space-between") => JustifyContent::SpaceBetween,
+            Some("space-around") => JustifyContent::SpaceAround,
+            _ => JustifyContent::Start,
+        }
+    }
+
+    fn parse_align(&self, s: Option<&str>) -> AlignItems {
+        match s {
+            Some("center") => AlignItems::Center,
+            Some("end") | Some("flex-end") => AlignItems::End,
+            Some("stretch") => AlignItems::Stretch,
+            _ => AlignItems::Start,
+        }
+    }
+
+    fn layout_and_draw_children(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        container_rect: Rect,
+        children_ids: &[Uuid],
+        spec: LayoutSpec,
+        gap: i32,
+    ) {
+        let items: Vec<LayoutItem> = children_ids
+            .iter()
+            .filter_map(|id| {
+                self.widgets.get(id).map(|w| LayoutItem {
+                    id: *id,
+                    min_width: w.width.unwrap_or(0) as u32,
+                    min_height: w.height.unwrap_or(30) as u32, // Default height 30 if unknown
+                    flex_grow: w.flex_grow.unwrap_or(0.0),
+                    flex_shrink: w.flex_shrink.unwrap_or(1.0),
+                    ..Default::default()
+                })
+            })
+            .collect();
+
+        let rects = layout::layout(container_rect, spec, &items, gap);
+
+        for (child_id, rect) in rects {
+            if let Some(child) = self.widgets.get(&child_id) {
+                self.draw_widget_recursive(
+                    scene,
+                    window_id,
+                    child,
+                    rect.x,
+                    rect.y,
+                    rect.width as i32,
+                    rect.height as i32,
+                );
             }
         }
     }
@@ -1798,25 +1895,42 @@ where
                 .map(|w| w.id)
                 .collect();
 
-            let mut child_y = y;
-            let mut remaining_h = h;
-
-            for child_id in children {
-                if let Some(child) = self.widgets.get(&child_id) {
-                    let child_h = self.draw_widget_recursive(
-                        scene,
-                        window_id,
-                        child,
-                        x,
-                        child_y,
-                        w,
-                        remaining_h,
-                    );
-                    child_y += child_h;
-                    drawn_height += child_h;
-                    remaining_h -= child_h;
+            let spec = if let Some(dir) = &widget.flex_direction {
+                match dir.as_str() {
+                    "row" => LayoutSpec::Flex {
+                        direction: FlexDirection::Row,
+                        justify: self.parse_justify(widget.justify_content.as_deref()),
+                        align: self.parse_align(widget.align_items.as_deref()),
+                    },
+                    "column" => LayoutSpec::Flex {
+                        direction: FlexDirection::Column,
+                        justify: self.parse_justify(widget.justify_content.as_deref()),
+                        align: self.parse_align(widget.align_items.as_deref()),
+                    },
+                    _ => LayoutSpec::Flex {
+                        direction: FlexDirection::Column,
+                        justify: JustifyContent::Start,
+                        align: AlignItems::Stretch,
+                    },
                 }
-            }
+            } else {
+                LayoutSpec::Flex {
+                    direction: FlexDirection::Column,
+                    justify: JustifyContent::Start,
+                    align: AlignItems::Stretch,
+                }
+            };
+
+            let gap = widget.gap.unwrap_or(0);
+            self.layout_and_draw_children(
+                scene,
+                window_id,
+                Rect::new(x, y, w as u32, h as u32),
+                &children,
+                spec,
+                gap,
+            );
+            drawn_height = h;
         } else if widget.role == ROLE_EDITOR_ROOT {
             drawn_height = h;
             self.draw_surface_content(scene, window_id, x, y, w, h);
@@ -2551,6 +2665,7 @@ where
                 id: *id,
                 min_width: MIN_WINDOW_WIDTH as u32,
                 min_height: MIN_WINDOW_HEIGHT as u32,
+                ..Default::default()
             })
             .collect();
 
@@ -3845,6 +3960,10 @@ fn default_window(id: Uuid) -> Window {
         is_root: false,
         mode_index: None,
         window_rect: None,
+        gap: None,
+        flex_direction: None,
+        justify_content: None,
+        align_items: None,
     }
 }
 

@@ -54,6 +54,10 @@ impl App for GraphViewerApp {
             is_root: true,
             mode_index: Some(0), // F1
             window_rect: None,
+            gap: None,
+            flex_direction: None,
+            justify_content: None,
+            align_items: None,
         };
         let window = ctx.create_window_with(window_fields);
 
@@ -113,8 +117,8 @@ impl App for GraphViewerApp {
                     // Simple grid layout
                     let idx = self.nodes.len() as i64;
                     let cols = 10;
-                    let spacing_x = 100;
-                    let spacing_y = 80;
+                    let spacing_x = 200;
+                    let spacing_y = 160;
                     let margin_x = 50;
                     let margin_y = 50;
 

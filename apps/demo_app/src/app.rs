@@ -25,6 +25,11 @@ impl App for DemoApp {
     fn init(ctx: &mut AppContext<'_>) -> Self {
         let window = ctx.create_window("Demo Application");
 
+        // Set gap for the window layout
+        let mut updates = graph::map();
+        updates.insert(canon::GAP, Value::I64(20));
+        graph::fiat(Some(window.window_id()), canon::WINDOW, updates);
+
         ctx.watch_graph(ThingFilter {
             kind: Some(canon::KEY_PRESSED),
             id: None,
@@ -97,6 +102,49 @@ impl App for DemoApp {
 
             graph::fiat(Some(item_id), canon::canon(b'I', b'T', b'M'), fields);
         }
+
+        println!("Creating Flex Container Demo...");
+        // 4. Flex Container
+        let container_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"flex_container");
+        let mut container_fields = graph::map();
+        container_fields.insert(canon::cc('W', 'K'), Value::Text(String::from("container"))); // Kind: container (generic)
+                                                                                              // Use flex layout
+        container_fields.insert(canon::cc('F', 'D'), Value::Text(String::from("row"))); // Flex Direction: row
+        container_fields.insert(
+            canon::cc('J', 'C'),
+            Value::Text(String::from("space-between")),
+        ); // Justify Content
+        container_fields.insert(canon::GAP, Value::I64(10)); // Gap: 10px
+        container_fields.insert(canon::WIDTH, Value::U64(300));
+        container_fields.insert(canon::HEIGHT, Value::U64(50));
+        container_fields.insert(canon::PARENT, Value::Uuid(window.window_id()));
+
+        graph::fiat(Some(container_id), canon::WIDGET, container_fields);
+        graph::grant_capability(widget_host_bundle, container_id, "CAN_READ");
+        graph::that(window.window_id(), "contains", container_id, 3);
+
+        // Add children to flex container
+        let btn1_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"flex_btn_1");
+        let mut btn1_fields = graph::map();
+        btn1_fields.insert(canon::cc('W', 'K'), Value::Text(String::from("button")));
+        btn1_fields.insert(canon::TEXT, Value::Text(String::from("Flex 1")));
+        btn1_fields.insert(canon::cc('F', 'G'), Value::I64(1)); // Flex Grow 1
+        btn1_fields.insert(canon::PARENT, Value::Uuid(container_id));
+
+        graph::fiat(Some(btn1_id), canon::WIDGET, btn1_fields);
+        graph::grant_capability(widget_host_bundle, btn1_id, "CAN_READ");
+        graph::that(container_id, "contains", btn1_id, 0);
+
+        let btn2_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"flex_btn_2");
+        let mut btn2_fields = graph::map();
+        btn2_fields.insert(canon::cc('W', 'K'), Value::Text(String::from("button")));
+        btn2_fields.insert(canon::TEXT, Value::Text(String::from("Flex 2")));
+        btn2_fields.insert(canon::cc('F', 'G'), Value::I64(2)); // Flex Grow 2
+        btn2_fields.insert(canon::PARENT, Value::Uuid(container_id));
+
+        graph::fiat(Some(btn2_id), canon::WIDGET, btn2_fields);
+        graph::grant_capability(widget_host_bundle, btn2_id, "CAN_READ");
+        graph::that(container_id, "contains", btn2_id, 1);
 
         // 3.1 Checkbox Widget
         let checked_sym = canon::canon(b'C', b'H', b'K');

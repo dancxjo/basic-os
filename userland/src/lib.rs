@@ -98,6 +98,7 @@ pub mod canon {
     pub const DRIVER_TIMER: Symbol = canon(b'T', b'M', b'R');
     pub const DRIVER_OTHER: Symbol = canon(b'O', b'T', b'H');
     pub const TITLE: Symbol = canon(b'T', b'T', b'L');
+    pub const GAP: Symbol = canon(b'G', b'A', b'P');
     pub const IS_ROOT: Symbol = canon(b'I', b'S', b'R');
     pub const MODE_INDEX: Symbol = canon(b'M', b'D', b'X');
     pub const WINDOW_RECT: Symbol = canon(b'W', b'R', b'C');

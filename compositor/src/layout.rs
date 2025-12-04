@@ -3,11 +3,42 @@ use alloc::vec::Vec;
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlexDirection {
+    Row,
+    Column,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JustifyContent {
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlignItems {
+    Start,
+    Center,
+    End,
+    Stretch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutSpec {
     Stack,
     Row,
     Column,
-    Grid { rows: usize, cols: usize },
+    Grid {
+        rows: usize,
+        cols: usize,
+    },
+    Flex {
+        direction: FlexDirection,
+        justify: JustifyContent,
+        align: AlignItems,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -15,7 +46,24 @@ pub struct LayoutItem {
     pub id: Uuid,
     pub min_width: u32,
     pub min_height: u32,
-    // We can add more constraints later (max_width, flex, etc.)
+    pub max_width: Option<u32>,
+    pub max_height: Option<u32>,
+    pub flex_grow: f32,
+    pub flex_shrink: f32,
+}
+
+impl Default for LayoutItem {
+    fn default() -> Self {
+        Self {
+            id: Uuid::nil(),
+            min_width: 0,
+            min_height: 0,
+            max_width: None,
+            max_height: None,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+        }
+    }
 }
 
 pub fn layout(
@@ -36,6 +84,7 @@ pub fn layout(
             }
         }
         LayoutSpec::Row => {
+            // Legacy Row (equal width)
             let count = children.len() as u32;
             let total_gap = (count.saturating_sub(1) as i32) * gap;
             let available_width = (container.width as i32 - total_gap).max(0) as u32;
@@ -44,17 +93,16 @@ pub fn layout(
             let mut x = container.x;
             for (i, child) in children.iter().enumerate() {
                 let w = if i == (count - 1) as usize {
-                    // Give remaining pixels to last item to avoid rounding gaps
                     container.width - (item_width * (count - 1)) - (total_gap as u32)
                 } else {
                     item_width
                 };
-
                 result.push((child.id, Rect::new(x, container.y, w, container.height)));
                 x += (w as i32) + gap;
             }
         }
         LayoutSpec::Column => {
+            // Legacy Column (equal height)
             let count = children.len() as u32;
             let total_gap = (count.saturating_sub(1) as i32) * gap;
             let available_height = (container.height as i32 - total_gap).max(0) as u32;
@@ -67,7 +115,6 @@ pub fn layout(
                 } else {
                     item_height
                 };
-
                 result.push((child.id, Rect::new(container.x, y, container.width, h)));
                 y += (h as i32) + gap;
             }
@@ -75,40 +122,158 @@ pub fn layout(
         LayoutSpec::Grid { rows, cols } => {
             let rows = rows.max(1) as u32;
             let cols = cols.max(1) as u32;
-
             let total_gap_x = (cols.saturating_sub(1) as i32) * gap;
             let total_gap_y = (rows.saturating_sub(1) as i32) * gap;
-
             let available_width = (container.width as i32 - total_gap_x).max(0) as u32;
             let available_height = (container.height as i32 - total_gap_y).max(0) as u32;
-
             let item_width = available_width / cols;
             let item_height = available_height / rows;
 
             for (i, child) in children.iter().enumerate() {
                 let row = (i as u32) / cols;
                 let col = (i as u32) % cols;
-
                 if row >= rows {
-                    break; // Exceeded grid capacity
+                    break;
                 }
-
                 let x = container.x + (col as i32 * (item_width as i32 + gap));
                 let y = container.y + (row as i32 * (item_height as i32 + gap));
-
                 let w = if col == cols - 1 {
                     container.width - (item_width * (cols - 1)) - (total_gap_x as u32)
                 } else {
                     item_width
                 };
-
                 let h = if row == rows - 1 {
                     container.height - (item_height * (rows - 1)) - (total_gap_y as u32)
                 } else {
                     item_height
                 };
+                result.push((child.id, Rect::new(x, y, w, h)));
+            }
+        }
+        LayoutSpec::Flex {
+            direction,
+            justify,
+            align,
+        } => {
+            // Simplified Flexbox implementation
+            let is_row = direction == FlexDirection::Row;
+            let main_size = if is_row {
+                container.width
+            } else {
+                container.height
+            };
+            let cross_size = if is_row {
+                container.height
+            } else {
+                container.width
+            };
+
+            let count = children.len();
+            let total_gap = (count.saturating_sub(1) as i32 * gap).max(0) as u32;
+
+            // Calculate total basis and grow factors
+            let mut total_basis = 0;
+            let mut total_grow = 0.0;
+
+            for child in children {
+                let basis = if is_row {
+                    child.min_width
+                } else {
+                    child.min_height
+                };
+                total_basis += basis;
+                total_grow += child.flex_grow;
+            }
+
+            let available_space = main_size.saturating_sub(total_basis + total_gap);
+
+            let mut current_pos = 0;
+
+            // Handle JustifyContent (if no grow)
+            if total_grow == 0.0 && available_space > 0 {
+                match justify {
+                    JustifyContent::Start => {}
+                    JustifyContent::Center => current_pos = available_space / 2,
+                    JustifyContent::End => current_pos = available_space,
+                    JustifyContent::SpaceBetween => {
+                        // Handled in loop by adjusting gap
+                    }
+                    JustifyContent::SpaceAround => {
+                        current_pos = available_space / (count as u32 * 2);
+                    }
+                }
+            }
+
+            let extra_gap = if total_grow == 0.0
+                && available_space > 0
+                && justify == JustifyContent::SpaceBetween
+                && count > 1
+            {
+                available_space / (count - 1) as u32
+            } else if total_grow == 0.0
+                && available_space > 0
+                && justify == JustifyContent::SpaceAround
+            {
+                available_space / count as u32
+            } else {
+                0
+            };
+
+            let effective_gap = gap as u32 + extra_gap;
+
+            for child in children {
+                let basis = if is_row {
+                    child.min_width
+                } else {
+                    child.min_height
+                };
+                let grow_share = if total_grow > 0.0 {
+                    (available_space as f32 * (child.flex_grow / total_grow)) as u32
+                } else {
+                    0
+                };
+
+                let item_main_size = basis + grow_share;
+
+                // Cross axis alignment
+                let item_cross_size = if align == AlignItems::Stretch {
+                    cross_size
+                } else {
+                    if is_row {
+                        child.min_height
+                    } else {
+                        child.min_width
+                    }
+                };
+
+                let cross_pos = match align {
+                    AlignItems::Start | AlignItems::Stretch => 0,
+                    AlignItems::Center => (cross_size.saturating_sub(item_cross_size)) / 2,
+                    AlignItems::End => cross_size.saturating_sub(item_cross_size),
+                };
+
+                let (x, y, w, h) = if is_row {
+                    (
+                        container.x + current_pos as i32,
+                        container.y + cross_pos as i32,
+                        item_main_size,
+                        item_cross_size,
+                    )
+                } else {
+                    (
+                        container.x + cross_pos as i32,
+                        container.y + current_pos as i32,
+                        item_cross_size,
+                        item_main_size,
+                    )
+                };
 
                 result.push((child.id, Rect::new(x, y, w, h)));
+
+                current_pos += item_main_size + effective_gap;
+                if justify == JustifyContent::SpaceAround {
+                    current_pos += extra_gap; // Add second half of space
+                }
             }
         }
     }

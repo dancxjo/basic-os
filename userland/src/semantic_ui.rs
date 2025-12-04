@@ -22,6 +22,12 @@ pub struct Widget {
     pub height: Option<u64>,
     pub x: Option<u64>,
     pub y: Option<u64>,
+    pub flex_direction: Option<String>,
+    pub justify_content: Option<String>,
+    pub align_items: Option<String>,
+    pub flex_grow: Option<f32>,
+    pub flex_shrink: Option<f32>,
+    pub gap: Option<i32>,
 }
 
 impl Widget {
@@ -124,6 +130,45 @@ impl Widget {
         if let Some(y) = thing.fields.get(&canon::Y).and_then(|v| v.as_u64()) {
             self.y = Some(y);
         }
+
+        if let Some(fd) = thing
+            .fields
+            .get(&canon::cc('F', 'D'))
+            .and_then(graph::extract_text)
+        {
+            self.flex_direction = Some(fd);
+        }
+        if let Some(jc) = thing
+            .fields
+            .get(&canon::cc('J', 'C'))
+            .and_then(graph::extract_text)
+        {
+            self.justify_content = Some(jc);
+        }
+        if let Some(ai) = thing
+            .fields
+            .get(&canon::cc('A', 'I'))
+            .and_then(graph::extract_text)
+        {
+            self.align_items = Some(ai);
+        }
+        if let Some(fg) = thing
+            .fields
+            .get(&canon::cc('F', 'G'))
+            .and_then(|v| v.as_i64())
+        {
+            self.flex_grow = Some(fg as f32);
+        }
+        if let Some(fs) = thing
+            .fields
+            .get(&canon::cc('F', 'S'))
+            .and_then(|v| v.as_i64())
+        {
+            self.flex_shrink = Some(fs as f32);
+        }
+        if let Some(gap) = thing.fields.get(&canon::GAP).and_then(|v| v.as_i64()) {
+            self.gap = Some(gap as i32);
+        }
     }
 }
 
@@ -193,6 +238,33 @@ impl Thingable for Widget {
         let height = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64());
         let x = thing.fields.get(&canon::X).and_then(|v| v.as_u64());
         let y = thing.fields.get(&canon::Y).and_then(|v| v.as_u64());
+        let flex_direction = thing
+            .fields
+            .get(&canon::cc('F', 'D'))
+            .and_then(graph::extract_text);
+        let justify_content = thing
+            .fields
+            .get(&canon::cc('J', 'C'))
+            .and_then(graph::extract_text);
+        let align_items = thing
+            .fields
+            .get(&canon::cc('A', 'I'))
+            .and_then(graph::extract_text);
+        let flex_grow = thing
+            .fields
+            .get(&canon::cc('F', 'G'))
+            .and_then(|v| v.as_i64())
+            .map(|v| v as f32);
+        let flex_shrink = thing
+            .fields
+            .get(&canon::cc('F', 'S'))
+            .and_then(|v| v.as_i64())
+            .map(|v| v as f32);
+        let gap = thing
+            .fields
+            .get(&canon::GAP)
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32);
 
         Some(Widget {
             id: thing.id,
@@ -211,6 +283,12 @@ impl Thingable for Widget {
             height,
             x,
             y,
+            flex_direction,
+            justify_content,
+            align_items,
+            flex_grow,
+            flex_shrink,
+            gap,
         })
     }
 }

@@ -23,6 +23,10 @@ impl App for Terminal {
             is_root: true,
             mode_index: Some(11), // F12
             window_rect: None,
+            gap: None,
+            flex_direction: None,
+            justify_content: None,
+            align_items: None,
         };
         let window = ctx.create_window_with(window_fields);
 

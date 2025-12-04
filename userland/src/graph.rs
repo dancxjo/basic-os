@@ -391,6 +391,10 @@ pub struct Window {
     pub is_root: bool,
     pub mode_index: Option<u8>,
     pub window_rect: Option<WindowRect>,
+    pub gap: Option<i32>,
+    pub flex_direction: Option<String>,
+    pub justify_content: Option<String>,
+    pub align_items: Option<String>,
 }
 
 impl Thingable for Window {
@@ -456,6 +460,11 @@ impl Thingable for Window {
 
         let window_rect = WindowRect::from_optional_value(thing.fields.get(&canon::WINDOW_RECT));
 
+        let gap = thing.fields.get(&canon::GAP).and_then(|v| v.as_i64()).map(|v| v as i32);
+        let flex_direction = thing.fields.get(&canon::cc('F', 'D')).and_then(extract_text);
+        let justify_content = thing.fields.get(&canon::cc('J', 'C')).and_then(extract_text);
+        let align_items = thing.fields.get(&canon::cc('A', 'I')).and_then(extract_text);
+
         Some(Self {
             id: thing.id,
             width,
@@ -470,6 +479,10 @@ impl Thingable for Window {
             is_root,
             mode_index,
             window_rect,
+            gap,
+            flex_direction,
+            justify_content,
+            align_items,
         })
     }
 }

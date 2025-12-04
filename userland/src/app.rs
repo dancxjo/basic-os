@@ -117,6 +117,10 @@ impl<'a> AppContext<'a> {
             is_root: false,
             mode_index: None,
             window_rect: None,
+            gap: None,
+            flex_direction: None,
+            justify_content: None,
+            align_items: None,
         };
         self.create_window_with(window_fields)
     }
