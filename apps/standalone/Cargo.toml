@@ -10,13 +10,13 @@ userland = { path = "../../userland", features = [
 ] }
 thing_abi = { path = "../../thing_abi" }
 compositor = { path = "../../compositor" }
-app-framebuffer-driver = { path = "../../drivers/framebuffer_driver", features = [
+framebuffer-driver = { path = "../../drivers/framebuffer_driver", features = [
     "disable_panic_handler",
 ] }
-app-keyboard-driver = { path = "../../drivers/keyboard_driver", features = [
+keyboard-driver = { path = "../../drivers/keyboard_driver", features = [
     "disable_panic_handler",
 ] }
-app-mouse-driver = { path = "../../drivers/mouse_driver", features = [
+mouse-driver = { path = "../../drivers/mouse_driver", features = [
     "disable_panic_handler",
 ] }
 widget_host = { path = "../../widgets/host", features = [

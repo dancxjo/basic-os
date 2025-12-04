@@ -14,9 +14,9 @@ unifont = { version = "1.1.0+data-15.1.05", default-features = false }
 thing_abi = { path = "../thing_abi" }
 demo_app = { path = "../apps/demo_app", optional = true }
 self_editing_demo = { path = "../apps/self_editing_demo", optional = true }
-app-mouse-driver = { path = "../drivers/mouse_driver", optional = true }
-app-keyboard-driver = { path = "../drivers/keyboard_driver", optional = true }
-app-framebuffer-driver = { path = "../drivers/framebuffer_driver", optional = true }
+mouse-driver = { path = "../drivers/mouse_driver", optional = true }
+keyboard-driver = { path = "../drivers/keyboard_driver", optional = true }
+framebuffer-driver = { path = "../drivers/framebuffer_driver", optional = true }
 thing_viewer = { path = "../apps/thing_viewer", optional = true }
 text_editor = { path = "../apps/text_editor", optional = true }
 rootfs = { path = "../apps/rootfs", optional = true }
@@ -40,9 +40,9 @@ flate2 = "1.0"
 
 [features]
 kernel_standalone = [
-  "app-mouse-driver/disable_panic_handler",
-  "app-keyboard-driver/disable_panic_handler",
-  "app-framebuffer-driver/disable_panic_handler",
+  "mouse-driver/disable_panic_handler",
+  "keyboard-driver/disable_panic_handler",
+  "framebuffer-driver/disable_panic_handler",
   "graph_viewer/disable_panic_handler",
   "widget_host/disable_panic_handler",
   "x86_64",
@@ -58,9 +58,9 @@ host = [
   "std",
   "demo_app/std",
   "self_editing_demo/std",
-  "app-mouse-driver/std",
-  "app-keyboard-driver/std",
-  "app-framebuffer-driver/std",
+  "mouse-driver/std",
+  "keyboard-driver/std",
+  "framebuffer-driver/std",
   "thing_viewer/std",
   "init/std",
   "rootfs/std",

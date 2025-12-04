@@ -57,12 +57,12 @@ pub fn run_desktop(
     let compositor_id = Uuid::nil();
     let mut apps: Vec<DynApp> = Vec::new();
     println!("[INFO] starting framebuffer_driver in cooperative mode");
-    apps.push(create_app::<app_framebuffer_driver::FramebufferDriver>(
+    apps.push(create_app::<framebuffer_driver::FramebufferDriver>(
         compositor_id,
         &mut watch_manager,
     ));
     println!("[INFO] starting keyboard_driver in cooperative mode");
-    apps.push(create_app::<app_keyboard_driver::KeyboardDriver>(
+    apps.push(create_app::<keyboard_driver::KeyboardDriver>(
         compositor_id,
         &mut watch_manager,
     ));
@@ -74,7 +74,7 @@ pub fn run_desktop(
             watch_manager: &mut watch_manager,
             state: &mut mouse_app_state,
         };
-        app_mouse_driver::MouseDriver::init(&mut ctx)
+        mouse_driver::MouseDriver::init(&mut ctx)
     };
 
     println!("[INFO] starting graph_viewer (F1 root)");

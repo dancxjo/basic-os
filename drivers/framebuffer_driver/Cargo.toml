@@ -1,5 +1,5 @@
 [package]
-name = "app-framebuffer-driver"
+name = "framebuffer-driver"
 version = "0.1.0"
 edition = "2021"
 

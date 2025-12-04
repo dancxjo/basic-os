@@ -24,32 +24,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
-name = "app-framebuffer-driver"
-version = "0.1.0"
-dependencies = [
- "postcard",
- "serde",
- "userland",
- "uuid",
-]
-
-[[package]]
-name = "app-keyboard-driver"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
-name = "app-mouse-driver"
-version = "0.1.0"
-dependencies = [
- "userland",
- "uuid",
-]
-
-[[package]]
 name = "ascii"
 version = "1.1.0"
 
@@ -208,13 +182,13 @@ dependencies = [
 name = "compositor"
 version = "0.1.0"
 dependencies = [
- "app-framebuffer-driver",
- "app-keyboard-driver",
- "app-mouse-driver",
  "demo_app",
  "flate2",
+ "framebuffer-driver",
  "graph_viewer",
  "init",
+ "keyboard-driver",
+ "mouse-driver",
  "rootfs",
  "self_editing_demo",
  "serde",
@@ -427,6 +401,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "framebuffer-driver"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+ "userland",
+ "uuid",
 ]
 
 [[package]]
@@ -787,6 +771,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyboard-driver"
+version = "0.1.0"
+dependencies = [
+ "userland",
+ "uuid",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -877,6 +869,14 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mouse-driver"
+version = "0.1.0"
+dependencies = [
+ "userland",
+ "uuid",
 ]
 
 [[package]]
@@ -1518,11 +1518,11 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "standalone"
 version = "0.1.0"
 dependencies = [
- "app-framebuffer-driver",
- "app-keyboard-driver",
- "app-mouse-driver",
  "compositor",
+ "framebuffer-driver",
  "graph_viewer",
+ "keyboard-driver",
+ "mouse-driver",
  "text_editor",
  "thing_abi",
  "userland",

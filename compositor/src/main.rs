@@ -144,15 +144,15 @@ fn main() {
     userland::sys::register_host_app("self_editing_demo", self_editing_demo::app_main);
     userland::sys::register_host_app(
         "mouse_driver",
-        userland::app::run_app::<app_mouse_driver::MouseDriver>,
+        userland::app::run_app::<mouse_driver::MouseDriver>,
     );
     userland::sys::register_host_app(
         "keyboard_driver",
-        userland::app::run_app::<app_keyboard_driver::KeyboardDriver>,
+        userland::app::run_app::<keyboard_driver::KeyboardDriver>,
     );
     userland::sys::register_host_app(
         "framebuffer_driver",
-        userland::app::run_app::<app_framebuffer_driver::FramebufferDriver>,
+        userland::app::run_app::<framebuffer_driver::FramebufferDriver>,
     );
     userland::sys::register_host_app(
         "thing_viewer",

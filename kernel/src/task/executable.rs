@@ -38,6 +38,10 @@ pub fn create_user_page_table(
         .expect("No frame for user L4 page table");
     let phys = l4_frame.start_address();
     let virt = hhdm_offset + phys.as_u64();
+    info!(
+        "Allocated new user L4 table at {:?} (phys {:?})",
+        virt, phys
+    );
     let l4_table = unsafe {
         let ptr: *mut PageTable = virt.as_mut_ptr();
         // Zero the page table in place to avoid a 4 KiB stack allocation from PageTable::new()
@@ -72,18 +76,21 @@ pub fn create_user_page_table(
     };
     // Copy kernel mappings into the new user page table so kernel code and data
     // remain accessible when the address space is switched.
+    info!("Mirroring kernel region...");
     mirror_kernel_region(
         &mut offset_page_table,
         active_mapper,
         frame_allocator,
         (kernel_base()..kernel_end()).into(),
     );
+    info!("Mirroring heap region...");
     mirror_kernel_region(
         &mut offset_page_table,
         active_mapper,
         frame_allocator,
         (VirtAddr::new(HEAP_START)..VirtAddr::new(HEAP_START + HEAP_SIZE as u64)).into(),
     );
+    info!("Mirroring kernel stack region...");
     mirror_kernel_region(
         &mut offset_page_table,
         active_mapper,
@@ -97,6 +104,7 @@ pub fn create_user_page_table(
     const TASK_STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
     const MAX_TASKS_TO_MAP: u64 = 64;
     let task_stack_size = Task::stack_size(); // Keep mirrored size in sync with scheduler stacks.
+    info!("Mirroring task stack region...");
     mirror_kernel_region(
         &mut offset_page_table,
         active_mapper,
@@ -338,11 +346,15 @@ pub unsafe fn jump_to_context(ctx: &FullContext, new_table: PhysFrame) -> ! {
 }
 
 pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: PhysFrame) -> ! {
+    // Do NOT reset the kernel stack to the boot stack.
+    // We want to keep using the current task's kernel stack (which is already set).
+    /*
     unsafe {
         if KERNEL_STACK_TOP.as_u64() != 0 {
             set_kernel_stack(KERNEL_STACK_TOP.as_u64());
         }
     }
+    */
     let entry_fn: extern "C" fn() = unsafe { core::mem::transmute(entry.as_u64()) };
     let ctx = Box::new(prepare_context(
         entry_fn,

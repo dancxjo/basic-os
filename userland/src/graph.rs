@@ -6,12 +6,12 @@ use core::fmt;
 
 use crate::runtime;
 use crate::{canon, sys, Symbol, Value};
-use thing_abi::{
-    AbiRequest, AbiResponse, GrantCapabilityRequest, GraphPropsGetRequest, Map, WatchQuery,
-};
+use thing_abi::{AbiRequest, AbiResponse, GrantCapabilityRequest, Map, WatchQuery};
 use uuid::Uuid;
 
-pub use thing_abi::{GraphChange, GraphEdge, GraphPropsRequest, GraphThing, NodePattern};
+pub use thing_abi::{
+    GraphChange, GraphEdge, GraphPropsGetRequest, GraphPropsRequest, GraphThing, NodePattern,
+};
 
 // Snapshot buffers are small; guard against bogus sizes coming from the kernel.
 // const MAX_SNAPSHOT_BYTES: usize = 1 << 20; // 1 MiB upper bound
@@ -520,6 +520,18 @@ impl Window {
         }
         if let Some(rect) = &self.window_rect {
             map.insert(canon::WINDOW_RECT, rect.to_value());
+        }
+        if let Some(gap) = self.gap {
+            map.insert(canon::GAP, Value::I64(gap.into()));
+        }
+        if let Some(dir) = &self.flex_direction {
+            map.insert(canon::cc('F', 'D'), Value::Text(dir.clone()));
+        }
+        if let Some(justify) = &self.justify_content {
+            map.insert(canon::cc('J', 'C'), Value::Text(justify.clone()));
+        }
+        if let Some(align) = &self.align_items {
+            map.insert(canon::cc('A', 'I'), Value::Text(align.clone()));
         }
         map
     }

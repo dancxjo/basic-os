@@ -4,25 +4,49 @@ extern crate alloc;
 
 use alloc::string::String;
 use unifont::get_glyph;
+use userland::graph::{get_props, GraphPropsGetRequest};
+use userland::uuid::Uuid;
 use userland::widget_abi::*;
+use userland::{canon, Value};
 
 pub struct TopStatusBarWidget;
 
 pub struct State {
-    title: String,
+    widget_id: Uuid,
+    default_title: String,
 }
 
 impl WidgetAbi for TopStatusBarWidget {
     type State = State;
 
-    fn init(_ctx: &WidgetContext) -> Self::State {
+    fn init(ctx: &WidgetContext) -> Self::State {
         State {
-            title: String::from("ThingOS Demo Dashboard"),
+            widget_id: ctx.widget_id,
+            default_title: String::from("ThingOS Demo Dashboard"),
         }
     }
 
     fn draw(state: &Self::State, fb: &mut [u8], rect: Rect) {
         let stride = 1024; // FIXME: pass stride in context or rect
+
+        // Pull latest title if provided in graph
+        let title = {
+            let req = GraphPropsGetRequest {
+                node: state.widget_id,
+                keys: alloc::vec![canon::TEXT, canon::TITLE],
+            };
+            if let Some(props) = get_props(req) {
+                if let Some(Value::Text(t)) = props.get(&canon::TEXT) {
+                    t.clone()
+                } else if let Some(Value::Text(t)) = props.get(&canon::TITLE) {
+                    t.clone()
+                } else {
+                    state.default_title.clone()
+                }
+            } else {
+                state.default_title.clone()
+            }
+        };
 
         // Draw background
         for y in rect.y..rect.y + rect.height as i32 {
@@ -41,16 +65,7 @@ impl WidgetAbi for TopStatusBarWidget {
         }
 
         // Draw Title
-        draw_text(
-            fb,
-            stride,
-            rect.x + 10,
-            rect.y + 8,
-            &state.title,
-            255,
-            255,
-            255,
-        );
+        draw_text(fb, stride, rect.x + 10, rect.y + 8, &title, 255, 255, 255);
 
         // Draw fake time on the right
         let time_str = "12:00 PM";

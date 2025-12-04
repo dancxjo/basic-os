@@ -1,5 +1,5 @@
 [package]
-name = "app-keyboard-driver"
+name = "keyboard-driver"
 version = "0.1.0"
 edition = "2021"
 

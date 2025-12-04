@@ -130,6 +130,7 @@ pub extern "C" fn start_user_task() {
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
     crate::klog_irq!(b'{');
+    crate::serial_println!("DEBUG: start_user_task entry");
     let cr3 = unsafe {
         x86_64::registers::control::Cr3::read()
             .0
@@ -187,6 +188,7 @@ pub extern "C" fn start_user_task() {
         module_bytes.len()
     );
 
+    crate::serial_println!("DEBUG: calling create_user_page_table");
     let (new_l4, loaded) = {
         let runtime_system = runtime::system();
         let mut frame_allocator = runtime_system.frame_allocator().lock();

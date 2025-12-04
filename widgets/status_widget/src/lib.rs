@@ -4,26 +4,47 @@ extern crate alloc;
 
 use alloc::string::String;
 use unifont::get_glyph;
+use userland::graph::{get_props, GraphPropsGetRequest};
+use userland::uuid::Uuid;
 use userland::widget_abi::*;
+use userland::{canon, Value};
 
 pub struct StatusWidget;
 
 #[derive(Clone, Debug)]
 pub struct State {
+    widget_id: Uuid,
     pub status_text: String,
 }
 
 impl WidgetAbi for StatusWidget {
     type State = State;
 
-    fn init(_ctx: &WidgetContext) -> Self::State {
+    fn init(ctx: &WidgetContext) -> Self::State {
         State {
+            widget_id: ctx.widget_id,
             status_text: "Graph: Connected | Input: OK".into(),
         }
     }
 
     fn draw(state: &Self::State, fb: &mut [u8], rect: Rect) {
         let stride = 1024; // FIXME
+
+        let status = {
+            let req = GraphPropsGetRequest {
+                node: state.widget_id,
+                keys: alloc::vec![canon::TEXT],
+            };
+            if let Some(props) = get_props(req) {
+                if let Some(Value::Text(t)) = props.get(&canon::TEXT) {
+                    t.clone()
+                } else {
+                    state.status_text.clone()
+                }
+            } else {
+                state.status_text.clone()
+            }
+        };
 
         // Draw background
         for y in rect.y..rect.y + rect.height as i32 {
@@ -41,16 +62,7 @@ impl WidgetAbi for StatusWidget {
             }
         }
 
-        draw_text(
-            fb,
-            stride,
-            rect.x + 5,
-            rect.y + 5,
-            &state.status_text,
-            0,
-            255,
-            0,
-        );
+        draw_text(fb, stride, rect.x + 5, rect.y + 5, &status, 0, 255, 0);
     }
 
     fn handle_event(_state: &mut Self::State, _event: WidgetEvent) {}
