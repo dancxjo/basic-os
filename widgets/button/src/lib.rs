@@ -69,6 +69,7 @@ pub struct State {
     pub target: String,
     pub pressed: bool,
     pub hovered: bool,
+    pub focused: bool,
     pub icon: Option<Icon>,
     pub show_label: bool,
     pub bind_node: Option<userland::uuid::Uuid>,
@@ -130,6 +131,7 @@ impl WidgetAbi for ButtonWidget {
             target,
             pressed: false,
             hovered: false,
+            focused: false,
             icon,
             show_label,
             bind_node,
@@ -148,6 +150,8 @@ impl WidgetAbi for ButtonWidget {
 
         let bg_color = if state.pressed {
             bg_color_pressed
+        } else if state.hovered {
+            0xFF_E0_E0_E0 // Lighter gray for hover
         } else {
             bg_color_normal
         };
@@ -250,6 +254,30 @@ impl WidgetAbi for ButtonWidget {
                     x += glyph.get_width() as i32;
                 } else {
                     x += 8;
+                }
+            }
+        }
+
+        // Draw focus ring
+        if state.focused {
+            let focus_color = 0xFF_00_00_00;
+            let inset = 3;
+            let x = inset;
+            let y = inset;
+            let w = rect.width as i32 - inset * 2;
+            let h = rect.height as i32 - inset * 2;
+
+            // Simple dotted line (every other pixel)
+            for i in 0..w {
+                if i % 2 == 0 {
+                    draw_pixel(fb, rect, x + i, y, focus_color);
+                    draw_pixel(fb, rect, x + i, y + h - 1, focus_color);
+                }
+            }
+            for i in 0..h {
+                if i % 2 == 0 {
+                    draw_pixel(fb, rect, x, y + i, focus_color);
+                    draw_pixel(fb, rect, x + w - 1, y + i, focus_color);
                 }
             }
         }

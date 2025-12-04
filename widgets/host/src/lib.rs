@@ -251,6 +251,16 @@ impl App for WidgetHost {
                             );
                         }
                     }
+
+                    let focused_sym = canon::canon(b'F', b'C', b'S');
+                    if let Some(Value::Bool(focused)) = thing.fields.get(&focused_sym) {
+                        if *focused {
+                            self.focused_widget = Some(thing.id);
+                        } else if self.focused_widget == Some(thing.id) {
+                            self.focused_widget = None;
+                        }
+                    }
+
                     if let Some(instance) = self.widgets.get_mut(&thing.id) {
                         let mut resized = false;
                         if let Some(new_w) =
@@ -429,6 +439,11 @@ impl App for WidgetHost {
                 width: instance.width,
                 height: instance.height,
             };
+
+            let is_focused = self.focused_widget == Some(*id);
+            if let WidgetState::Button(s) = &mut instance.state {
+                s.focused = is_focused;
+            }
 
             match &instance.state {
                 WidgetState::Thing(s) => ThingWidget::draw(s, &mut instance.framebuffer, rect),

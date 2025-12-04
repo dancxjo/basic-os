@@ -15,6 +15,7 @@ const OPTIONS_SYM: userland::Symbol = canon::canon(b'O', b'P', b'T');
 pub struct PrefsDemoApp {
     _main_window: WindowHandle,
     _dialog_window: WindowHandle,
+    _buttons_window: WindowHandle,
     transition_value: Uuid,
     footer_widget: Uuid,
 }
@@ -32,10 +33,12 @@ impl App for PrefsDemoApp {
         let main_window = create_main_window(ctx, widget_host_bundle);
         let (dialog_window, footer_widget) =
             create_dialog_window(ctx, widget_host_bundle, transition_value);
+        let buttons_window = create_buttons_window(ctx, widget_host_bundle);
 
         PrefsDemoApp {
             _main_window: main_window,
             _dialog_window: dialog_window,
+            _buttons_window: buttons_window,
             transition_value,
             footer_widget,
         }
@@ -409,4 +412,106 @@ fn create_widget(
     graph::grant_capability(widget_host_bundle, widget_id, "CAN_READ");
     graph::that(window.window_id(), "contains", widget_id, 0);
     widget_id
+}
+
+fn create_buttons_window(ctx: &mut AppContext<'_>, widget_host_bundle: Uuid) -> WindowHandle {
+    let window_fields = userland::graph::Window {
+        id: Uuid::nil(),
+        title: String::from("Button Gallery"),
+        x: 820,
+        y: 220,
+        width: 300,
+        height: 400,
+        z: 0,
+        visible: true,
+        target: None,
+        active: false,
+        is_root: false,
+        mode_index: Some(2), // F3
+        window_rect: None,
+        gap: Some(12),
+        flex_direction: Some(FlexDirection::Column),
+        justify_content: Some(JustifyContent::Start),
+        align_items: Some(AlignItems::Stretch),
+    };
+    let window = ctx.create_window_with(window_fields);
+
+    let root = create_container(
+        "buttons_root",
+        &window,
+        None,
+        &[
+            (canon::ROLE, Value::Text("window_root".into())),
+            (canon::cc('F', 'D'), FlexDirection::Column.to_value()),
+            (canon::cc('J', 'C'), JustifyContent::Start.to_value()),
+            (canon::GAP, Value::I64(16)),
+            (canon::cc('F', 'G'), Value::I64(1)),
+            (canon::cc('F', 'S'), Value::I64(1)),
+            (canon::cc('A', 'I'), AlignItems::Center.to_value()),
+            (canon::cc('P', 'T'), Value::I64(16)), // Padding Top
+            (canon::cc('P', 'B'), Value::I64(16)), // Padding Bottom
+            (canon::cc('P', 'L'), Value::I64(16)), // Padding Left
+            (canon::cc('P', 'R'), Value::I64(16)), // Padding Right
+        ],
+    );
+
+    // 1. Standard Button
+    create_widget(
+        "btn_standard",
+        "button",
+        &window,
+        Some(root),
+        &[
+            (canon::TEXT, Value::Text("Standard Button".into())),
+            (canon::WIDTH, Value::U64(200)),
+            (canon::HEIGHT, Value::U64(32)),
+        ],
+        widget_host_bundle,
+    );
+
+    // 2. Icon Button
+    create_widget(
+        "btn_icon",
+        "button",
+        &window,
+        Some(root),
+        &[
+            (canon::TEXT, Value::Text("Settings".into())),
+            (canon::ICON_NAME, Value::Text("settings".into())),
+            (canon::WIDTH, Value::U64(200)),
+            (canon::HEIGHT, Value::U64(32)),
+        ],
+        widget_host_bundle,
+    );
+
+    // 3. Icon Only Button
+    create_widget(
+        "btn_icon_only",
+        "button",
+        &window,
+        Some(root),
+        &[
+            (canon::ICON_NAME, Value::Text("home".into())),
+            (canon::canon(b'S', b'H', b'L'), Value::Bool(false)), // Hide label
+            (canon::WIDTH, Value::U64(48)),
+            (canon::HEIGHT, Value::U64(48)),
+        ],
+        widget_host_bundle,
+    );
+
+    // 4. Long Text Button
+    create_widget(
+        "btn_long",
+        "button",
+        &window,
+        Some(root),
+        &[
+            (canon::TEXT, Value::Text("A Very Long Button Label".into())),
+            (canon::WIDTH, Value::U64(240)),
+            (canon::HEIGHT, Value::U64(32)),
+        ],
+        widget_host_bundle,
+    );
+
+    window
 }

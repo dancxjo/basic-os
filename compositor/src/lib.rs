@@ -87,6 +87,7 @@ fn create_close_button() -> (Uuid, ButtonState) {
         target: "close_window".to_string(),
         pressed: false,
         hovered: false,
+        focused: false,
         icon: None,
         show_label: true,
         bind_node: None,
@@ -2488,8 +2489,24 @@ where
             0
         };
 
-        self.active_widget = Some(focusable[next_index]);
+        let old_widget = self.active_widget;
+        let new_widget = focusable[next_index];
+        self.active_widget = Some(new_widget);
         self.fb_dirty = true;
+
+        let focused_sym = canon::canon(b'F', b'C', b'S');
+
+        if let Some(old_id) = old_widget {
+            if old_id != new_widget {
+                let mut updates = graph::map();
+                updates.insert(focused_sym, Value::Bool(false));
+                graph::fiat(Some(old_id), canon::WIDGET, updates);
+            }
+        }
+
+        let mut updates = graph::map();
+        updates.insert(focused_sym, Value::Bool(true));
+        graph::fiat(Some(new_widget), canon::WIDGET, updates);
     }
 
     fn collect_focusable_widgets(&self, parent_id: Uuid, list: &mut Vec<Uuid>) {
