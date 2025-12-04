@@ -14,12 +14,12 @@ use userland::widget_abi::{
 use userland::{canon, graph, App, AppContext, AppEvent, ThingFilter, Value};
 use widget_button::ButtonWidget;
 use widget_checkbox::CheckboxWidget;
-use widget_radio_button::RadioButtonWidget;
 use widget_image::ImageWidget;
 use widget_launcher_entry::ThingWidget;
 use widget_listbox_default::ListboxDefaultWidget;
 use widget_notification_dialog::NotificationDialog;
 use widget_notification_toast::NotificationToast;
+use widget_radio_button::RadioButtonWidget;
 use widget_scrollbar_thumb::ScrollbarThumbWidget;
 use widget_toolbar::ToolbarWidget;
 
@@ -261,12 +261,14 @@ impl App for WidgetHost {
                             match &mut instance.state {
                                 WidgetState::Thing(s) => ThingWidget::handle_event(s, e),
                                 WidgetState::Scrollbar(s) => {
+                                    ScrollbarThumbWidget::handle_event(s, e)
+                                }
+                                WidgetState::Toolbar(s) => ToolbarWidget::handle_event(s, e),
                                 WidgetState::Button(s) => ButtonWidget::handle_event(s, e),
                                 WidgetState::Checkbox(s) => CheckboxWidget::handle_event(s, e),
-                                WidgetState::RadioButton(s) => RadioButtonWidget::handle_event(s, e),
-                                WidgetState::ListboxDefault(s) => {
-                                WidgetState::Button(s) => ButtonWidget::handle_event(s, e),
-                                WidgetState::Checkbox(s) => CheckboxWidget::handle_event(s, e),
+                                WidgetState::RadioButton(s) => {
+                                    RadioButtonWidget::handle_event(s, e)
+                                }
                                 WidgetState::ListboxDefault(s) => {
                                     ListboxDefaultWidget::handle_event(s, e)
                                 }
@@ -310,7 +312,9 @@ impl App for WidgetHost {
                                     WidgetState::Toolbar(s) => ToolbarWidget::handle_event(s, e),
                                     WidgetState::Button(s) => ButtonWidget::handle_event(s, e),
                                     WidgetState::Checkbox(s) => CheckboxWidget::handle_event(s, e),
-                                    WidgetState::RadioButton(s) => RadioButtonWidget::handle_event(s, e),
+                                    WidgetState::RadioButton(s) => {
+                                        RadioButtonWidget::handle_event(s, e)
+                                    }
                                     WidgetState::ListboxDefault(s) => {
                                         ListboxDefaultWidget::handle_event(s, e)
                                     }
@@ -348,8 +352,12 @@ impl App for WidgetHost {
                 }
                 WidgetState::Toolbar(s) => ToolbarWidget::draw(s, &mut instance.framebuffer, rect),
                 WidgetState::Button(s) => ButtonWidget::draw(s, &mut instance.framebuffer, rect),
-                WidgetState::Checkbox(s) => CheckboxWidget::draw(s, &mut instance.framebuffer, rect),
-                WidgetState::RadioButton(s) => RadioButtonWidget::draw(s, &mut instance.framebuffer, rect),
+                WidgetState::Checkbox(s) => {
+                    CheckboxWidget::draw(s, &mut instance.framebuffer, rect)
+                }
+                WidgetState::RadioButton(s) => {
+                    RadioButtonWidget::draw(s, &mut instance.framebuffer, rect)
+                }
                 WidgetState::ListboxDefault(s) => {
                     ListboxDefaultWidget::draw(s, &mut instance.framebuffer, rect)
                 }
