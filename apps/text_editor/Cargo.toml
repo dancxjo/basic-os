@@ -11,3 +11,5 @@ uuid = { version = "1.0", default-features = false, features = ["v5", "serde"] }
 [features]
 default = []
 std = ["userland/std"]
+kernel_hosted = ["userland/kernel_hosted"]
+disable_panic_handler = ["userland/disable_panic_handler"]

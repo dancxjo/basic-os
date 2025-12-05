@@ -12,7 +12,8 @@ unifont = { version = "1.1.0", default-features = false }
 [features]
 default = []
 std = ["userland/std"]
-disable_panic_handler = []
+kernel_hosted = ["userland/kernel_hosted"]
+disable_panic_handler = ["userland/disable_panic_handler"]
 
 [[bin]]
 name = "graph_viewer"

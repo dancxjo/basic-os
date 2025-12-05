@@ -47,7 +47,17 @@ unsafe impl GlobalAlloc for BumpAllocator {
                 None => return ptr::null_mut(),
             };
             if new_next > heap_end {
-                return ptr::null_mut();
+                log::error!(
+                    "[ALLOC] BumpAllocator OOM: requested size={}, align={}, current={:#x}, heap_end={:#x}",
+                    size,
+                    align,
+                    current,
+                    heap_end
+                );
+                panic!(
+                    "BumpAllocator OOM: requested size={}, align={}, current={:#x}, heap_end={:#x}",
+                    size, align, current, heap_end
+                );
             }
 
             // SAFETY: We checked that new_next <= heap_end, so we are within the bounds

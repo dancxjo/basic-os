@@ -420,8 +420,9 @@ pub fn init_heap(mapper: &mut OffsetPageTable, frame_allocator: &mut BootFrameAl
     }
 
     log::info!(
-        "Heap initialized from {:#x} to {:#x}",
+        "[ALLOC] Heap region: start={:#x}, size={:#x}, end={:#x}",
         HEAP_START,
+        HEAP_SIZE,
         HEAP_START + HEAP_SIZE as u64
     );
 

@@ -13,7 +13,8 @@ uuid = { version = "=1.10", default-features = false, features = [
 [features]
 default = []
 std = ["userland/std"]
-disable_panic_handler = []
+kernel_hosted = ["userland/kernel_hosted"]
+disable_panic_handler = ["userland/disable_panic_handler"]
 
 [[bin]]
 name = "mouse_driver"

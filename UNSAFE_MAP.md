@@ -44,7 +44,13 @@
   - Category: MEMORY
   - Risk: high
   - Description: Implementation of `GlobalAlloc`. Manages raw pointers for heap allocation.
-  - Note: Added SAFETY comments explaining bounds checks.
+  - Note: Added SAFETY comments explaining bounds checks. Added guard rails to panic with details on OOM.
+
+- `allocator.rs::init_kernel_stack`
+  - Category: MEMORY
+  - Risk: high
+  - Description: Allocates and maps kernel stack.
+  - Note: Planned work to add guard pages (see `map_kernel_stack_with_guard` stub).
 
 - `debug_alloc.rs::DebugAlloc::alloc` / `dealloc`
   - Category: MEMORY

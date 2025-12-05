@@ -13,6 +13,8 @@ thing_abi = { path = "../../thing_abi" }
 [features]
 default = []
 std = ["userland/std"]
+kernel_hosted = ["userland/kernel_hosted"]
+disable_panic_handler = ["userland/disable_panic_handler"]
 
 [lib]
 name = "init"

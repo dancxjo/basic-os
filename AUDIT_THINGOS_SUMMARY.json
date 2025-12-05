@@ -54,6 +54,22 @@
             ]
         },
         {
+            "id": "MEM-02",
+            "title": "Heap Region Instrumented and Guarded (Partial)",
+            "severity": "medium",
+            "area": "memory",
+            "files": [
+                "kernel/src/mm/bump_allocator.rs",
+                "kernel/src/mm/allocator.rs",
+                "kernel/src/bootloader.rs"
+            ],
+            "summary": "Heap region initialization is now logged; bump allocator has better guard rails; stack guard pages are designed but not fully implemented.",
+            "suggested_next_steps": [
+                "Resolve any documented heap region overlaps.",
+                "Implement real guard pages for kernel stacks."
+            ]
+        },
+        {
             "id": "COMP-01",
             "title": "Compositor God Object",
             "severity": "medium",

@@ -28,6 +28,18 @@
   - Added `SAFETY` comments to high-risk sites in memory management and bootloader.
 - **Status**: ✅ Partially Implemented. Syscall boundary is safer, but full memory safety requires deeper architectural changes (e.g., proper user/kernel address space separation enforcement).
 
+#### 4. Heap & Stack Sanity (MEM-02)
+- **Objective**: Instrument heap initialization and add guard rails for memory allocation.
+- **Action**:
+  - Modified `kernel/src/mm/allocator.rs` to log the configured heap region at boot.
+  - Updated `BumpAllocator` to panic with detailed information (size, alignment, current pointer) upon Out-Of-Memory (OOM) instead of silently returning null.
+  - Enabled logging in `DebugAlloc` to trace allocations when active.
+  - Sketched a design for kernel stack guard pages in `kernel/src/arch/x86_64/stack.rs` (`map_kernel_stack_with_guard`).
+- **Findings**:
+  - Heap is located at `0xffffa00000000000` (virtual) with size 32MB.
+  - Physical backing is `0x1780000` to `0x3780000`, which fits within the first usable memory range (`0x1780000` - `0x37a5000`) and avoids the collision range (`0x37a5000`).
+- **Status**: ✅ Implemented. Heap visibility is improved, and OOM is now a hard failure with diagnostics. Stack guard pages are designed but not yet active.
+
 ## 1. Overview
 
 ThingOS is an experimental, graph-centric operating system written in Rust. It employs a hybrid kernel architecture where a monolithic kernel core (`kernel`) manages memory, scheduling, and basic device I/O, while hosting a graph database (`thing_model`) directly within the kernel address space. Userland applications (`apps`, `compositor`) run as separate ELF processes, interacting with the kernel and the graph via a rich syscall interface.

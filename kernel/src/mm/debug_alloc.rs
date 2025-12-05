@@ -1,5 +1,6 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::ptr::{self, read_unaligned, write_unaligned};
+use log;
 
 const CANARY: u64 = 0xfeed_face_dead_beef;
 
@@ -34,6 +35,13 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for DebugAlloc<A> {
             Ok(layout) => layout,
             Err(_) => return ptr::null_mut(),
         };
+
+        // log::trace!("[ALLOC] DebugAlloc: size={}, align={}", layout.size(), layout.align());
+        log::trace!(
+            "[ALLOC] DebugAlloc: size={}, align={}",
+            layout.size(),
+            layout.align()
+        );
 
         let raw = self.inner.alloc(new_layout);
         if raw.is_null() {

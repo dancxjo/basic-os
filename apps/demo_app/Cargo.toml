@@ -16,6 +16,8 @@ uuid = { version = "=1.10", default-features = false, features = [
 default = []
 std = ["userland/std"]
 host = ["std"]
+kernel_hosted = ["userland/kernel_hosted"]
+disable_panic_handler = ["userland/disable_panic_handler"]
 
 [[bin]]
 name = "demo_app"
