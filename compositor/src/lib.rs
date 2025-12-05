@@ -15,6 +15,7 @@ pub mod layout;
 pub mod mode;
 pub mod scene;
 pub mod types;
+pub mod widget_manager;
 pub mod window;
 
 pub use bitmap::*;

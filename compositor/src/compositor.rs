@@ -38,6 +38,7 @@ use crate::window::{
     close_button_rect, compute_window_layout, hit_test_resize, point_in_rect, rect_contains, Caret,
     ContentMetrics, DragKind, DragState, ResizeEdges, WindowLayout, WindowSurface,
 };
+use crate::widget_manager::WidgetManager;
 
 use core::sync::atomic::{AtomicU64, Ordering};
 static UUID_COUNTER: AtomicU64 = AtomicU64::new(0x10000);
@@ -140,8 +141,7 @@ pub struct Compositor<F, R> {
     alt_down: bool,
     shift_down: bool,
     state_node: Uuid,
-    widgets: BTreeMap<Uuid, userland::ui_graph::Widget>,
-    active_widget: Option<Uuid>,
+    widget_manager: WidgetManager,
     debug_layout_mode: bool,
     debug_overlay_mode: bool,
     cursor_prev_rect: Option<Rect>,
@@ -217,8 +217,7 @@ where
             alt_down: false,
             shift_down: false,
             state_node,
-            widgets: BTreeMap::new(),
-            active_widget: None,
+            widget_manager: WidgetManager::new(),
             debug_layout_mode: true,
             debug_overlay_mode: false,
             cursor_prev_rect: None,
@@ -624,6 +623,7 @@ where
         }
 
         let has_widgets = self
+            .widget_manager
             .widgets
             .values()
             .any(|w| w.parent == Some(surface.window.id));
@@ -639,7 +639,14 @@ where
                 client_w: w as i32,
                 client_h: h as i32,
             };
-            self.draw_widgets(scene, surface.window.id, &layout, layout.client_w);
+            self.widget_manager.draw_widgets(
+                scene,
+                surface.window.id,
+                &layout,
+                layout.client_w,
+                self.windows.get(&surface.window.id),
+                &self.windows,
+            );
         }
 
         scene.push(SceneItem::ClipPop);
@@ -947,682 +954,13 @@ where
         false
     }
 
-    fn get_widget_height(&self, widget: &userland::ui_graph::Widget, w: i32, h: i32) -> i32 {
-        if !widget.visible {
-            return 0;
-        }
-        if widget.role == ROLE_TOOLBAR {
-            return TOOLBAR_HEIGHT;
-        } else if widget.role == ROLE_TOOLBAR_BUTTON || widget.role == "toolbar_button" {
-            return widget.height.map(|v| v as i32).unwrap_or(32);
-        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget.id))
-                .map(|w| w.id)
-                .collect();
-            let mut height = 0;
-            let mut remaining_h = h;
-            for child_id in children {
-                if let Some(child) = self.widgets.get(&child_id) {
-                    let ch = self.get_widget_height(child, w, remaining_h);
-                    height += ch;
-                    remaining_h -= ch;
-                }
-            }
-            return height;
-        } else if widget.role == ROLE_EDITOR_ROOT {
-            return h;
-        }
-        0
-    }
 
-    fn hit_test_widgets(
-        &self,
-        window_id: Uuid,
-        layout: &WindowLayout,
-        metrics: &ContentMetrics,
-        mx: i32,
-        my: i32,
-    ) -> Option<Uuid> {
-        let root_widgets: Vec<Uuid> = self
-            .widgets
-            .values()
-            .filter(|w| w.parent == Some(window_id))
-            .map(|w| w.id)
-            .collect();
 
-        // Check absolute positioned widgets first (like scrollbars)
-        for widget_id in &root_widgets {
-            if let Some(widget) = self.widgets.get(widget_id) {
-                if let (Some(x), Some(y), Some(w), Some(h)) =
-                    (widget.x, widget.y, widget.width, widget.height)
-                {
-                    let x = x as i32;
-                    let y = y as i32;
-                    let w = w as i32;
-                    let h = h as i32;
-                    if mx >= x && mx < x + w && my >= y && my < y + h {
-                        return Some(*widget_id);
-                    }
-                }
-            }
-        }
 
-        let y_offset = layout.client_y;
-        let x_offset = layout.client_x;
-        let widget_width = if metrics.content_rect.width > 0 {
-            metrics.content_rect.width as i32
-        } else {
-            layout.client_w
-        };
-        let width = widget_width.max(0);
-        let height = layout.client_h;
 
-        for widget_id in root_widgets {
-            if let Some(widget) = self.widgets.get(&widget_id) {
-                if widget.x.is_some() && widget.y.is_some() {
-                    continue;
-                }
 
-                if let Some(hit) = self
-                    .hit_test_widget_recursive(widget, x_offset, y_offset, width, height, mx, my)
-                {
-                    return Some(hit);
-                }
-            }
-        }
-        None
-    }
 
-    fn hit_test_widget_recursive(
-        &self,
-        widget: &userland::ui_graph::Widget,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        mx: i32,
-        my: i32,
-    ) -> Option<Uuid> {
-        if !widget.visible {
-            return None;
-        }
 
-        let height = self.get_widget_height(widget, w, h);
-
-        if mx < x || mx >= x + w || my < y || my >= y + height {
-            return None;
-        }
-
-        if widget.role == ROLE_TOOLBAR {
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget.id))
-                .map(|w| w.id)
-                .collect();
-
-            let mut child_x = x;
-            let toolbar_end = x + w;
-            let drawn_height = TOOLBAR_HEIGHT;
-            for child_id in children {
-                if let Some(child) = self.widgets.get(&child_id) {
-                    let btn_w = TOOLBAR_BUTTON_SIZE;
-                    let btn_h = TOOLBAR_BUTTON_SIZE;
-                    let btn_y = y + (drawn_height - btn_h) / 2;
-
-                    if child_x + btn_w > toolbar_end {
-                        break;
-                    }
-
-                    if mx >= child_x && mx < child_x + btn_w && my >= btn_y && my < btn_y + btn_h {
-                        return Some(child.id);
-                    }
-                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
-                }
-            }
-            return Some(widget.id);
-        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget.id))
-                .map(|w| w.id)
-                .collect();
-
-            let mut child_y = y;
-            let mut remaining_h = h;
-
-            for child_id in children {
-                if let Some(child) = self.widgets.get(&child_id) {
-                    let child_h = self.get_widget_height(child, w, remaining_h);
-                    if let Some(hit) =
-                        self.hit_test_widget_recursive(child, x, child_y, w, remaining_h, mx, my)
-                    {
-                        return Some(hit);
-                    }
-                    child_y += child_h;
-                    remaining_h -= child_h;
-                }
-            }
-            return Some(widget.id);
-        } else if widget.role == ROLE_EDITOR_ROOT {
-            return Some(widget.id);
-        } else if widget.role == ROLE_TOOLBAR_BUTTON || widget.role == "toolbar_button" {
-            return Some(widget.id);
-        }
-
-        if widget.role == ROLE_TOOLBAR_BUTTON {
-            return Some(widget.id);
-        }
-
-        None
-    }
-
-    fn draw_widgets(
-        &self,
-        scene: &mut Scene,
-        window_id: Uuid,
-        layout: &WindowLayout,
-        widget_area_width: i32,
-    ) {
-        let root_widgets: Vec<Uuid> = self
-            .widgets
-            .values()
-            .filter(|w| w.parent == Some(window_id))
-            .map(|w| w.id)
-            .collect();
-
-        if root_widgets.is_empty() {
-            return;
-        }
-
-        let mut relative_widgets: Vec<Uuid> = Vec::new();
-        let mut overlay_widgets: Vec<Uuid> = Vec::new();
-
-        for widget_id in &root_widgets {
-            if let Some(widget) = self.widgets.get(widget_id) {
-                if widget.x.is_some() && widget.y.is_some() {
-                    overlay_widgets.push(*widget_id);
-                } else {
-                    relative_widgets.push(*widget_id);
-                }
-            }
-        }
-
-        let x_offset = layout.client_x;
-        let width = widget_area_width.max(0);
-        let y_offset = layout.client_y;
-        let height = layout.client_h.max(0);
-
-        // Determine layout spec from window properties
-        let (gap, spec) = if let Some(surface) = self.windows.get(&window_id) {
-            let w = &surface.window;
-            let gap = w.gap.unwrap_or(0);
-            let (direction, justify, align) = if let Some(dir) = w.flex_direction {
-                (
-                    dir,
-                    w.justify_content.unwrap_or_default(),
-                    w.align_items.unwrap_or(AlignItems::Start),
-                )
-            } else {
-                (
-                    FlexDirection::Column,
-                    JustifyContent::Start,
-                    AlignItems::Stretch,
-                )
-            };
-            let spec = LayoutSpec::Flex {
-                direction,
-                justify,
-                align,
-            };
-            (gap, spec)
-        } else {
-            (
-                0,
-                LayoutSpec::Flex {
-                    direction: FlexDirection::Column,
-                    justify: JustifyContent::Start,
-                    align: AlignItems::Stretch,
-                },
-            )
-        };
-
-        // Use layout engine for relative widgets
-        if !relative_widgets.is_empty() {
-            self.layout_and_draw_children(
-                scene,
-                window_id,
-                Rect::new(
-                    x_offset as i32,
-                    y_offset as i32,
-                    width as u32,
-                    height as u32,
-                ),
-                &relative_widgets,
-                spec,
-                gap,
-            );
-        }
-
-        for widget_id in overlay_widgets {
-            if let Some(widget) = self.widgets.get(&widget_id) {
-                if let (Some(x), Some(y), Some(w), Some(h)) =
-                    (widget.x, widget.y, widget.width, widget.height)
-                {
-                    self.draw_widget_recursive(
-                        scene, window_id, widget, x as i32, y as i32, w as i32, h as i32,
-                    );
-                }
-            }
-        }
-    }
-
-    fn layout_and_draw_children(
-        &self,
-        scene: &mut Scene,
-        window_id: Uuid,
-        container_rect: Rect,
-        children_ids: &[Uuid],
-        spec: LayoutSpec,
-        gap: i32,
-    ) {
-        let items: Vec<LayoutItem> = children_ids
-            .iter()
-            .filter_map(|id| {
-                self.widgets.get(id).map(|w| LayoutItem {
-                    id: *id,
-                    min_width: w.width.unwrap_or(0) as u32,
-                    min_height: w.height.unwrap_or(30) as u32, // Default height 30 if unknown
-                    flex_grow: w.flex_grow.unwrap_or(0.0),
-                    flex_shrink: w.flex_shrink.unwrap_or(1.0),
-                    ..Default::default()
-                })
-            })
-            .collect();
-
-        let rects = layout::layout(container_rect, spec, &items, gap);
-
-        for (child_id, rect) in &rects {
-            if let Some(child) = self.widgets.get(child_id) {
-                if child.kind.is_none() {
-                    continue;
-                }
-                let width_changed = child.width.map(|w| w as u32 != rect.width).unwrap_or(true);
-                let height_changed = child
-                    .height
-                    .map(|h| h as u32 != rect.height)
-                    .unwrap_or(true);
-
-                if width_changed || height_changed {
-                    let mut updates = graph::map();
-                    if width_changed {
-                        updates.insert(canon::WIDTH, Value::U64(rect.width as u64));
-                    }
-                    if height_changed {
-                        updates.insert(canon::HEIGHT, Value::U64(rect.height as u64));
-                    }
-                    graph::fiat(Some(*child_id), canon::WIDGET, updates);
-                }
-            }
-        }
-
-        for (child_id, rect) in rects {
-            if let Some(child) = self.widgets.get(&child_id) {
-                self.draw_widget_recursive(
-                    scene,
-                    window_id,
-                    child,
-                    rect.x,
-                    rect.y,
-                    rect.width as i32,
-                    rect.height as i32,
-                );
-            }
-        }
-    }
-
-    fn draw_widget_recursive(
-        &self,
-        scene: &mut Scene,
-        window_id: Uuid,
-        widget: &userland::ui_graph::Widget,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-    ) -> i32 {
-        if !widget.visible {
-            return 0;
-        }
-
-        if let Some(bytes) = &widget.bitmap {
-            if let (Some(bw), Some(bh)) = (widget.width, widget.height) {
-                let expected_len = (bw * bh) as usize;
-                let mut pixels = Vec::with_capacity(expected_len);
-                for chunk in bytes.chunks(4) {
-                    if pixels.len() >= expected_len {
-                        break;
-                    }
-                    if chunk.len() == 4 {
-                        let b = chunk[0] as u32; // Blue
-                        let g = chunk[1] as u32; // Green
-                        let r = chunk[2] as u32; // Red
-                        let a = chunk[3] as u32; // Alpha
-                                                 // ARGB
-                        let val = (a << 24) | (r << 16) | (g << 8) | b;
-                        pixels.push(val);
-                    } else {
-                        pixels.push(0);
-                    }
-                }
-
-                // Pad with transparent pixels if the source data is smaller than the declared dimensions
-                while pixels.len() < expected_len {
-                    pixels.push(0);
-                }
-
-                let bmp = Arc::new(Bitmap::new(bw as usize, bh as usize, pixels));
-
-                scene.push(SceneItem::BlitImage {
-                    rect: Rect::new(x, y, w as u32, h as u32),
-                    image: bmp,
-                    repeat: false,
-                    offset: (0, 0),
-                });
-
-                return h;
-            }
-        }
-
-        let mut drawn_height = 0;
-
-        if widget.role == ROLE_TOOLBAR || widget.role == "toolbar" {
-            drawn_height = TOOLBAR_HEIGHT;
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x, y, w as u32, drawn_height as u32),
-                color: THEME.client_bg,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x, y + drawn_height - 1, w as u32, 1),
-                color: THEME.frame_shadow,
-            });
-
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget.id))
-                .map(|w| w.id)
-                .collect();
-
-            let mut child_x = x;
-            let toolbar_end = x + w;
-            for child_id in children {
-                if let Some(child) = self.widgets.get(&child_id) {
-                    let btn_w = TOOLBAR_BUTTON_SIZE;
-                    let btn_h = TOOLBAR_BUTTON_SIZE;
-                    let btn_y = y + (drawn_height - btn_h) / 2;
-
-                    if child_x + btn_w > toolbar_end {
-                        break;
-                    }
-
-                    self.draw_toolbar_button(scene, child, child_x, btn_y, btn_w, btn_h);
-                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
-                }
-            }
-        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget.id))
-                .map(|w| w.id)
-                .collect();
-
-            let (direction, justify, align) = if let Some(dir) = widget.flex_direction {
-                (
-                    dir,
-                    widget.justify_content.unwrap_or_default(),
-                    widget.align_items.unwrap_or(AlignItems::Start),
-                )
-            } else {
-                (
-                    FlexDirection::Column,
-                    JustifyContent::Start,
-                    AlignItems::Stretch,
-                )
-            };
-
-            let spec = LayoutSpec::Flex {
-                direction,
-                justify,
-                align,
-            };
-
-            let gap = widget.gap.unwrap_or(0);
-            self.layout_and_draw_children(
-                scene,
-                window_id,
-                Rect::new(x, y, w as u32, h as u32),
-                &children,
-                spec,
-                gap,
-            );
-            drawn_height = h;
-        } else if widget.role == ROLE_EDITOR_ROOT {
-            drawn_height = h;
-            self.draw_surface_content(scene, window_id, x, y, w, h);
-        } else if widget.role == "button" {
-            drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
-            self.draw_toolbar_button(scene, widget, x, y, w, drawn_height);
-            if let Some(label) = &widget.label {
-                scene.push(SceneItem::DrawTextBlock {
-                    rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
-                    text: label.clone(),
-                    color: COLOR_TEXT,
-                    scroll_offset: 0,
-                });
-            }
-        } else if widget.role == "listbox_default" || widget.role == "primary_list" {
-            drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x, y, w as u32, drawn_height as u32),
-                color: Rgba::new(255, 255, 255, 255),
-            });
-            self.draw_rect_outline(scene, x, y, w, drawn_height, BTN_BORDER);
-
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget.id))
-                .map(|w| w.id)
-                .collect();
-
-            let mut child_y = y + 2;
-            let mut remaining_h = drawn_height - 4;
-            let child_w = w - 4;
-            let child_x = x + 2;
-
-            for child_id in children {
-                if let Some(child) = self.widgets.get(&child_id) {
-                    let child_h = self.draw_widget_recursive(
-                        scene,
-                        window_id,
-                        child,
-                        child_x,
-                        child_y,
-                        child_w,
-                        remaining_h,
-                    );
-                    child_y += child_h;
-                    remaining_h -= child_h;
-                }
-            }
-        } else if widget.role == "scrollbar_thumb" {
-            drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x, y, w as u32, drawn_height as u32),
-                color: BTN_FACE,
-            });
-            self.draw_rect_outline(scene, x, y, w, drawn_height, BTN_BORDER);
-        } else if widget.role == "thing_tile" {
-            drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x, y, w as u32, drawn_height as u32),
-                color: BTN_FACE,
-            });
-            if let Some(label) = &widget.label {
-                scene.push(SceneItem::DrawTextBlock {
-                    rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
-                    text: label.clone(),
-                    color: COLOR_TEXT,
-                    scroll_offset: 0,
-                });
-            }
-        } else if widget.role == "list_item" {
-            drawn_height = widget.height.map(|v| v as i32).unwrap_or(20);
-            if let Some(label) = &widget.label {
-                scene.push(SceneItem::DrawTextBlock {
-                    rect: Rect::new(x + 4, y + 2, (w - 8) as u32, (drawn_height - 4) as u32),
-                    text: label.clone(),
-                    color: COLOR_TEXT,
-                    scroll_offset: 0,
-                });
-            }
-        }
-
-        drawn_height
-    }
-
-    fn draw_toolbar_button(
-        &self,
-        scene: &mut Scene,
-        widget: &userland::ui_graph::Widget,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-    ) {
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y, w.max(0) as u32, h.max(0) as u32),
-            color: BTN_FACE,
-        });
-        self.draw_rect_outline(scene, x, y, w, h, BTN_BORDER);
-
-        if w > 2 && h > 2 {
-            let highlight = self.theme.frame_hilight;
-            let shadow = self.theme.frame_shadow;
-            let inner_width = (w - 2).max(0) as u32;
-            let inner_height = (h - 2).max(0) as u32;
-
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x + 1, y + 1, inner_width, 1),
-                color: highlight,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x + 1, y + 1, 1, inner_height),
-                color: highlight,
-            });
-
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x + 1, y + h - 2, inner_width, 1),
-                color: shadow,
-            });
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x + w - 2, y + 1, 1, inner_height),
-                color: shadow,
-            });
-        }
-
-        if let Some(icon_name) = &widget.icon {
-            self.draw_toolbar_icon(scene, icon_name, x, y, w, h);
-        }
-    }
-
-    fn draw_toolbar_icon(
-        &self,
-        scene: &mut Scene,
-        icon_name: &str,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-    ) {
-        let color = BTN_GLYPH;
-        let center_offset = |container: i32, item: i32| -> i32 { ((container - item).max(0)) / 2 };
-
-        match icon_name {
-            "save" => {
-                let icon_size = 12;
-                let icon_left = x + center_offset(w, icon_size);
-                let icon_top = y + center_offset(h, icon_size);
-
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(icon_left, icon_top, icon_size as u32, icon_size as u32),
-                    color,
-                });
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(icon_left + 2, icon_top, (icon_size - 4).max(0) as u32, 4),
-                    color: BTN_FACE,
-                });
-            }
-            "undo" => {
-                let icon_width = 12;
-                let icon_height = 6;
-                let icon_left = x + center_offset(w, icon_width);
-                let icon_top = y + center_offset(h, icon_height);
-
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(icon_left, icon_top + 2, icon_width as u32, 2),
-                    color,
-                });
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(icon_left, icon_top, 2, icon_height as u32),
-                    color,
-                });
-                scene.push(SceneItem::FillRect {
-                    rect: Rect::new(icon_left, icon_top, 6, 2),
-                    color,
-                });
-            }
-            _ => {
-                let icon_width = 8;
-                let icon_height = FONT_HEIGHT as i32;
-                let icon_left = x + center_offset(w, icon_width);
-                let icon_top = y + center_offset(h, icon_height);
-                let fallback_char = icon_name.chars().next().unwrap_or('?');
-
-                scene.push(SceneItem::DrawText {
-                    origin: (icon_left, icon_top),
-                    text: fallback_char.to_string(),
-                    color,
-                    max_width: Some(w.max(0) as u32),
-                });
-            }
-        }
-    }
-
-    fn draw_rect_outline(&self, scene: &mut Scene, x: i32, y: i32, w: i32, h: i32, color: Rgba) {
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y, w as u32, 1),
-            color,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y + h - 1, w as u32, 1),
-            color,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y, 1, h as u32),
-            color,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x + w - 1, y, 1, h as u32),
-            color,
-        });
-    }
 
     fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, surface: &WindowSurface) {
         let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(layout);
@@ -1660,56 +998,7 @@ where
         });
     }
 
-    fn draw_surface_content(
-        &self,
-        scene: &mut Scene,
-        window_id: Uuid,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-    ) {
-        let Some(surface) = self.windows.get(&window_id) else {
-            return;
-        };
 
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y, w as u32, h as u32),
-            color: THEME.client_bg,
-        });
-
-        if let Some(bmp) = &surface.bitmap {
-            scene.push(SceneItem::BlitImage {
-                rect: Rect::new(x, y, w as u32, h as u32),
-                image: bmp.clone(),
-                repeat: false,
-                offset: (0, 0),
-            });
-        } else if !surface.text.is_empty() {
-            scene.push(SceneItem::DrawTextBlock {
-                rect: Rect::new(x, y, w as u32, h as u32),
-                text: surface.text.clone(),
-                color: COLOR_TEXT,
-                scroll_offset: surface.scroll_y,
-            });
-
-            let is_active = surface.window.active || self.active_window == Some(window_id);
-            if is_active && surface.caret.visible {
-                let cx = surface.caret.x;
-                let cy = surface.caret.y;
-                let ch = surface.caret.height;
-                let draw_cx = x + cx;
-                let draw_cy = y + cy - surface.scroll_y;
-
-                if draw_cy + ch >= y && draw_cy < y + h {
-                    scene.push(SceneItem::FillRect {
-                        rect: Rect::new(draw_cx, draw_cy, surface.caret.width as u32, ch as u32),
-                        color: COLOR_TEXT,
-                    });
-                }
-            }
-        }
-    }
 
     fn ingest_surface(&mut self, thing: &userland::GraphThing) {
         if thing.kind != canon::SURFACE {
@@ -1948,13 +1237,14 @@ where
         };
 
         let mut focusable = Vec::new();
-        self.collect_focusable_widgets(active_window_id, &mut focusable);
+        self.widget_manager.collect_focusable_widgets(active_window_id, &mut focusable);
 
         if focusable.is_empty() {
             return;
         }
 
         let current_index = self
+            .widget_manager
             .active_widget
             .and_then(|id| focusable.iter().position(|x| *x == id));
 
@@ -1972,9 +1262,9 @@ where
             0
         };
 
-        let old_widget = self.active_widget;
+        let old_widget = self.widget_manager.active_widget;
         let new_widget = focusable[next_index];
-        self.active_widget = Some(new_widget);
+        self.widget_manager.active_widget = Some(new_widget);
         self.fb_dirty = true;
 
         let focused_sym = canon::canon(b'F', b'C', b'S');
@@ -1992,23 +1282,7 @@ where
         graph::fiat(Some(new_widget), canon::WIDGET, updates);
     }
 
-    fn collect_focusable_widgets(&self, parent_id: Uuid, list: &mut Vec<Uuid>) {
-        let mut children: Vec<&userland::ui_graph::Widget> = self
-            .widgets
-            .values()
-            .filter(|w| w.parent == Some(parent_id))
-            .collect();
 
-        // Sort by ID for stability (creation order)
-        children.sort_by_key(|w| w.id);
-
-        for child in children {
-            if child.focusable {
-                list.push(child.id);
-            }
-            self.collect_focusable_widgets(child.id, list);
-        }
-    }
 
     fn tile_windows(&mut self) {
         let visible_windows = self.visible_window_ids();
@@ -2122,8 +1396,8 @@ where
     }
 
     fn continue_widget_interaction(&mut self) {
-        if let Some(widget_id) = self.active_widget {
-            if let Some(widget) = self.widgets.get(&widget_id) {
+        if let Some(widget_id) = self.widget_manager.active_widget {
+            if let Some(widget) = self.widget_manager.widgets.get(&widget_id) {
                 let wx = widget.x.unwrap_or(0) as i32;
                 let wy = widget.y.unwrap_or(0) as i32;
                 let local_x = self.cursor.x - wx;
@@ -2138,11 +1412,11 @@ where
     }
 
     fn end_widget_interaction(&mut self) {
-        if let Some(widget_id) = self.active_widget {
+        if let Some(widget_id) = self.widget_manager.active_widget {
             let mut updates = graph::map();
             updates.insert(canon::MOUSE_DOWN, Value::Bool(false));
             graph::fiat(Some(widget_id), canon::WIDGET, updates);
-            self.active_widget = None;
+            self.widget_manager.active_widget = None;
         }
     }
 
@@ -2180,10 +1454,10 @@ where
             };
 
             if let Some(widget_id) =
-                self.hit_test_widgets(win_id, &layout, &metrics, self.cursor.x, self.cursor.y)
+                self.widget_manager.hit_test_widgets(win_id, &layout, &metrics, self.cursor.x, self.cursor.y)
             {
-                self.active_widget = Some(widget_id);
-                if let Some(widget) = self.widgets.get(&widget_id) {
+                self.widget_manager.active_widget = Some(widget_id);
+                if let Some(widget) = self.widget_manager.widgets.get(&widget_id) {
                     let wx = widget.x.unwrap_or(0) as i32;
                     let wy = widget.y.unwrap_or(0) as i32;
                     let local_x = self.cursor.x - wx;
@@ -2558,35 +1832,7 @@ where
     }
 
     fn ingest_widget(&mut self, thing: &userland::GraphThing) {
-        if let Some(existing) = self.widgets.get_mut(&thing.id) {
-            existing.update(thing);
-
-            if let Some(parent_id) = existing.parent {
-                if let Some(scroll_y) = thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
-                {
-                    if let Some(window) = self.windows.get_mut(&parent_id) {
-                        if window.scrollbar_widget_id == Some(existing.id) {
-                            window.scroll_y = scroll_y as i32;
-                        }
-                    }
-                }
-            }
-        } else {
-            if let Some(widget) = userland::ui_graph::Widget::load(thing) {
-                if let Some(parent_id) = widget.parent {
-                    if let Some(scroll_y) =
-                        thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
-                    {
-                        if let Some(window) = self.windows.get_mut(&parent_id) {
-                            if window.scrollbar_widget_id == Some(widget.id) {
-                                window.scroll_y = scroll_y as i32;
-                            }
-                        }
-                    }
-                }
-                self.widgets.insert(widget.id, widget);
-            }
-        }
+        self.widget_manager.ingest_widget(thing, &mut self.windows);
     }
 
     fn ingest_wallpaper(&mut self, thing: &userland::GraphThing) {
@@ -2906,224 +2152,23 @@ where
         });
 
         // Draw Widgets
-        let root_widgets: Vec<Uuid> = self
-            .widgets
-            .values()
-            .filter(|w| w.parent == Some(surface.window.id))
-            .map(|w| w.id)
-            .collect();
-
-        if root_widgets.is_empty() {
-            return;
-        }
-
-        // Compute layout area (assume full window for debug)
         let client_x = x as i32;
         let client_y = y as i32;
         let client_w = w as i32;
         let client_h = h as i32;
 
-        let mut y_offset = client_y + TITLE_BAR_HEIGHT as i32;
-        let x_offset = client_x + BORDER_THICKNESS;
-        let width = client_w - BORDER_THICKNESS * 2;
-        let mut remaining_h = client_h - TITLE_BAR_HEIGHT as i32 - BORDER_THICKNESS;
-
-        let mut relative_widgets = Vec::new();
-        let mut overlay_widgets = Vec::new();
-
-        for widget_id in root_widgets {
-            if let Some(widget) = self.widgets.get(&widget_id) {
-                if widget.x.is_some() && widget.y.is_some() {
-                    overlay_widgets.push(widget_id);
-                } else {
-                    relative_widgets.push(widget_id);
-                }
-            }
-        }
-
-        for widget_id in relative_widgets {
-            let child_h = self.draw_debug_widget_recursive(
-                scene,
-                surface.window.id,
-                widget_id,
-                x_offset,
-                y_offset,
-                width,
-                remaining_h,
-            );
-            y_offset += child_h;
-            remaining_h = remaining_h.saturating_sub(child_h);
-        }
-
-        for widget_id in overlay_widgets {
-            if let Some(widget) = self.widgets.get(&widget_id) {
-                if let (Some(wx), Some(wy), Some(ww), Some(wh)) =
-                    (widget.x, widget.y, widget.width, widget.height)
-                {
-                    self.draw_debug_widget_recursive(
-                        scene,
-                        surface.window.id,
-                        widget_id,
-                        client_x + wx as i32,
-                        client_y + wy as i32,
-                        ww as i32,
-                        wh as i32,
-                    );
-                }
-            }
-        }
+        self.widget_manager.draw_debug_widgets(
+            scene,
+            surface.window.id,
+            client_x,
+            client_y,
+            client_w,
+            client_h,
+            surface.scroll_y,
+        );
     }
 
-    fn draw_debug_widget_recursive(
-        &self,
-        scene: &mut Scene,
-        window_id: Uuid,
-        widget_id: Uuid,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-    ) -> i32 {
-        let Some(widget) = self.widgets.get(&widget_id) else {
-            return 0;
-        };
-        if !widget.visible {
-            return 0;
-        }
 
-        let mut drawn_height = 0;
-
-        if widget.role == ROLE_TOOLBAR {
-            drawn_height = TOOLBAR_HEIGHT;
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget_id))
-                .map(|w| w.id)
-                .collect();
-
-            let mut child_x = x;
-            for child_id in children {
-                if let Some(child) = self.widgets.get(&child_id) {
-                    let btn_w = TOOLBAR_BUTTON_SIZE;
-                    let btn_h = TOOLBAR_BUTTON_SIZE;
-                    let btn_y = y + (drawn_height - btn_h) / 2;
-
-                    self.draw_debug_widget_box(scene, child, child_x, btn_y, btn_w, btn_h);
-                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
-                }
-            }
-        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget_id))
-                .map(|w| w.id)
-                .collect();
-
-            let mut child_y = y;
-            let mut remaining_h = h;
-
-            for child_id in children {
-                let child_h = self.draw_debug_widget_recursive(
-                    scene,
-                    window_id,
-                    child_id,
-                    x,
-                    child_y,
-                    w,
-                    remaining_h,
-                );
-                child_y += child_h;
-                drawn_height += child_h;
-                remaining_h = remaining_h.saturating_sub(child_h);
-            }
-        } else if widget.role == ROLE_EDITOR_ROOT {
-            drawn_height = h;
-
-            let scroll_y = if let Some(surface) = self.windows.get(&window_id) {
-                surface.scroll_y
-            } else {
-                0
-            };
-
-            let children: Vec<Uuid> = self
-                .widgets
-                .values()
-                .filter(|w| w.parent == Some(widget_id))
-                .map(|w| w.id)
-                .collect();
-
-            let mut child_y = y - scroll_y;
-            // Give children plenty of space to draw themselves
-            let child_available_h = 10000;
-
-            for child_id in children {
-                let child_h = self.draw_debug_widget_recursive(
-                    scene,
-                    window_id,
-                    child_id,
-                    x,
-                    child_y,
-                    w,
-                    child_available_h,
-                );
-                child_y += child_h;
-            }
-        } else {
-            drawn_height = widget.height.map(|v| v as i32).unwrap_or(32);
-        }
-
-        self.draw_debug_widget_box(scene, widget, x, y, w, drawn_height);
-        drawn_height
-    }
-
-    fn draw_debug_widget_box(
-        &self,
-        scene: &mut Scene,
-        widget: &userland::ui_graph::Widget,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-    ) {
-        let color = Rgba::new(0xFF, 0x00, 0xFF, 0x00); // Green
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y, w as u32, 2),
-            color,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y + h - 2, w as u32, 2),
-            color,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x, y, 2, h as u32),
-            color,
-        });
-        scene.push(SceneItem::FillRect {
-            rect: Rect::new(x + w - 2, y, 2, h as u32),
-            color,
-        });
-
-        if let Some(bitmap) = &widget.bitmap {
-            if let Some(bmp) = decode_bmp(bitmap) {
-                scene.push(SceneItem::BlitImage {
-                    rect: Rect::new(x, y, w as u32, h as u32),
-                    image: Arc::new(bmp),
-                    repeat: false,
-                    offset: (0, 0),
-                });
-            }
-        }
-
-        if Some(widget.id) == self.active_widget {
-            scene.push(SceneItem::HatchRect {
-                rect: Rect::new(x, y, w as u32, h as u32),
-                color: Rgba::new(0xFF, 0xFF, 0xFF, 0x00), // Yellow
-                spacing: 4,
-            });
-        }
-    }
 
     fn draw_max_mode(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
         if let Some(active_id) = self.active_window {
@@ -3180,6 +2225,7 @@ where
         }
 
         let has_widgets = self
+            .widget_manager
             .widgets
             .values()
             .any(|w| w.parent == Some(surface.window.id));
@@ -3195,7 +2241,14 @@ where
                 client_w: w as i32,
                 client_h: h as i32,
             };
-            self.draw_widgets(scene, surface.window.id, &layout, layout.client_w);
+            self.widget_manager.draw_widgets(
+                scene,
+                surface.window.id,
+                &layout,
+                layout.client_w,
+                self.windows.get(&surface.window.id),
+                &self.windows,
+            );
         }
 
         if !surface.window.active {
@@ -3401,6 +2454,7 @@ where
 
         // Check for widgets
         let has_widgets = self
+            .widget_manager
             .widgets
             .values()
             .any(|w| w.parent == Some(surface.window.id));
@@ -3409,7 +2463,14 @@ where
             // The legacy code adds +1 to client_y.
             // My draw_widgets uses layout.client_y directly.
             // I should probably stick to layout.client_y for widgets.
-            self.draw_widgets(scene, surface.window.id, &layout, widget_area_width);
+            self.widget_manager.draw_widgets(
+                scene,
+                surface.window.id,
+                &layout,
+                widget_area_width,
+                self.windows.get(&surface.window.id),
+                &self.windows,
+            );
         } else {
             let content_rect = metrics.content_rect;
 
