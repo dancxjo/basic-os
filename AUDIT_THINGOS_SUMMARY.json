@@ -40,6 +40,20 @@
             ]
         },
         {
+            "id": "ARCH-02",
+            "title": "Unsafe Syscall Boundary Hardened (Partial)",
+            "severity": "medium",
+            "area": "memory",
+            "files": [
+                "kernel/src/arch/x86_64/syscall.rs"
+            ],
+            "summary": "Syscall pointer handling now uses validated helpers and minimized unsafe blocks; some high-risk sites remain.",
+            "suggested_next_steps": [
+                "Complete address-range validation for all user pointers.",
+                "Add fuzz tests for syscall input combinations."
+            ]
+        },
+        {
             "id": "COMP-01",
             "title": "Compositor God Object",
             "severity": "medium",

@@ -81,7 +81,9 @@ const SYSCALL_LOG: u64 = 0x99;
 
 fn get_self(buf_ptr: u64) -> u64 {
     let task_id = current_bundle();
-    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, 16) };
+    let Some(buf) = (unsafe { validate_user_slice_mut(buf_ptr, 16) }) else {
+        return !0;
+    };
     buf.copy_from_slice(task_id.0.as_bytes());
     0
 }
@@ -112,11 +114,10 @@ pub struct DmaWaitRequest {
 }
 
 fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_ptr >= 0x0000_8000_0000_0000 {
-        return !0;
-    }
     // crate::serial_println!("graph_fiat: ptr={:#x} len={}", req_ptr, req_len);
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
+        return !0;
+    };
 
     // crate::serial_println!("graph_fiat: skipping postcard");
 
@@ -134,10 +135,9 @@ fn graph_fiat(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn graph_link(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let Ok(request) = postcard::from_bytes::<GraphLinkRequest>(buf) else {
         return !0;
     };
@@ -146,10 +146,9 @@ fn graph_link(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn watch_register(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     if let Ok(pattern) = postcard::from_bytes::<NodePattern>(buf) {
         return graph::register_watch_pattern(current_bundle(), pattern);
     }
@@ -169,26 +168,23 @@ fn watch_poll(watch_id: u64, out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn kbd_read(out_ptr: u64, out_len: u64) -> u64 {
-    if out_ptr == 0 || out_len == 0 || out_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice_mut(out_ptr, out_len) }) else {
         return 0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
+    };
     crate::drivers::keyboard::read_keyboard(buf) as u64
 }
 
 fn mouse_read(out_ptr: u64, out_len: u64) -> u64 {
-    if out_ptr == 0 || out_len == 0 || out_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice_mut(out_ptr, out_len) }) else {
         return 0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
+    };
     crate::drivers::mouse::read_mouse(buf) as u64
 }
 
 fn graph_get(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let request = if let Ok(req) = postcard::from_bytes::<GraphGetRequest>(buf) {
         Some(req)
     } else if req_len as usize == 16 {
@@ -223,18 +219,17 @@ fn graph_get(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
 
 fn copy_out_slice(buf: &[u8], out_ptr: u64, out_len: u64) -> u64 {
     let required = buf.len() as u64;
-    if out_len == 0 || out_ptr == 0 || out_ptr >= 0x0000_8000_0000_0000 {
+
+    let Some(dest) = (unsafe { validate_user_slice_mut(out_ptr, out_len) }) else {
         return required;
-    }
+    };
 
     if out_len < required {
         return required;
     }
 
     // serial_println!("copy_out: src={:p} dst={:#x} len={}", buf.as_ptr(), out_ptr, buf.len());
-    unsafe {
-        core::ptr::copy_nonoverlapping(buf.as_ptr(), out_ptr as *mut u8, buf.len());
-    }
+    dest[..buf.len()].copy_from_slice(buf);
     required
 }
 
@@ -265,29 +260,21 @@ fn fb_map() -> u64 {
 }
 
 fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if req_ptr == 0
-        || out_ptr == 0
-        || out_len == 0
-        || req_ptr >= 0x0000_8000_0000_0000
-        || out_ptr >= 0x0000_8000_0000_0000
-    {
+    let Some(req_buf) =
+        (unsafe { validate_user_slice(req_ptr, core::mem::size_of::<GraphFindByKind>() as u64) })
+    else {
         return !0;
-    }
-
-    let req_buf = unsafe {
-        core::slice::from_raw_parts(
-            req_ptr as *const u8,
-            core::mem::size_of::<GraphFindByKind>(),
-        )
     };
     let Ok(request) = postcard::from_bytes::<GraphFindByKind>(req_buf) else {
         return !0;
     };
 
-    let kind_str = unsafe {
-        let slice =
-            core::slice::from_raw_parts(request.kind_ptr as *const u8, request.kind_len as usize);
-        core::str::from_utf8_unchecked(slice)
+    let Some(slice) = (unsafe { validate_user_slice(request.kind_ptr, request.kind_len) }) else {
+        return !0;
+    };
+
+    let Ok(kind_str) = core::str::from_utf8(slice) else {
+        return !0;
     };
 
     let bundle = current_bundle();
@@ -300,10 +287,9 @@ fn graph_find_by_kind(req_ptr: u64, out_ptr: u64, out_len: u64) -> u64 {
 }
 
 fn graph_get_props(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if req_ptr == 0 || req_ptr >= 0x0000_8000_0000_0000 || out_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let Ok(request) = postcard::from_bytes::<GraphPropsGetRequest>(buf) else {
         return !0;
     };
@@ -318,10 +304,9 @@ fn graph_get_props(req_ptr: u64, req_len: u64, out_ptr: u64, out_len: u64) -> u6
 }
 
 fn graph_set_props(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let Ok(request) = postcard::from_bytes::<GraphPropsRequest>(buf) else {
         return !0;
     };
@@ -333,10 +318,9 @@ fn graph_set_props(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn grant_capability(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let Ok(request) = postcard::from_bytes::<GrantCapabilityRequest>(buf) else {
         return !0;
     };
@@ -348,10 +332,9 @@ fn grant_capability(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn irq_bind(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let Ok(request) = postcard::from_bytes::<IrqBindRequest>(buf) else {
         return !0;
     };
@@ -367,10 +350,9 @@ fn irq_ack(handle: u64) -> u64 {
 }
 
 fn dma_map(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let Ok(request) = postcard::from_bytes::<DmaMapRequest>(buf) else {
         return !0;
     };
@@ -378,10 +360,9 @@ fn dma_map(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn dma_submit(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
     let Ok(request) = postcard::from_bytes::<DmaSubmitRequest>(buf) else {
         return !0;
     };
@@ -395,10 +376,12 @@ fn dma_submit(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn dma_wait(req_ptr: u64, req_len: u64) -> u64 {
-    if req_ptr == 0 || req_len == 0 || req_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
         return !0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(req_ptr as *const u8, req_len as usize) };
+    };
+    let Some(buf) = (unsafe { validate_user_slice(req_ptr, req_len) }) else {
+        return !0;
+    };
     let Ok(request) = postcard::from_bytes::<DmaWaitRequest>(buf) else {
         return !0;
     };
@@ -410,18 +393,12 @@ fn dma_wait(req_ptr: u64, req_len: u64) -> u64 {
 }
 
 fn sys_log(ptr: u64, len: u64) -> u64 {
-    if ptr == 0 || len == 0 || len > 4096 {
+    if len > 4096 {
         return !0;
     }
-    // Check user range
-    if ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(ptr, len) }) else {
         return !0;
-    }
-    if ptr + len >= 0x0000_8000_0000_0000 {
-        return !0;
-    }
-
-    let buf = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    };
     if let Ok(s) = core::str::from_utf8(buf) {
         crate::serial_print!("{}", s);
         return 0;
@@ -434,18 +411,16 @@ fn dev_open(kind: u64, index: u64) -> u64 {
 }
 
 fn dev_read(handle: u64, out_ptr: u64, out_len: u64) -> u64 {
-    if out_ptr == 0 || out_len == 0 || out_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice_mut(out_ptr, out_len) }) else {
         return 0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
+    };
     crate::drivers::device::dev_read(handle, buf) as u64
 }
 
 fn dev_write(handle: u64, in_ptr: u64, in_len: u64) -> u64 {
-    if in_ptr == 0 || in_len == 0 || in_ptr >= 0x0000_8000_0000_0000 {
+    let Some(buf) = (unsafe { validate_user_slice(in_ptr, in_len) }) else {
         return 0;
-    }
-    let buf = unsafe { core::slice::from_raw_parts(in_ptr as *const u8, in_len as usize) };
+    };
     crate::drivers::device::dev_write(handle, buf) as u64
 }
 
@@ -457,14 +432,12 @@ fn dev_map(handle: u64) -> u64 {
 }
 
 fn spawn(ptr: u64, len: u64) -> u64 {
-    if ptr == 0 || len == 0 || len > 128 {
+    if len > 128 {
         return !0;
     }
-    if ptr >= 0x0000_8000_0000_0000 || ptr + len >= 0x0000_8000_0000_0000 {
+    let Some(slice) = (unsafe { validate_user_slice(ptr, len) }) else {
         return !0;
-    }
-
-    let slice = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    };
     let name = match core::str::from_utf8(slice) {
         Ok(s) => s,
         Err(_) => return !0,
@@ -475,6 +448,56 @@ fn spawn(ptr: u64, len: u64) -> u64 {
     } else {
         !0
     }
+}
+
+/// Safety: This function encapsulates the unsafe creation of a slice from a user pointer.
+/// It performs range checks to ensure the pointer points to user memory.
+/// It does NOT verify that the memory is actually mapped or readable - that is handled by page faults.
+unsafe fn validate_user_slice<'a>(ptr: u64, len: u64) -> Option<&'a [u8]> {
+    if ptr == 0 {
+        return if len == 0 { Some(&[]) } else { None };
+    }
+    if len == 0 {
+        return Some(&[]);
+    }
+
+    // Check if the range wraps around or enters kernel space.
+    // We treat anything >= 0x0000_8000_0000_0000 as non-user.
+    const USER_LIMIT: u64 = 0x0000_8000_0000_0000;
+
+    if ptr >= USER_LIMIT {
+        return None;
+    }
+
+    if ptr.checked_add(len)? >= USER_LIMIT {
+        return None;
+    }
+
+    Some(core::slice::from_raw_parts(ptr as *const u8, len as usize))
+}
+
+unsafe fn validate_user_slice_mut<'a>(ptr: u64, len: u64) -> Option<&'a mut [u8]> {
+    if ptr == 0 {
+        return if len == 0 { Some(&mut []) } else { None };
+    }
+    if len == 0 {
+        return Some(&mut []);
+    }
+
+    const USER_LIMIT: u64 = 0x0000_8000_0000_0000;
+
+    if ptr >= USER_LIMIT {
+        return None;
+    }
+
+    if ptr.checked_add(len)? >= USER_LIMIT {
+        return None;
+    }
+
+    Some(core::slice::from_raw_parts_mut(
+        ptr as *mut u8,
+        len as usize,
+    ))
 }
 
 unsafe extern "C" {

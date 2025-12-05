@@ -20,6 +20,14 @@
   - Updated `fallback_framebuffer` to lock the mutex and leak the guard, ensuring exclusive mutable access to the framebuffer memory for the lifetime of the compositor without risking data races.
 - **Status**: ✅ Implemented.
 
+#### 3. Unsafe Usage & Syscall Boundary (ARCH-02)
+- **Objective**: Map and harden `unsafe` usage in the kernel, specifically at the syscall boundary.
+- **Action**:
+  - Created `UNSAFE_MAP.md` to catalog and classify `unsafe` sites.
+  - Hardened `kernel/src/arch/x86_64/syscall.rs` by introducing `validate_user_slice` helpers to enforce range checks on user pointers.
+  - Added `SAFETY` comments to high-risk sites in memory management and bootloader.
+- **Status**: ✅ Partially Implemented. Syscall boundary is safer, but full memory safety requires deeper architectural changes (e.g., proper user/kernel address space separation enforcement).
+
 ## 1. Overview
 
 ThingOS is an experimental, graph-centric operating system written in Rust. It employs a hybrid kernel architecture where a monolithic kernel core (`kernel`) manages memory, scheduling, and basic device I/O, while hosting a graph database (`thing_model`) directly within the kernel address space. Userland applications (`apps`, `compositor`) run as separate ELF processes, interacting with the kernel and the graph via a rich syscall interface.

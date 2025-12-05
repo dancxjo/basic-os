@@ -84,11 +84,25 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 static ALLOCATOR_LOGGING_SAFE: AtomicBool = AtomicBool::new(false);
 
 /// Initialize paging and return the active OffsetPageTable.
+///
+/// # Safety
+///
+/// This function is unsafe because the caller must guarantee that the
+/// complete physical memory is mapped to virtual memory at the passed
+/// `physical_memory_offset`.
 pub unsafe fn init_paging(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
     let l4_table = unsafe { active_level_4_table(physical_memory_offset) };
     unsafe { OffsetPageTable::new(l4_table, physical_memory_offset) }
 }
 
+/// Returns a mutable reference to the active level 4 page table.
+///
+/// # Safety
+///
+/// This function is unsafe because the caller must guarantee that the
+/// complete physical memory is mapped to virtual memory at the passed
+/// `physical_memory_offset`. Also, this function must be only called once
+/// or from a single thread to avoid aliasing `&mut` references (which is undefined behavior).
 unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
     let (frame, _) = Cr3::read();
     let phys = frame.start_address();

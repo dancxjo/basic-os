@@ -71,6 +71,8 @@ fn ensure_module_cache() {
                 );
                 let ptr = base as *const u8;
                 let len = module.size().try_into().unwrap();
+                // SAFETY: We trust the bootloader (Limine) to provide valid module addresses and sizes.
+                // The memory is guaranteed to be present and readable.
                 let data = unsafe { core::slice::from_raw_parts(ptr, len) };
                 map.insert(
                     Box::leak(path_str.to_owned().into_boxed_str()) as &str,

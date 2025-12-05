@@ -50,6 +50,8 @@ unsafe impl GlobalAlloc for BumpAllocator {
                 return ptr::null_mut();
             }
 
+            // SAFETY: We checked that new_next <= heap_end, so we are within the bounds
+            // of the memory region assigned to this allocator.
             match self
                 .next
                 .compare_exchange(current, new_next, Ordering::SeqCst, Ordering::SeqCst)
