@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "host"), no_std)]
+#![allow(unused)]
 
 extern crate alloc;
 

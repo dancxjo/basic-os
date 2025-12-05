@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(unused)]
 #![feature(abi_x86_interrupt)]
 #![feature(new_range_api)]
 

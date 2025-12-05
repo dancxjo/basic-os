@@ -6,16 +6,17 @@ use alloc::vec;
 use userland::flex::{AlignItems, FlexDirection, JustifyContent};
 use userland::graph::{GraphPropsGetRequest, GraphPropsRequest};
 use userland::prelude::*;
-use userland::questions::{attach_question_to_form, ensure_form, ensure_question_with_answer};
+use userland::questions::{
+    attach_question_to_form, ensure_action_interaction, ensure_form, ensure_question_interaction,
+    ensure_question_with_answer,
+};
 use userland::{
     canon, graph, AnswerValue, AppEvent, InteractionBinding, QuestionBinding, Symbol, ThingFilter,
 };
 use uuid::Uuid;
 use widget_checkbox::CHECKED;
 
-const SMOKE_KIND: Symbol = canon::canon(b'G', b'S', b'M');
-const NODE_NAME: &str = "graph-smoke-node";
-const MAX_KEY_LOG: usize = 24;
+const TRANSITION_OPTIONS: &[&str] = &["None", "Slide", "Fade", "Zoom"];
 
 pub struct DemoApp {
     _windows: BTreeMap<Uuid, WindowHandle>,
@@ -27,8 +28,6 @@ pub struct DemoApp {
     inspector_id: Uuid,
     status_id: Uuid,
     entries: &'static [DashboardEntry],
-    key_count: usize,
-    key_log: VecDeque<String>,
     prefs: PrefsShowcase,
     questions: QuestionShowcase,
 }
@@ -209,7 +208,10 @@ impl App for DemoApp {
                 (canon::cc('F', 'S'), Value::I64(1)),
                 (canon::WIDTH, Value::U64(400)),
                 (canon::HEIGHT, Value::U64(400)),
-                (canon::cc('I', 'D'), Value::Bytes(create_demo_image_data())),
+                (
+                    canon::cc('I', 'D'),
+                    Value::Bytes(build_solid_image(400, 400, 200, 200, 200)),
+                ),
             ],
             widget_host_bundle,
         );
@@ -359,22 +361,12 @@ impl App for DemoApp {
             inspector_id,
             status_id,
             entries,
-            key_count: 0,
-            key_log: VecDeque::new(),
             prefs,
             questions,
         };
 
-        app.update_selection(ctx, 0);
+        app.update_selection(0);
 
-        ctx.watch_graph(ThingFilter {
-            kind: Some(canon::KEY_PRESSED),
-            id: None,
-        });
-        ctx.watch_graph(ThingFilter {
-            kind: Some(canon::KEY_EVENT),
-            id: None,
-        });
         ctx.watch_graph(ThingFilter {
             kind: None,
             id: Some(selection_node),
@@ -383,20 +375,13 @@ impl App for DemoApp {
         app
     }
 
-    fn on_event(&mut self, ctx: &mut AppContext<'_>, ev: AppEvent) {
+    fn on_event(&mut self, _ctx: &mut AppContext<'_>, ev: AppEvent) {
         if let AppEvent::Thing { thing, .. } = ev {
-            if thing.kind == canon::KEY_PRESSED {
-                self.key_count += 1;
-            }
-            if thing.kind == canon::KEY_EVENT {
-                self.record_key_event(&thing);
-            }
-
             if thing.id == self.selection_node {
                 if let Some(Value::I64(idx)) = thing.fields.get(&canon::SELECTED_INDEX) {
                     let idx = (*idx).max(0) as usize;
                     if idx < self.entries.len() {
-                        self.update_selection(ctx, idx);
+                        self.update_selection(idx);
                     }
                 }
             }
@@ -412,23 +397,7 @@ impl App for DemoApp {
 }
 
 impl DemoApp {
-    fn record_key_event(&mut self, thing: &graph::GraphThing) {
-        let key_text = thing
-            .fields
-            .get(&canon::TEXT)
-            .and_then(|v| v.as_text())
-            .map(|s| s.to_string());
-
-        if let Some(text) = key_text {
-            if self.key_log.len() >= MAX_KEY_LOG {
-                self.key_log.pop_front();
-            }
-            self.key_log.push_back(text);
-        }
-    }
-
-    fn update_selection(&mut self, ctx: &mut AppContext<'_>, idx: usize) {
-        let _ = ctx;
+    fn update_selection(&mut self, idx: usize) {
         let entry = &self.entries[idx];
 
         // Update top bar title
@@ -487,7 +456,8 @@ struct PrefsShowcase {
     dialog_window: WindowHandle,
     buttons_window: WindowHandle,
     transition_value: Uuid,
-    footer_widget: Uuid,
+    main_footer_widget: Uuid,
+    dialog_footer_widget: Uuid,
 }
 
 impl PrefsShowcase {
@@ -498,8 +468,9 @@ impl PrefsShowcase {
             id: Some(transition_value),
         });
 
-        let main_window = Self::create_main_window(ctx, widget_host_bundle);
-        let (dialog_window, footer_widget) =
+        let (main_window, main_footer_widget) =
+            Self::create_main_window(ctx, widget_host_bundle, transition_value);
+        let (dialog_window, dialog_footer_widget) =
             Self::create_dialog_window(ctx, widget_host_bundle, transition_value);
         let buttons_window = Self::create_buttons_window(ctx, widget_host_bundle);
 
@@ -508,7 +479,8 @@ impl PrefsShowcase {
             dialog_window,
             buttons_window,
             transition_value,
-            footer_widget,
+            main_footer_widget,
+            dialog_footer_widget,
         }
     }
 
@@ -529,10 +501,15 @@ impl PrefsShowcase {
             canon::TEXT,
             Value::Text(format!("Graph emits: {value_text}")),
         );
-        graph::fiat(Some(self.footer_widget), canon::WIDGET, fields);
+        graph::fiat(Some(self.main_footer_widget), canon::WIDGET, fields.clone());
+        graph::fiat(Some(self.dialog_footer_widget), canon::WIDGET, fields);
     }
 
-    fn create_main_window(ctx: &mut AppContext<'_>, widget_host_bundle: Uuid) -> WindowHandle {
+    fn create_main_window(
+        ctx: &mut AppContext<'_>,
+        widget_host_bundle: Uuid,
+        transition_value: Uuid,
+    ) -> (WindowHandle, Uuid) {
         let window_width: u64 = 1120;
         let window_height: u64 = 760;
         let window_fields = userland::graph::Window {
@@ -684,12 +661,12 @@ show a simple, readable message directly in the client area.",
                 (canon::BINDS, Value::Uuid(transition_value)),
                 (
                     OPTIONS_SYM,
-                    Value::List(vec![
-                        Value::Text(String::from("None")),
-                        Value::Text(String::from("Slide")),
-                        Value::Text(String::from("Fade")),
-                        Value::Text(String::from("Zoom")),
-                    ]),
+                    Value::List(
+                        TRANSITION_OPTIONS
+                            .iter()
+                            .map(|s| Value::Text(String::from(*s)))
+                            .collect(),
+                    ),
                 ),
                 (canon::cc('F', 'G'), Value::I64(1)),
             ],
@@ -710,7 +687,7 @@ show a simple, readable message directly in the client area.",
         );
         graph::that(window.window_id(), "contains", footer_hint, 0);
 
-        window
+        (window, footer_hint)
     }
 
     fn create_dialog_window(
@@ -843,12 +820,12 @@ show a simple, readable message directly in the client area.",
                 (canon::BINDS, Value::Uuid(transition_value_node)),
                 (
                     OPTIONS_SYM,
-                    Value::List(vec![
-                        Value::Text(String::from("None")),
-                        Value::Text(String::from("Slide")),
-                        Value::Text(String::from("Fade")),
-                        Value::Text(String::from("Zoom")),
-                    ]),
+                    Value::List(
+                        TRANSITION_OPTIONS
+                            .iter()
+                            .map(|s| Value::Text(String::from(*s)))
+                            .collect(),
+                    ),
                 ),
             ],
             widget_host_bundle,
@@ -1185,7 +1162,7 @@ impl QuestionShowcase {
     fn push_widget_state(widget_id: Uuid, checked: bool) {
         let mut props = graph::map();
         props.insert(CHECKED, Value::Bool(checked));
-        graph::set_props(thing_abi::GraphPropsRequest {
+        graph::set_props(GraphPropsRequest {
             node: widget_id,
             props,
         });
@@ -1272,17 +1249,6 @@ fn populate_launcher_items(list_id: Uuid, selection_node: Uuid, widget_host_bund
             graph::fiat(Some(selection_node), canon::WIDGET, selection_fields);
         }
     }
-}
-
-fn create_demo_image_data() -> alloc::vec::Vec<u8> {
-    let mut data = vec![0; 16 * 16 * 4];
-    for i in 0..16 * 16 {
-        data[i * 4] = 255;
-        data[i * 4 + 1] = 0;
-        data[i * 4 + 2] = 0;
-        data[i * 4 + 3] = 255;
-    }
-    data
 }
 
 fn build_solid_image(width: u32, height: u32, r: u8, g: u8, b: u8) -> alloc::vec::Vec<u8> {

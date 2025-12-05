@@ -1,5 +1,6 @@
 use crate::graph::GraphThing;
 use crate::{canon, graph, Value};
+use alloc::string::String;
 use thing_abi::GraphPropsRequest;
 use uuid::Uuid;
 
