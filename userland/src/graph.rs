@@ -126,6 +126,14 @@ pub fn get_nodes(pattern: NodePattern) -> Vec<GraphThing> {
     }
 }
 
+pub fn get_thing(id: Uuid) -> Option<GraphThing> {
+    runtime::ensure_kernel_runtime();
+    match runtime::runtime().call(AbiRequest::Get { id }) {
+        AbiResponse::Get { thing } => thing,
+        _ => None,
+    }
+}
+
 pub fn get_props(request: GraphPropsGetRequest) -> Option<Map> {
     runtime::ensure_kernel_runtime();
     match runtime::runtime().call(AbiRequest::PropsGet { request }) {
@@ -390,6 +398,8 @@ pub struct Window {
     pub target: Option<Uuid>,
     pub active: bool,
     pub is_root: bool,
+    pub is_place_root: bool,
+    pub place_id: Option<Uuid>,
     pub mode_index: Option<u8>,
     pub window_rect: Option<WindowRect>,
     pub gap: Option<i32>,
@@ -453,11 +463,17 @@ impl Thingable for Window {
             .get(&canon::IS_ROOT)
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let is_place_root = thing
+            .fields
+            .get(&canon::IS_PLACE_ROOT)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let place_id = thing.fields.get(&canon::PLACE).and_then(|v| v.as_uuid());
         let mode_index = thing
             .fields
             .get(&canon::MODE_INDEX)
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u8);
+            .and_then(|v| v.as_i64())
+            .map(|i| i as u8);
 
         let window_rect = WindowRect::from_optional_value(thing.fields.get(&canon::WINDOW_RECT));
 
@@ -491,6 +507,8 @@ impl Thingable for Window {
             target,
             active,
             is_root,
+            is_place_root,
+            place_id,
             mode_index,
             window_rect,
             gap,
@@ -629,6 +647,42 @@ pub fn load_things_of_kind<T: Thingable>() -> Vec<(Uuid, T)> {
         }
     }
     results
+}
+
+#[derive(Debug, Clone)]
+pub struct Place {
+    pub id: Uuid,
+    pub name: String,
+    pub package: String,
+    pub fullscreen: bool,
+}
+
+impl Place {
+    pub fn create(name: &str, package: &str, fullscreen: bool) -> Uuid {
+        let mut fields = map();
+        fields.insert(canon::PLACE_NAME, Value::Text(name.into()));
+        fields.insert(canon::PLACE_PACKAGE, Value::Text(package.into()));
+        fields.insert(canon::PLACE_FULLSCREEN, Value::Bool(fullscreen));
+        fiat(None, canon::PLACE, fields)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Mode {
+    pub id: Uuid,
+    pub index: i64,
+    pub label: String,
+    pub place: Uuid,
+}
+
+impl Mode {
+    pub fn create(index: i64, label: &str, place: Uuid) -> Uuid {
+        let mut fields = map();
+        fields.insert(canon::MODE_INDEX, Value::I64(index));
+        fields.insert(canon::LABEL, Value::Text(label.into()));
+        fields.insert(canon::MODE_PLACE, Value::Uuid(place));
+        fiat(None, canon::MODE, fields)
+    }
 }
 
 #[cfg(test)]

@@ -115,6 +115,8 @@ impl<'a> AppContext<'a> {
             target: None,
             active: false,
             is_root: false,
+            is_place_root: false,
+            place_id: None,
             mode_index: None,
             window_rect: None,
             gap: None,

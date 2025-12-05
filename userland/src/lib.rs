@@ -248,6 +248,16 @@ pub mod canon {
     pub const ENCODING: Symbol = canon(b'E', b'N', b'C');
     pub const LENGTH: Symbol = canon(b'L', b'E', b'N');
     pub const CURRENT_MODE: Symbol = canon(b'C', b'M', b'D');
+
+    // Place & Mode symbols
+    pub const PLACE: Symbol = canon(b'P', b'L', b'C');
+    pub const PLACE_NAME: Symbol = canon(b'P', b'N', b'M');
+    pub const PLACE_PACKAGE: Symbol = canon(b'P', b'P', b'K');
+    pub const PLACE_ROOT_KIND: Symbol = canon(b'P', b'R', b'K');
+    pub const PLACE_FULLSCREEN: Symbol = canon(b'P', b'F', b'S');
+    pub const MODE_PLACE: Symbol = canon(b'M', b'D', b'P');
+    pub const IS_PLACE_ROOT: Symbol = canon(b'I', b'P', b'R');
+    pub const LAUNCHED: Symbol = canon(b'L', b'C', b'H');
     pub const WALLPAPER: Symbol = canon(b'W', b'L', b'P');
     pub const LAYER: Symbol = canon(b'L', b'Y', b'R');
     pub const SOLID_COLOR: Symbol = canon(b'S', b'L', b'C');

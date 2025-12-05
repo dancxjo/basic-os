@@ -1,0 +1,3618 @@
+use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cmp::{max, min};
+use core::convert::TryInto;
+
+use uuid::Uuid;
+use widget_button::ButtonWidget;
+
+use userland::graph;
+use userland::graph::GraphPropsRequest;
+use userland::widget_abi::WidgetAbi;
+use userland::{
+    canon, load_thing, println, AbiRequest, AppEvent, FramebufferGeometry, NodePattern, Surface,
+    Thingable, Value, WatchId, WatchManager, Window,
+};
+
+use crate::bitmap::{decode_bmp, load_background, Bitmap};
+use crate::cursor::{build_cursor_sprites, CursorKind, CursorSprites, CursorState};
+use crate::layer::{LayerKind, LayerState, WallpaperState};
+use crate::layout::{self, AlignItems, FlexDirection, JustifyContent, LayoutItem, LayoutSpec};
+use crate::mode::ModeSlot;
+use crate::scene::{Scene, SceneItem};
+use crate::types::{
+    clamp_i32, Rect, Rgba, Theme, AUTO_TILE_MARGIN, AUTO_TILE_MIN_WINDOWS, AUTO_TILE_TOP_OFFSET,
+    BORDER_3D_THICKNESS, BORDER_OUTER_THICKNESS, BORDER_THICKNESS, BTN_BORDER, BTN_FACE, BTN_GLYPH,
+    CLEAR_COLOR, COLOR_CURSOR_PRIMARY, COLOR_CURSOR_SHADOW, COLOR_TEXT, FONT_HEIGHT,
+    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, RESIZE_CORNER_SIZE, RESIZE_MARGIN,
+    ROLE_CONTAINER_VERTICAL, ROLE_EDITOR_ROOT, ROLE_TOOLBAR, ROLE_TOOLBAR_BUTTON, SCROLLBAR_GAP,
+    SCROLLBAR_MIN_THUMB, SCROLLBAR_THUMB_COLOR, SCROLLBAR_THUMB_HILIGHT, SCROLLBAR_THUMB_SHADOW,
+    SCROLLBAR_TOTAL_RESERVE, SCROLLBAR_TRACK_COLOR, SCROLLBAR_WIDTH, SCROLL_STEP_LINE, THEME,
+    TITLE_BAR_HEIGHT, TITLE_TEXT_LEFT_PAD, TITLE_TEXT_TOP_OFFSET, TOOLBAR_BUTTON_SIZE,
+    TOOLBAR_BUTTON_SPACING, TOOLBAR_HEIGHT,
+};
+use crate::window::{
+    close_button_rect, compute_window_layout, hit_test_resize, point_in_rect, rect_contains, Caret,
+    ContentMetrics, DragKind, DragState, ResizeEdges, WindowLayout, WindowSurface,
+};
+
+use core::sync::atomic::{AtomicU64, Ordering};
+static UUID_COUNTER: AtomicU64 = AtomicU64::new(0x10000);
+
+fn next_uuid() -> Uuid {
+    let id = UUID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    Uuid::from_u128(id as u128)
+}
+
+const COMPOSITOR_WIDGET: userland::Symbol = canon::canon(b'C', b'M', b'W');
+
+fn create_close_button() -> (Uuid, widget_button::State) {
+    let widget_id = next_uuid();
+
+    // Create Thing in graph
+    let mut props = BTreeMap::new();
+    props.insert(canon::KIND, Value::Symbol(COMPOSITOR_WIDGET));
+    props.insert(canon::TEXT, Value::Text("✕".to_string()));
+    props.insert(canon::TARGET, Value::Text("close_window".to_string()));
+
+    graph::fiat(Some(widget_id), COMPOSITOR_WIDGET, props);
+
+    let state = widget_button::State {
+        label: "✕".to_string(),
+        target: "close_window".to_string(),
+        pressed: false,
+        hovered: false,
+        focused: false,
+        icon: None,
+        show_label: true,
+        bind_node: None,
+        bind_index: None,
+    };
+
+    (widget_id, state)
+}
+
+pub struct FrameInfo {
+    pub addr: u64,
+    pub width: u64,
+    pub height: u64,
+    pub pitch: u64,
+    pub bpp: u64,
+}
+
+pub trait FramebufferDevice<T> {
+    fn geometry(&self) -> FramebufferGeometry;
+    fn present(&mut self, frame: T);
+    fn present_partial(&mut self, frame: T, _dirty_rect: Rect) {
+        self.present(frame);
+    }
+    fn frame_info(&self) -> Option<FrameInfo> {
+        None
+    }
+}
+
+pub trait RendererBackend {
+    type Output<'a>
+    where
+        Self: 'a;
+    fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a>;
+    fn render_partial<'a>(&'a mut self, scene: &Scene, _dirty_rect: Rect) -> Self::Output<'a> {
+        self.render(scene)
+    }
+}
+
+pub struct Compositor<F, R> {
+    frame_no: u64,
+    fb_device: F,
+    renderer: R,
+    windows: BTreeMap<Uuid, WindowSurface>,
+    watch_surfaces: Option<WatchId>,
+    watch_windows: Option<WatchId>,
+    watch_mouse: Option<WatchId>,
+    watch_keyboard: Option<WatchId>,
+    watch_cursor: Option<WatchId>,
+    watch_fb: Option<WatchId>,
+    watch_widgets: Option<WatchId>,
+    watch_mode: Option<WatchId>,
+    watch_mode_defs: Option<WatchId>,
+    watch_wallpaper: Option<WatchId>,
+    watch_layer: Option<WatchId>,
+    current_mode_node: Uuid,
+    fb_id: Option<Uuid>,
+    fb_dirty: bool,
+    content_dirty: bool,
+    auto_layout_done: bool,
+    cursor: CursorState,
+    cursor_sprites: CursorSprites,
+    active_window: Option<Uuid>,
+    active_mode: usize,
+    active_place: Option<Uuid>,
+    modes: [ModeSlot; 12],
+    wallpapers: BTreeMap<Uuid, WallpaperState>,
+    layers: BTreeMap<Uuid, LayerState>,
+    saved_sky_geometry: BTreeMap<Uuid, Rect>,
+    theme: Theme,
+    background: Arc<Bitmap>,
+    drag_state: Option<DragState>,
+    alt_down: bool,
+    shift_down: bool,
+    state_node: Uuid,
+    widgets: BTreeMap<Uuid, userland::ui_graph::Widget>,
+    active_widget: Option<Uuid>,
+    debug_layout_mode: bool,
+    debug_overlay_mode: bool,
+    cursor_prev_rect: Option<Rect>,
+}
+
+impl<F, R> Compositor<F, R>
+where
+    R: RendererBackend,
+    F: for<'a> FramebufferDevice<R::Output<'a>>,
+{
+    pub fn new(fb_device: F, renderer: R) -> Self {
+        let geo = fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
+        let background = load_background();
+        let theme = THEME;
+        let cursor_sprites = build_cursor_sprites();
+
+        let state_node = userland::simple_uuid(b"CompositorState");
+        let mut fields = userland::map();
+        fields.insert(canon::NAME, Value::Text("CompositorState".into()));
+        userland::fiat(Some(state_node), canon::COMPOSITOR, fields);
+
+        let current_mode_node = userland::simple_uuid(b"CurrentMode");
+        let mut fields = userland::map();
+        fields.insert(canon::KIND, Value::Symbol(canon::CURRENT_MODE));
+        fields.insert(canon::MODE_INDEX, Value::I64(0));
+        userland::fiat(Some(current_mode_node), canon::CURRENT_MODE, fields);
+
+        for i in 0..12 {
+            let mode_node = userland::simple_uuid(alloc::format!("ModeF{}", i + 1).as_bytes());
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::MODE));
+            fields.insert(canon::MODE_INDEX, Value::I64(i as i64));
+            fields.insert(canon::NAME, Value::Text(alloc::format!("Mode F{}", i + 1)));
+            userland::fiat(Some(mode_node), canon::MODE, fields);
+        }
+
+        let modes = core::array::from_fn(|i| ModeSlot::new(i as u8));
+
+        Self {
+            frame_no: 0,
+            fb_device,
+            renderer,
+            windows: BTreeMap::new(),
+            watch_surfaces: None,
+            watch_windows: None,
+            watch_mouse: None,
+            watch_keyboard: None,
+            watch_cursor: None,
+            watch_fb: None,
+            watch_widgets: None,
+            watch_mode: None,
+            watch_mode_defs: None,
+            watch_wallpaper: None,
+            watch_layer: None,
+            current_mode_node,
+            fb_id: None,
+            fb_dirty: false,
+            content_dirty: true,
+            auto_layout_done: false,
+            cursor: CursorState::new(width, height),
+            cursor_sprites,
+            active_window: None,
+            active_mode: 0,
+            active_place: None,
+            modes,
+            wallpapers: BTreeMap::new(),
+            layers: BTreeMap::new(),
+            saved_sky_geometry: BTreeMap::new(),
+            theme,
+            background,
+            drag_state: None,
+            alt_down: false,
+            shift_down: false,
+            state_node,
+            widgets: BTreeMap::new(),
+            active_widget: None,
+            debug_layout_mode: true,
+            debug_overlay_mode: false,
+            cursor_prev_rect: None,
+        }
+    }
+
+    pub fn fb_device(&self) -> &F {
+        &self.fb_device
+    }
+
+    pub fn fb_device_mut(&mut self) -> &mut F {
+        &mut self.fb_device
+    }
+
+    pub fn renderer(&self) -> &R {
+        &self.renderer
+    }
+
+    pub fn renderer_mut(&mut self) -> &mut R {
+        &mut self.renderer
+    }
+
+    pub fn is_fb_dirty(&self) -> bool {
+        self.fb_dirty
+    }
+
+    pub fn clear_fb_dirty(&mut self) {
+        self.fb_dirty = false;
+    }
+
+    pub fn resize(&mut self, width: usize, height: usize) {
+        self.cursor.x = clamp_i32(self.cursor.x, 0, width.saturating_sub(1) as i32);
+        self.cursor.y = clamp_i32(self.cursor.y, 0, height.saturating_sub(1) as i32);
+        self.content_dirty = true;
+    }
+
+    fn update_graph_state(&self) {
+        let mut fields = userland::map();
+
+        // Window order (front to back)
+        let mut order_ids = Vec::new();
+        for id in self.ordered_window_ids().iter().rev() {
+            order_ids.push(Value::Uuid(*id));
+        }
+        fields.insert(canon::ABOVE, Value::List(order_ids));
+
+        // Active window
+        if let Some(active) = self.active_window {
+            fields.insert(canon::ACTIVE_WINDOW, Value::Uuid(active));
+        } else {
+            fields.insert(canon::ACTIVE_WINDOW, Value::Null);
+        }
+
+        userland::fiat(Some(self.state_node), canon::COMPOSITOR, fields);
+    }
+
+    fn init_wallpapers(&mut self) {
+        // Create a wallpaper node for each mode
+        for i in 0..12 {
+            let mode_node = userland::simple_uuid(alloc::format!("ModeF{}", i + 1).as_bytes());
+            let wallpaper_node =
+                userland::simple_uuid(alloc::format!("WallpaperF{}", i + 1).as_bytes());
+
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::WALLPAPER));
+            fields.insert(canon::MODE, Value::Uuid(mode_node));
+            userland::fiat(Some(wallpaper_node), canon::WALLPAPER, fields);
+
+            // Create default layers for the wallpaper
+            // Layer 0: Background color (Sky)
+            let layer0_node = userland::simple_uuid(alloc::format!("LayerF{}_0", i + 1).as_bytes());
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::LAYER));
+            fields.insert(canon::WALLPAPER, Value::Uuid(wallpaper_node));
+            fields.insert(canon::INDEX, Value::I64(0));
+            fields.insert(canon::TYPE, Value::Symbol(canon::SOLID_COLOR));
+            // Default sky color
+            fields.insert(canon::COLOR, Value::U64(0xFF87CEEB));
+            userland::fiat(Some(layer0_node), canon::LAYER, fields);
+
+            // Layer 1: Clouds (Image)
+            let layer1_node = userland::simple_uuid(alloc::format!("LayerF{}_1", i + 1).as_bytes());
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::LAYER));
+            fields.insert(canon::WALLPAPER, Value::Uuid(wallpaper_node));
+            fields.insert(canon::INDEX, Value::I64(1));
+            fields.insert(canon::TYPE, Value::Symbol(canon::IMAGE));
+            fields.insert(canon::IMAGE, Value::Text("clouds.bmp".to_string()));
+            fields.insert(canon::SCROLL_X, Value::I64(500)); // Parallax factor * 1000
+            fields.insert(canon::SCROLL_Y, Value::I64(100));
+            userland::fiat(Some(layer1_node), canon::LAYER, fields);
+        }
+    }
+
+    pub fn init_with_watches(
+        watch_manager: &mut WatchManager,
+        app_id: usize,
+        fb_device: F,
+        renderer: R,
+    ) -> Self {
+        let mut surface_pattern = NodePattern::default();
+        surface_pattern.labels.push(canon::SURFACE);
+        surface_pattern
+            .props
+            .insert(canon::DIRTY, Value::Bool(true));
+
+        let mut surface_discovery = NodePattern::default();
+        surface_discovery.labels.push(canon::SURFACE);
+
+        let mut window_pattern = NodePattern::default();
+        window_pattern.labels.push(canon::WINDOW);
+
+        let mut cursor_pattern = NodePattern::default();
+        cursor_pattern.labels.push(canon::CURSOR);
+
+        let mut fb_pattern = NodePattern::default();
+        fb_pattern.labels.push(canon::DISPLAY_FRAMEBUFFER);
+
+        let mut mouse_pattern = NodePattern::default();
+        mouse_pattern.labels.push(canon::INPUT_EVENT);
+
+        let mut keyboard_pattern = NodePattern::default();
+        keyboard_pattern.labels.push(canon::KEY_EVENT);
+
+        let mut widget_pattern = NodePattern::default();
+        widget_pattern.labels.push(canon::WIDGET);
+
+        let mut mode_pattern = NodePattern::default();
+        mode_pattern.labels.push(canon::CURRENT_MODE);
+
+        let mut mode_def_pattern = NodePattern::default();
+        mode_def_pattern.labels.push(canon::MODE);
+
+        let mut wallpaper_pattern = NodePattern::default();
+        wallpaper_pattern.labels.push(canon::WALLPAPER);
+
+        let mut layer_pattern = NodePattern::default();
+        layer_pattern.labels.push(canon::LAYER);
+
+        let surface_watch = watch_manager.register_pattern(app_id, surface_pattern.clone());
+        let window_watch = watch_manager.register_pattern(app_id, window_pattern.clone());
+        let cursor_watch = watch_manager.register_pattern(app_id, cursor_pattern.clone());
+        let fb_watch = watch_manager.register_pattern(app_id, fb_pattern.clone());
+        let mouse_watch = watch_manager.register_pattern(app_id, mouse_pattern);
+        let keyboard_watch = watch_manager.register_pattern(app_id, keyboard_pattern);
+        let widget_watch = watch_manager.register_pattern(app_id, widget_pattern.clone());
+        let mode_watch = watch_manager.register_pattern(app_id, mode_pattern);
+        let mode_def_watch = watch_manager.register_pattern(app_id, mode_def_pattern);
+        let wallpaper_watch = watch_manager.register_pattern(app_id, wallpaper_pattern.clone());
+        let layer_watch = watch_manager.register_pattern(app_id, layer_pattern.clone());
+
+        let mut comp = Self::new(fb_device, renderer);
+        comp.init_wallpapers();
+
+        comp.watch_surfaces = Some(surface_watch);
+        comp.watch_windows = Some(window_watch);
+        comp.watch_mouse = Some(mouse_watch);
+        comp.watch_keyboard = Some(keyboard_watch);
+        comp.watch_cursor = Some(cursor_watch);
+        comp.watch_fb = Some(fb_watch);
+        comp.watch_widgets = Some(widget_watch);
+        comp.watch_mode = Some(mode_watch);
+        comp.watch_mode_defs = Some(mode_def_watch);
+        comp.watch_wallpaper = Some(wallpaper_watch);
+        comp.watch_layer = Some(layer_watch);
+
+        for thing in userland::graph::get_nodes(window_pattern) {
+            if let Some(window) = Window::load(&thing) {
+                comp.ingest_window(window);
+            }
+        }
+
+        for thing in userland::graph::get_nodes(surface_discovery) {
+            comp.ingest_surface(&thing);
+        }
+
+        for thing in userland::graph::get_nodes(widget_pattern) {
+            comp.ingest_widget(&thing);
+        }
+
+        if let Some(cursor_node) = userland::graph::get_nodes(cursor_pattern)
+            .into_iter()
+            .next()
+        {
+            comp.ingest_cursor(&cursor_node);
+        }
+
+        comp
+    }
+
+    pub fn on_event(&mut self, ev: &AppEvent) {
+        match ev {
+            AppEvent::Thing { watch, thing } => {
+                if Some(*watch) == self.watch_surfaces {
+                    self.ingest_surface(thing);
+                    self.content_dirty = true;
+                } else if Some(*watch) == self.watch_mouse {
+                    if thing.kind == canon::INPUT_EVENT {
+                        self.ingest_input_event(thing);
+                    }
+                } else if Some(*watch) == self.watch_keyboard {
+                    if thing.kind == canon::KEY_EVENT {
+                        self.ingest_key_event(thing);
+                    }
+                } else if Some(*watch) == self.watch_windows {
+                    if let Some(window) = Window::load(thing) {
+                        self.ingest_window(window);
+                        self.content_dirty = true;
+                    }
+                } else if Some(*watch) == self.watch_cursor {
+                    self.ingest_cursor(thing);
+                } else if Some(*watch) == self.watch_fb {
+                    if thing.kind == canon::DISPLAY_FRAMEBUFFER {
+                        self.fb_id = Some(thing.id);
+                        self.fb_dirty = true;
+                    }
+                } else if Some(*watch) == self.watch_widgets {
+                    self.ingest_widget(thing);
+                    self.content_dirty = true;
+                } else if Some(*watch) == self.watch_mode {
+                    if thing.id == self.current_mode_node {
+                        if let Some(Value::I64(idx)) = thing.fields.get(&canon::MODE_INDEX) {
+                            let idx = (*idx).max(0).min(11) as usize;
+                            if idx != self.active_mode {
+                                self.active_mode = idx;
+                                self.content_dirty = true;
+                                self.active_place = self.modes[idx].place_id;
+                                self.update_graph_state();
+                            }
+                        }
+                    }
+                } else if Some(*watch) == self.watch_mode_defs {
+                    if let Some(Value::I64(idx)) = thing.fields.get(&canon::MODE_INDEX) {
+                        let idx = (*idx).max(0).min(11) as usize;
+                        if let Some(place_id) = thing
+                            .fields
+                            .get(&canon::MODE_PLACE)
+                            .and_then(|v| v.as_uuid())
+                        {
+                            self.modes[idx].place_id = Some(place_id);
+                            if self.active_mode == idx {
+                                self.active_place = Some(place_id);
+                                self.content_dirty = true;
+                            }
+                        }
+                    }
+                } else if Some(*watch) == self.watch_wallpaper {
+                    self.ingest_wallpaper(thing);
+                    self.content_dirty = true;
+                } else if Some(*watch) == self.watch_layer {
+                    self.ingest_layer(thing);
+                    self.content_dirty = true;
+                }
+            }
+            AppEvent::Edge { .. } => {
+                // No edge handling needed for now
+            }
+        }
+    }
+
+    fn ensure_scrollbar(&mut self, window_id: Uuid, metrics: &ContentMetrics) {
+        let widget_id = self
+            .windows
+            .get(&window_id)
+            .and_then(|w| w.scrollbar_widget_id);
+
+        if metrics.content_height > metrics.viewport_height {
+            let rect = metrics.scrollbar_rect();
+
+            if let Some(id) = widget_id {
+                let mut updates = BTreeMap::new();
+                updates.insert(canon::X, Value::U64(rect.x as u64));
+                updates.insert(canon::Y, Value::U64(rect.y as u64));
+                updates.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                updates.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+                updates.insert(
+                    canon::VIEWPORT_HEIGHT,
+                    Value::I64(metrics.viewport_height as i64),
+                );
+                updates.insert(
+                    canon::CONTENT_HEIGHT,
+                    Value::I64(metrics.content_height as i64),
+                );
+                updates.insert(canon::SCROLL_Y, Value::I64(metrics.scroll_offset as i64));
+
+                userland::graph::fiat(Some(id), canon::WIDGET, updates);
+            } else {
+                let mut fields = BTreeMap::new();
+                fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+                fields.insert(canon::X, Value::U64(rect.x as u64));
+                fields.insert(canon::Y, Value::U64(rect.y as u64));
+                fields.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                fields.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+
+                fields.insert(
+                    canon::cc('W', 'K'),
+                    Value::Text(String::from("scrollbar_thumb")),
+                );
+                fields.insert(canon::PARENT, Value::Uuid(window_id));
+
+                fields.insert(
+                    canon::VIEWPORT_HEIGHT,
+                    Value::I64(metrics.viewport_height as i64),
+                );
+                fields.insert(
+                    canon::CONTENT_HEIGHT,
+                    Value::I64(metrics.content_height as i64),
+                );
+                fields.insert(canon::SCROLL_Y, Value::I64(metrics.scroll_offset as i64));
+
+                let id = userland::graph::fiat(None, canon::WIDGET, fields);
+
+                if let Some(w) = self.windows.get_mut(&window_id) {
+                    w.scrollbar_widget_id = Some(id);
+                }
+            }
+        } else {
+            if let Some(id) = widget_id {
+                let mut updates = BTreeMap::new();
+                updates.insert(canon::WIDTH, Value::U64(0));
+                updates.insert(canon::HEIGHT, Value::U64(0));
+                userland::graph::fiat(Some(id), canon::WIDGET, updates);
+            }
+        }
+    }
+
+    fn update_scrollbars(&mut self) {
+        let ids: Vec<Uuid> = self.windows.keys().cloned().collect();
+        for id in ids {
+            let metrics = {
+                if let Some(s) = self.windows.get(&id) {
+                    if let Some(layout) = compute_window_layout(
+                        s.window.x as i32,
+                        s.window.y as i32,
+                        s.window.width as i32,
+                        s.window.height as i32,
+                    ) {
+                        Some(ContentMetrics::new(s, &layout))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if let Some(m) = metrics {
+                self.ensure_scrollbar(id, &m);
+            }
+        }
+    }
+
+    fn get_cursor_rect(&self) -> Option<Rect> {
+        if !self.cursor.visible {
+            return None;
+        }
+        let icon = self.cursor_sprites.for_kind(self.cursor.kind);
+        let w = icon.bitmap.width as u32;
+        let h = icon.bitmap.height as u32;
+        let hotspot = icon.hotspot;
+
+        let x = self.cursor.x - hotspot.0;
+        let y = self.cursor.y - hotspot.1;
+
+        Some(Rect::new(x, y, w, h))
+    }
+
+    fn draw_root_window(
+        &self,
+        scene: &mut Scene,
+        surface: &WindowSurface,
+        fb_width: usize,
+        fb_height: usize,
+    ) {
+        let x = 0;
+        let y = 0;
+        let w = fb_width;
+        let h = fb_height;
+
+        scene.push(SceneItem::ClipPush {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+        });
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+            color: self.theme.client_bg,
+        });
+
+        if let Some(bmp) = &surface.bitmap {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(x as i32, y as i32, bmp.width as u32, bmp.height as u32),
+                image: bmp.clone(),
+                repeat: true,
+                offset: (0, 0),
+            });
+        } else if !surface.text.is_empty() {
+            scene.push(SceneItem::DrawTextBlock {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                text: surface.text.clone(),
+                color: COLOR_TEXT,
+                scroll_offset: surface.scroll_y,
+            });
+        }
+
+        let has_widgets = self
+            .widgets
+            .values()
+            .any(|w| w.parent == Some(surface.window.id));
+
+        if has_widgets {
+            let layout = WindowLayout {
+                title_x: 0,
+                title_y: 0,
+                title_w: 0,
+                title_h: 0,
+                client_x: x as i32,
+                client_y: y as i32,
+                client_w: w as i32,
+                client_h: h as i32,
+            };
+            self.draw_widgets(scene, surface.window.id, &layout, layout.client_w);
+        }
+
+        scene.push(SceneItem::ClipPop);
+    }
+
+    fn draw_mode(&mut self, scene: &mut Scene, width: usize, height: usize) {
+        let mode = &self.modes[self.active_mode];
+
+        if let Some(root_id) = mode.root_window {
+            if let Some(surface) = self.windows.get(&root_id).cloned() {
+                self.draw_root_window(scene, &surface, width, height);
+            }
+        } else {
+            self.draw_background(scene, width, height);
+        }
+
+        for id in &mode.windows {
+            if let Some(surface) = self.windows.get(id).cloned() {
+                self.draw_window(scene, &surface, width, height);
+            }
+        }
+    }
+
+    fn enforce_place_layout(&mut self) {
+        if let Some(place_id) = self.active_place {
+            let fb_geo = self.fb_device.geometry();
+            let width = fb_geo.width as u64;
+            let height = fb_geo.height as u64;
+
+            for surface in self.windows.values_mut() {
+                if surface.window.is_place_root && surface.window.place_id == Some(place_id) {
+                    if surface.window.x != 0
+                        || surface.window.y != 0
+                        || surface.window.width != width
+                        || surface.window.height != height
+                    {
+                        surface.window.x = 0;
+                        surface.window.y = 0;
+                        surface.window.width = width;
+                        surface.window.height = height;
+
+                        let mut updates = BTreeMap::new();
+                        updates.insert(canon::X, Value::U64(0));
+                        updates.insert(canon::Y, Value::U64(0));
+                        updates.insert(canon::WIDTH, Value::U64(width));
+                        updates.insert(canon::HEIGHT, Value::U64(height));
+                        userland::fiat(Some(surface.window.id), canon::WINDOW, updates);
+                        self.content_dirty = true;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn tick(&mut self) {
+        let geo = self.fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        self.enforce_place_layout();
+        self.ensure_active_window();
+        self.update_cursor_kind();
+        self.update_scrollbars();
+
+        let cursor_new_rect = self.get_cursor_rect();
+        let cursor_moved = cursor_new_rect != self.cursor_prev_rect;
+
+        if !self.fb_dirty && !self.content_dirty && !cursor_moved {
+            return;
+        }
+
+        let mut scene = Scene::new(width as u32, height as u32);
+        scene.push(SceneItem::Clear { color: CLEAR_COLOR });
+
+        self.draw_mode(&mut scene, width, height);
+
+        self.draw_cursor(&mut scene, width, height);
+
+        if self.fb_dirty || self.content_dirty {
+            let frame = self.renderer.render(&scene);
+            self.fb_device.present(frame);
+            self.content_dirty = false;
+        } else if cursor_moved {
+            let dirty_rect = if let Some(prev) = self.cursor_prev_rect {
+                if let Some(curr) = cursor_new_rect {
+                    prev.union(curr)
+                } else {
+                    prev
+                }
+            } else {
+                cursor_new_rect.unwrap_or(Rect::new(0, 0, 0, 0))
+            };
+
+            let frame = self.renderer.render_partial(&scene, dirty_rect);
+            self.fb_device.present_partial(frame, dirty_rect);
+        }
+
+        self.cursor_prev_rect = cursor_new_rect;
+        self.publish_frame_info();
+        self.frame_no = self.frame_no.wrapping_add(1);
+    }
+
+    fn publish_frame_info(&mut self) {
+        if let Some(fb_id) = self.fb_id {
+            if let Some(info) = self.fb_device.frame_info() {
+                let mut fields = BTreeMap::new();
+                fields.insert(canon::KIND, Value::Symbol(canon::DISPLAY_FRAME));
+                fields.insert(canon::SEQ, Value::U64(self.frame_no));
+                fields.insert(canon::ADDR, Value::U64(info.addr));
+                fields.insert(canon::WIDTH, Value::U64(info.width));
+                fields.insert(canon::HEIGHT, Value::U64(info.height));
+                fields.insert(canon::PITCH, Value::U64(info.pitch));
+                fields.insert(canon::BPP, Value::U64(info.bpp));
+
+                let frame_id = userland::fiat(None, canon::DISPLAY_FRAME, fields);
+                userland::that(fb_id, canon::CURRENT_FRAME, frame_id, 0);
+            }
+        }
+    }
+
+    fn find_window_at(&self, x: i32, y: i32) -> Option<(Uuid, i32, i32)> {
+        for win_id in self.ordered_window_ids().into_iter().rev() {
+            let surface = self.windows.get(&win_id)?;
+            if !surface.window.visible {
+                continue;
+            }
+            let wx = surface.window.x as i32;
+            let wy = surface.window.y as i32;
+            let w = surface.window.width as i32;
+            let h = surface.window.height as i32;
+
+            if x >= wx && x < wx + w && y >= wy && y < wy + h {
+                return Some((win_id, wx, wy));
+            }
+        }
+        None
+    }
+
+    fn content_metrics_for_window(
+        &self,
+        window_id: Uuid,
+    ) -> Option<(WindowLayout, ContentMetrics)> {
+        let surface = self.windows.get(&window_id)?;
+        let layout = compute_window_layout(
+            surface.window.x as i32,
+            surface.window.y as i32,
+            surface.window.width as i32,
+            surface.window.height as i32,
+        )?;
+        let metrics = ContentMetrics::new(surface, &layout);
+        Some((layout, metrics))
+    }
+
+    fn clamp_scroll_for(&mut self, window_id: Uuid) {
+        if let Some((_, metrics)) = self.content_metrics_for_window(window_id) {
+            if let Some(surface) = self.windows.get_mut(&window_id) {
+                if surface.scroll_y != metrics.scroll_offset {
+                    surface.scroll_y = metrics.scroll_offset;
+                }
+            }
+        } else if let Some(surface) = self.windows.get_mut(&window_id) {
+            surface.scroll_y = 0;
+        }
+    }
+
+    fn apply_window_rect_hint(&mut self, window_id: Uuid) {
+        if let Some(surface) = self.windows.get_mut(&window_id) {
+            if let Some(rect) = surface.window.window_rect {
+                surface.caret.x = rect.x as i32;
+                surface.caret.y = rect.y as i32;
+                surface.caret.width = 2;
+                surface.caret.height = rect.height as i32;
+                surface.caret.visible = rect.visible;
+            } else {
+                surface.caret.visible = false;
+            }
+        }
+
+        let Some(rect) = self
+            .windows
+            .get(&window_id)
+            .and_then(|surface| surface.window.window_rect)
+        else {
+            return;
+        };
+        let Some((_, metrics)) = self.content_metrics_for_window(window_id) else {
+            return;
+        };
+        if metrics.viewport_height <= 0 {
+            return;
+        }
+
+        let current_scroll = self
+            .windows
+            .get(&window_id)
+            .map(|surface| surface.scroll_y)
+            .unwrap_or(0);
+        let rect_top = clamp_i32(
+            rect.y.clamp(0, i64::from(i32::MAX)).try_into().unwrap_or(0),
+            0,
+            i32::MAX,
+        );
+        let raw_height = rect.height.max(0);
+        let rect_height = clamp_i32(
+            raw_height
+                .min(i64::from(i32::MAX))
+                .try_into()
+                .unwrap_or(FONT_HEIGHT as i32),
+            FONT_HEIGHT as i32,
+            i32::MAX,
+        );
+        let rect_bottom = rect_top.saturating_add(rect_height);
+        let viewport_bottom = current_scroll + metrics.viewport_height;
+
+        let mut desired_scroll = current_scroll;
+        if rect_top < current_scroll {
+            desired_scroll = rect_top;
+        } else if rect_bottom > viewport_bottom {
+            desired_scroll = rect_bottom - metrics.viewport_height;
+        } else {
+            return;
+        }
+
+        let clamped = metrics.clamp_scroll(desired_scroll);
+        if let Some(surface) = self.windows.get_mut(&window_id) {
+            if surface.scroll_y != clamped {
+                surface.scroll_y = clamped;
+            }
+        }
+    }
+
+    fn set_scroll_offset(&mut self, window_id: Uuid, new_offset: i32) -> bool {
+        if let Some((_, metrics)) = self.content_metrics_for_window(window_id) {
+            if metrics.max_scroll <= 0 {
+                if let Some(surface) = self.windows.get_mut(&window_id) {
+                    surface.scroll_y = 0;
+                }
+                return false;
+            }
+            let clamped = metrics.clamp_scroll(new_offset);
+            if let Some(surface) = self.windows.get_mut(&window_id) {
+                if surface.scroll_y != clamped {
+                    surface.scroll_y = clamped;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn scroll_window_by(&mut self, window_id: Uuid, delta: i32) -> bool {
+        if delta == 0 {
+            return false;
+        }
+        if let Some(surface) = self.windows.get(&window_id) {
+            let new_offset = surface.scroll_y.saturating_add(delta);
+            return self.set_scroll_offset(window_id, new_offset);
+        }
+        false
+    }
+
+    fn scroll_window_to_start(&mut self, window_id: Uuid) -> bool {
+        self.set_scroll_offset(window_id, 0)
+    }
+
+    fn scroll_window_to_end(&mut self, window_id: Uuid) -> bool {
+        if let Some((_, metrics)) = self.content_metrics_for_window(window_id) {
+            if metrics.max_scroll > 0 {
+                return self.set_scroll_offset(window_id, metrics.max_scroll);
+            }
+        }
+        false
+    }
+
+    // Keyboard navigation for scrolling keeps UIs operable per WCAG 2.2 SC 2.1.1 (Keyboard).
+    fn handle_scroll_key(&mut self, key: canon::Symbol) -> bool {
+        let Some(active) = self.active_window else {
+            return false;
+        };
+        let Some((_, metrics)) = self.content_metrics_for_window(active) else {
+            return false;
+        };
+        if metrics.max_scroll <= 0 {
+            return false;
+        }
+        let page = metrics.viewport_height.max(SCROLL_STEP_LINE);
+        let delta = match key {
+            k if k == canon::cc('A', 'U') => Some(-SCROLL_STEP_LINE),
+            k if k == canon::cc('A', 'D') => Some(SCROLL_STEP_LINE),
+            k if k == canon::cc('P', 'U') => Some(-page),
+            k if k == canon::cc('P', 'D') => Some(page),
+            _ => None,
+        };
+        if let Some(delta) = delta {
+            return self.scroll_window_by(active, delta);
+        }
+        if key == canon::cc('H', 'M') {
+            return self.scroll_window_to_start(active);
+        }
+        if key == canon::cc('E', 'D') {
+            return self.scroll_window_to_end(active);
+        }
+        false
+    }
+
+    fn get_widget_height(&self, widget: &userland::ui_graph::Widget, w: i32, h: i32) -> i32 {
+        if !widget.visible {
+            return 0;
+        }
+        if widget.role == ROLE_TOOLBAR {
+            return TOOLBAR_HEIGHT;
+        } else if widget.role == ROLE_TOOLBAR_BUTTON || widget.role == "toolbar_button" {
+            return widget.height.map(|v| v as i32).unwrap_or(32);
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+            let mut height = 0;
+            let mut remaining_h = h;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let ch = self.get_widget_height(child, w, remaining_h);
+                    height += ch;
+                    remaining_h -= ch;
+                }
+            }
+            return height;
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            return h;
+        }
+        0
+    }
+
+    fn hit_test_widgets(
+        &self,
+        window_id: Uuid,
+        layout: &WindowLayout,
+        metrics: &ContentMetrics,
+        mx: i32,
+        my: i32,
+    ) -> Option<Uuid> {
+        let root_widgets: Vec<Uuid> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(window_id))
+            .map(|w| w.id)
+            .collect();
+
+        // Check absolute positioned widgets first (like scrollbars)
+        for widget_id in &root_widgets {
+            if let Some(widget) = self.widgets.get(widget_id) {
+                if let (Some(x), Some(y), Some(w), Some(h)) =
+                    (widget.x, widget.y, widget.width, widget.height)
+                {
+                    let x = x as i32;
+                    let y = y as i32;
+                    let w = w as i32;
+                    let h = h as i32;
+                    if mx >= x && mx < x + w && my >= y && my < y + h {
+                        return Some(*widget_id);
+                    }
+                }
+            }
+        }
+
+        let y_offset = layout.client_y;
+        let x_offset = layout.client_x;
+        let widget_width = if metrics.content_rect.width > 0 {
+            metrics.content_rect.width as i32
+        } else {
+            layout.client_w
+        };
+        let width = widget_width.max(0);
+        let height = layout.client_h;
+
+        for widget_id in root_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if widget.x.is_some() && widget.y.is_some() {
+                    continue;
+                }
+
+                if let Some(hit) = self
+                    .hit_test_widget_recursive(widget, x_offset, y_offset, width, height, mx, my)
+                {
+                    return Some(hit);
+                }
+            }
+        }
+        None
+    }
+
+    fn hit_test_widget_recursive(
+        &self,
+        widget: &userland::ui_graph::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        mx: i32,
+        my: i32,
+    ) -> Option<Uuid> {
+        if !widget.visible {
+            return None;
+        }
+
+        let height = self.get_widget_height(widget, w, h);
+
+        if mx < x || mx >= x + w || my < y || my >= y + height {
+            return None;
+        }
+
+        if widget.role == ROLE_TOOLBAR {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_x = x;
+            let toolbar_end = x + w;
+            let drawn_height = TOOLBAR_HEIGHT;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let btn_w = TOOLBAR_BUTTON_SIZE;
+                    let btn_h = TOOLBAR_BUTTON_SIZE;
+                    let btn_y = y + (drawn_height - btn_h) / 2;
+
+                    if child_x + btn_w > toolbar_end {
+                        break;
+                    }
+
+                    if mx >= child_x && mx < child_x + btn_w && my >= btn_y && my < btn_y + btn_h {
+                        return Some(child.id);
+                    }
+                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
+                }
+            }
+            return Some(widget.id);
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y;
+            let mut remaining_h = h;
+
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let child_h = self.get_widget_height(child, w, remaining_h);
+                    if let Some(hit) =
+                        self.hit_test_widget_recursive(child, x, child_y, w, remaining_h, mx, my)
+                    {
+                        return Some(hit);
+                    }
+                    child_y += child_h;
+                    remaining_h -= child_h;
+                }
+            }
+            return Some(widget.id);
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            return Some(widget.id);
+        } else if widget.role == ROLE_TOOLBAR_BUTTON || widget.role == "toolbar_button" {
+            return Some(widget.id);
+        }
+
+        if widget.role == ROLE_TOOLBAR_BUTTON {
+            return Some(widget.id);
+        }
+
+        None
+    }
+
+    fn draw_widgets(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        layout: &WindowLayout,
+        widget_area_width: i32,
+    ) {
+        let root_widgets: Vec<Uuid> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(window_id))
+            .map(|w| w.id)
+            .collect();
+
+        if root_widgets.is_empty() {
+            return;
+        }
+
+        let mut relative_widgets: Vec<Uuid> = Vec::new();
+        let mut overlay_widgets: Vec<Uuid> = Vec::new();
+
+        for widget_id in &root_widgets {
+            if let Some(widget) = self.widgets.get(widget_id) {
+                if widget.x.is_some() && widget.y.is_some() {
+                    overlay_widgets.push(*widget_id);
+                } else {
+                    relative_widgets.push(*widget_id);
+                }
+            }
+        }
+
+        let x_offset = layout.client_x;
+        let width = widget_area_width.max(0);
+        let y_offset = layout.client_y;
+        let height = layout.client_h.max(0);
+
+        // Determine layout spec from window properties
+        let (gap, spec) = if let Some(surface) = self.windows.get(&window_id) {
+            let w = &surface.window;
+            let gap = w.gap.unwrap_or(0);
+            let (direction, justify, align) = if let Some(dir) = w.flex_direction {
+                (
+                    dir,
+                    w.justify_content.unwrap_or_default(),
+                    w.align_items.unwrap_or(AlignItems::Start),
+                )
+            } else {
+                (
+                    FlexDirection::Column,
+                    JustifyContent::Start,
+                    AlignItems::Stretch,
+                )
+            };
+            let spec = LayoutSpec::Flex {
+                direction,
+                justify,
+                align,
+            };
+            (gap, spec)
+        } else {
+            (
+                0,
+                LayoutSpec::Flex {
+                    direction: FlexDirection::Column,
+                    justify: JustifyContent::Start,
+                    align: AlignItems::Stretch,
+                },
+            )
+        };
+
+        // Use layout engine for relative widgets
+        if !relative_widgets.is_empty() {
+            self.layout_and_draw_children(
+                scene,
+                window_id,
+                Rect::new(
+                    x_offset as i32,
+                    y_offset as i32,
+                    width as u32,
+                    height as u32,
+                ),
+                &relative_widgets,
+                spec,
+                gap,
+            );
+        }
+
+        for widget_id in overlay_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if let (Some(x), Some(y), Some(w), Some(h)) =
+                    (widget.x, widget.y, widget.width, widget.height)
+                {
+                    self.draw_widget_recursive(
+                        scene, window_id, widget, x as i32, y as i32, w as i32, h as i32,
+                    );
+                }
+            }
+        }
+    }
+
+    fn layout_and_draw_children(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        container_rect: Rect,
+        children_ids: &[Uuid],
+        spec: LayoutSpec,
+        gap: i32,
+    ) {
+        let items: Vec<LayoutItem> = children_ids
+            .iter()
+            .filter_map(|id| {
+                self.widgets.get(id).map(|w| LayoutItem {
+                    id: *id,
+                    min_width: w.width.unwrap_or(0) as u32,
+                    min_height: w.height.unwrap_or(30) as u32, // Default height 30 if unknown
+                    flex_grow: w.flex_grow.unwrap_or(0.0),
+                    flex_shrink: w.flex_shrink.unwrap_or(1.0),
+                    ..Default::default()
+                })
+            })
+            .collect();
+
+        let rects = layout::layout(container_rect, spec, &items, gap);
+
+        for (child_id, rect) in &rects {
+            if let Some(child) = self.widgets.get(child_id) {
+                if child.kind.is_none() {
+                    continue;
+                }
+                let width_changed = child.width.map(|w| w as u32 != rect.width).unwrap_or(true);
+                let height_changed = child
+                    .height
+                    .map(|h| h as u32 != rect.height)
+                    .unwrap_or(true);
+
+                if width_changed || height_changed {
+                    let mut updates = graph::map();
+                    if width_changed {
+                        updates.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                    }
+                    if height_changed {
+                        updates.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+                    }
+                    graph::fiat(Some(*child_id), canon::WIDGET, updates);
+                }
+            }
+        }
+
+        for (child_id, rect) in rects {
+            if let Some(child) = self.widgets.get(&child_id) {
+                self.draw_widget_recursive(
+                    scene,
+                    window_id,
+                    child,
+                    rect.x,
+                    rect.y,
+                    rect.width as i32,
+                    rect.height as i32,
+                );
+            }
+        }
+    }
+
+    fn draw_widget_recursive(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        widget: &userland::ui_graph::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) -> i32 {
+        if !widget.visible {
+            return 0;
+        }
+
+        if let Some(bytes) = &widget.bitmap {
+            if let (Some(bw), Some(bh)) = (widget.width, widget.height) {
+                let expected_len = (bw * bh) as usize;
+                let mut pixels = Vec::with_capacity(expected_len);
+                for chunk in bytes.chunks(4) {
+                    if pixels.len() >= expected_len {
+                        break;
+                    }
+                    if chunk.len() == 4 {
+                        let b = chunk[0] as u32; // Blue
+                        let g = chunk[1] as u32; // Green
+                        let r = chunk[2] as u32; // Red
+                        let a = chunk[3] as u32; // Alpha
+                                                 // ARGB
+                        let val = (a << 24) | (r << 16) | (g << 8) | b;
+                        pixels.push(val);
+                    } else {
+                        pixels.push(0);
+                    }
+                }
+
+                // Pad with transparent pixels if the source data is smaller than the declared dimensions
+                while pixels.len() < expected_len {
+                    pixels.push(0);
+                }
+
+                let bmp = Arc::new(Bitmap::new(bw as usize, bh as usize, pixels));
+
+                scene.push(SceneItem::BlitImage {
+                    rect: Rect::new(x, y, w as u32, h as u32),
+                    image: bmp,
+                    repeat: false,
+                    offset: (0, 0),
+                });
+
+                return h;
+            }
+        }
+
+        let mut drawn_height = 0;
+
+        if widget.role == ROLE_TOOLBAR || widget.role == "toolbar" {
+            drawn_height = TOOLBAR_HEIGHT;
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: THEME.client_bg,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y + drawn_height - 1, w as u32, 1),
+                color: THEME.frame_shadow,
+            });
+
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_x = x;
+            let toolbar_end = x + w;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let btn_w = TOOLBAR_BUTTON_SIZE;
+                    let btn_h = TOOLBAR_BUTTON_SIZE;
+                    let btn_y = y + (drawn_height - btn_h) / 2;
+
+                    if child_x + btn_w > toolbar_end {
+                        break;
+                    }
+
+                    self.draw_toolbar_button(scene, child, child_x, btn_y, btn_w, btn_h);
+                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
+                }
+            }
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let (direction, justify, align) = if let Some(dir) = widget.flex_direction {
+                (
+                    dir,
+                    widget.justify_content.unwrap_or_default(),
+                    widget.align_items.unwrap_or(AlignItems::Start),
+                )
+            } else {
+                (
+                    FlexDirection::Column,
+                    JustifyContent::Start,
+                    AlignItems::Stretch,
+                )
+            };
+
+            let spec = LayoutSpec::Flex {
+                direction,
+                justify,
+                align,
+            };
+
+            let gap = widget.gap.unwrap_or(0);
+            self.layout_and_draw_children(
+                scene,
+                window_id,
+                Rect::new(x, y, w as u32, h as u32),
+                &children,
+                spec,
+                gap,
+            );
+            drawn_height = h;
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            drawn_height = h;
+            self.draw_surface_content(scene, window_id, x, y, w, h);
+        } else if widget.role == "button" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
+            self.draw_toolbar_button(scene, widget, x, y, w, drawn_height);
+            if let Some(label) = &widget.label {
+                scene.push(SceneItem::DrawTextBlock {
+                    rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    scroll_offset: 0,
+                });
+            }
+        } else if widget.role == "listbox_default" || widget.role == "primary_list" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: Rgba::new(255, 255, 255, 255),
+            });
+            self.draw_rect_outline(scene, x, y, w, drawn_height, BTN_BORDER);
+
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y + 2;
+            let mut remaining_h = drawn_height - 4;
+            let child_w = w - 4;
+            let child_x = x + 2;
+
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let child_h = self.draw_widget_recursive(
+                        scene,
+                        window_id,
+                        child,
+                        child_x,
+                        child_y,
+                        child_w,
+                        remaining_h,
+                    );
+                    child_y += child_h;
+                    remaining_h -= child_h;
+                }
+            }
+        } else if widget.role == "scrollbar_thumb" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: BTN_FACE,
+            });
+            self.draw_rect_outline(scene, x, y, w, drawn_height, BTN_BORDER);
+        } else if widget.role == "thing_tile" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x, y, w as u32, drawn_height as u32),
+                color: BTN_FACE,
+            });
+            if let Some(label) = &widget.label {
+                scene.push(SceneItem::DrawTextBlock {
+                    rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    scroll_offset: 0,
+                });
+            }
+        } else if widget.role == "list_item" {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(20);
+            if let Some(label) = &widget.label {
+                scene.push(SceneItem::DrawTextBlock {
+                    rect: Rect::new(x + 4, y + 2, (w - 8) as u32, (drawn_height - 4) as u32),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    scroll_offset: 0,
+                });
+            }
+        }
+
+        drawn_height
+    }
+
+    fn draw_toolbar_button(
+        &self,
+        scene: &mut Scene,
+        widget: &userland::ui_graph::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w.max(0) as u32, h.max(0) as u32),
+            color: BTN_FACE,
+        });
+        self.draw_rect_outline(scene, x, y, w, h, BTN_BORDER);
+
+        if w > 2 && h > 2 {
+            let highlight = self.theme.frame_hilight;
+            let shadow = self.theme.frame_shadow;
+            let inner_width = (w - 2).max(0) as u32;
+            let inner_height = (h - 2).max(0) as u32;
+
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + 1, y + 1, inner_width, 1),
+                color: highlight,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + 1, y + 1, 1, inner_height),
+                color: highlight,
+            });
+
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + 1, y + h - 2, inner_width, 1),
+                color: shadow,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x + w - 2, y + 1, 1, inner_height),
+                color: shadow,
+            });
+        }
+
+        if let Some(icon_name) = &widget.icon {
+            self.draw_toolbar_icon(scene, icon_name, x, y, w, h);
+        }
+    }
+
+    fn draw_toolbar_icon(
+        &self,
+        scene: &mut Scene,
+        icon_name: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        let color = BTN_GLYPH;
+        let center_offset = |container: i32, item: i32| -> i32 { ((container - item).max(0)) / 2 };
+
+        match icon_name {
+            "save" => {
+                let icon_size = 12;
+                let icon_left = x + center_offset(w, icon_size);
+                let icon_top = y + center_offset(h, icon_size);
+
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(icon_left, icon_top, icon_size as u32, icon_size as u32),
+                    color,
+                });
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(icon_left + 2, icon_top, (icon_size - 4).max(0) as u32, 4),
+                    color: BTN_FACE,
+                });
+            }
+            "undo" => {
+                let icon_width = 12;
+                let icon_height = 6;
+                let icon_left = x + center_offset(w, icon_width);
+                let icon_top = y + center_offset(h, icon_height);
+
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(icon_left, icon_top + 2, icon_width as u32, 2),
+                    color,
+                });
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(icon_left, icon_top, 2, icon_height as u32),
+                    color,
+                });
+                scene.push(SceneItem::FillRect {
+                    rect: Rect::new(icon_left, icon_top, 6, 2),
+                    color,
+                });
+            }
+            _ => {
+                let icon_width = 8;
+                let icon_height = FONT_HEIGHT as i32;
+                let icon_left = x + center_offset(w, icon_width);
+                let icon_top = y + center_offset(h, icon_height);
+                let fallback_char = icon_name.chars().next().unwrap_or('?');
+
+                scene.push(SceneItem::DrawText {
+                    origin: (icon_left, icon_top),
+                    text: fallback_char.to_string(),
+                    color,
+                    max_width: Some(w.max(0) as u32),
+                });
+            }
+        }
+    }
+
+    fn draw_rect_outline(&self, scene: &mut Scene, x: i32, y: i32, w: i32, h: i32, color: Rgba) {
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w as u32, 1),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y + h - 1, w as u32, 1),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, 1, h as u32),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x + w - 1, y, 1, h as u32),
+            color,
+        });
+    }
+
+    fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, surface: &WindowSurface) {
+        let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(layout);
+
+        // Create temporary buffer
+        let mut buffer = vec![0u8; (btn_w * btn_h * 4) as usize];
+        let rect = userland::widget_abi::Rect {
+            x: 0,
+            y: 0,
+            width: btn_w as u32,
+            height: btn_h as u32,
+        };
+
+        ButtonWidget::draw(&surface.close_button_state, &mut buffer, rect);
+
+        // Convert to u32 pixels for Bitmap
+        let pixels: Vec<u32> = buffer
+            .chunks(4)
+            .map(|c| {
+                let r = c[0] as u32;
+                let g = c[1] as u32;
+                let b = c[2] as u32;
+                let a = c[3] as u32;
+                (a << 24) | (r << 16) | (g << 8) | b
+            })
+            .collect();
+
+        let bitmap = Arc::new(Bitmap::new(btn_w as usize, btn_h as usize, pixels));
+
+        scene.push(SceneItem::BlitImage {
+            rect: Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32),
+            image: bitmap,
+            repeat: false,
+            offset: (0, 0),
+        });
+    }
+
+    fn draw_surface_content(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        let Some(surface) = self.windows.get(&window_id) else {
+            return;
+        };
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w as u32, h as u32),
+            color: THEME.client_bg,
+        });
+
+        if let Some(bmp) = &surface.bitmap {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(x, y, w as u32, h as u32),
+                image: bmp.clone(),
+                repeat: false,
+                offset: (0, 0),
+            });
+        } else if !surface.text.is_empty() {
+            scene.push(SceneItem::DrawTextBlock {
+                rect: Rect::new(x, y, w as u32, h as u32),
+                text: surface.text.clone(),
+                color: COLOR_TEXT,
+                scroll_offset: surface.scroll_y,
+            });
+
+            let is_active = surface.window.active || self.active_window == Some(window_id);
+            if is_active && surface.caret.visible {
+                let cx = surface.caret.x;
+                let cy = surface.caret.y;
+                let ch = surface.caret.height;
+                let draw_cx = x + cx;
+                let draw_cy = y + cy - surface.scroll_y;
+
+                if draw_cy + ch >= y && draw_cy < y + h {
+                    scene.push(SceneItem::FillRect {
+                        rect: Rect::new(draw_cx, draw_cy, surface.caret.width as u32, ch as u32),
+                        color: COLOR_TEXT,
+                    });
+                }
+            }
+        }
+    }
+
+    fn ingest_surface(&mut self, thing: &userland::GraphThing) {
+        if thing.kind != canon::SURFACE {
+            return;
+        }
+        let Some(surface) = Surface::load(thing) else {
+            return;
+        };
+        let window_id = surface
+            .window
+            .or_else(|| thing.fields.get(&canon::SRC).and_then(Value::as_uuid));
+        let Some(window_id) = window_id else {
+            return;
+        };
+
+        let window = load_thing::<Window>(window_id).unwrap_or_else(|| default_window(window_id));
+        let entry = self.windows.entry(window_id).or_insert_with(|| {
+            let (btn_id, btn_state) = create_close_button();
+            WindowSurface {
+                window: window.clone(),
+                surface_id: None,
+                text: String::new(),
+                bitmap: None,
+                scroll_y: 0,
+                scrollbar_widget_id: None,
+                caret: Caret::default(),
+                close_button_id: btn_id,
+                close_button_state: btn_state,
+                close_button_bitmap: None,
+            }
+        });
+        entry.window = window;
+        entry.surface_id = Some(surface.id);
+        entry.text = surface.text;
+
+        if let Some(bytes) = surface.bitmap {
+            if let Some(bmp) = decode_bmp(&bytes) {
+                entry.bitmap = Some(Arc::new(bmp));
+            }
+        }
+
+        self.bump_window(window_id);
+        self.clamp_scroll_for(window_id);
+        self.apply_window_rect_hint(window_id);
+    }
+
+    fn ordered_window_ids(&self) -> Vec<Uuid> {
+        let mode = &self.modes[self.active_mode];
+        let mut ids = Vec::new();
+        if let Some(root) = mode.root_window {
+            if let Some(w) = self.windows.get(&root) {
+                if w.window.visible {
+                    ids.push(root);
+                }
+            }
+        }
+        for &id in &mode.windows {
+            if let Some(w) = self.windows.get(&id) {
+                if w.window.visible {
+                    ids.push(id);
+                }
+            }
+        }
+        ids
+    }
+
+    fn visible_window_ids(&self) -> Vec<Uuid> {
+        self.ordered_window_ids()
+            .into_iter()
+            .filter(|id| {
+                self.windows
+                    .get(id)
+                    .map(|surface| surface.surface_id.is_some())
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    pub fn on_mouse_event(&mut self, dx: i64, dy: i64, buttons: u64) {
+        if dx != 0 || dy != 0 {
+            // println!("Compositor move: dx={} dy={}", dx, dy);
+        }
+
+        let geo = self.fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
+        let prev_buttons = self.cursor.buttons;
+        self.cursor.update(dx, dy, buttons as u8, width, height);
+
+        let left_down = (buttons & 1) != 0;
+        let left_was_down = (prev_buttons & 1) != 0;
+        let left_pressed = left_down && !left_was_down;
+        let left_released = !left_down && left_was_down;
+
+        if left_pressed {
+            self.on_pointer_down();
+        }
+
+        if left_down {
+            self.continue_drag();
+            self.continue_widget_interaction();
+        } else if left_released {
+            if let Some(drag) = &self.drag_state {
+                if let DragKind::CloseButton = drag.kind {
+                    self.on_close_button_up(drag.window_id);
+                }
+            }
+            self.drag_state = None;
+            self.end_widget_interaction();
+        } else {
+            self.drag_state = None;
+        }
+
+        self.update_cursor_kind();
+    }
+
+    fn ingest_input_event(&mut self, thing: &userland::GraphThing) {
+        // println!("Compositor ingest: {:?}", thing);
+        if let Some(kind) = thing.fields.get(&canon::KIND).and_then(|v| v.as_symbol()) {
+            if kind == canon::MOVE {
+                let dx = thing
+                    .fields
+                    .get(&canon::DX)
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let dy = thing
+                    .fields
+                    .get(&canon::DY)
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+
+                let buttons = thing
+                    .fields
+                    .get(&canon::BUTTON)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+
+                self.on_mouse_event(dx, dy, buttons);
+            }
+        }
+    }
+
+    fn on_close_button_up(&mut self, window_id: Uuid) {
+        // Reset pressed state
+        if let Some(surface) = self.windows.get_mut(&window_id) {
+            surface.close_button_state.pressed = false;
+        }
+
+        // Check if still over button
+        let (win_x, win_y, win_w, win_h) = if let Some(surface) = self.windows.get(&window_id) {
+            (
+                surface.window.x as i32,
+                surface.window.y as i32,
+                surface.window.width as i32,
+                surface.window.height as i32,
+            )
+        } else {
+            return;
+        };
+
+        if let Some(layout) = compute_window_layout(win_x, win_y, win_w, win_h) {
+            let close_rect = close_button_rect(&layout);
+            if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
+                println!("Close button clicked for window {}", window_id);
+                let mut props = BTreeMap::new();
+                props.insert(canon::VISIBLE, Value::Bool(false));
+                self.update_window_props(window_id, props);
+            }
+        }
+    }
+
+    pub fn switch_mode(&mut self, new_mode_idx: usize) {
+        if self.active_mode == new_mode_idx {
+            return;
+        }
+        // Update the graph node instead of local state
+        let mut fields = userland::map();
+        fields.insert(canon::INDEX, Value::I64(new_mode_idx as i64));
+        userland::fiat(Some(self.current_mode_node), canon::CURRENT_MODE, fields);
+    }
+
+    fn ingest_key_event(&mut self, thing: &userland::GraphThing) {
+        let key = thing.fields.get(&canon::KEY).and_then(|v| v.as_symbol());
+        let down = thing
+            .fields
+            .get(&canon::DOWN)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let scancode = thing.fields.get(&canon::SCANCODE).and_then(|v| v.as_u64());
+
+        if let Some(key) = key {
+            if scancode == Some(0x38)
+                || (scancode.is_none()
+                    && (key == canon::cc('A', 'L') || key == canon::cc('Y', 'L')))
+            {
+                self.alt_down = down;
+            }
+
+            if scancode == Some(0x2A)
+                || scancode == Some(0x36)
+                || (scancode.is_none() && key == canon::cc('S', 'F'))
+            {
+                self.shift_down = down;
+            }
+
+            if down {
+                if self.alt_down && (key == canon::from_char('t') || key == canon::from_char('T')) {
+                    self.tile_windows();
+                } else if self.alt_down
+                    && (key == canon::from_char('i') || key == canon::from_char('I'))
+                {
+                    self.debug_layout_mode = !self.debug_layout_mode;
+                    self.fb_dirty = true;
+                } else if self.alt_down
+                    && (key == canon::from_char('o') || key == canon::from_char('O'))
+                {
+                    self.debug_overlay_mode = !self.debug_overlay_mode;
+                    self.fb_dirty = true;
+                } else if key.0 >= 0xF001 && key.0 <= 0xF00C {
+                    let mode_idx = (key.0 - 0xF001) as usize;
+                    self.switch_mode(mode_idx);
+                } else if key == canon::cc('T', 'B') {
+                    self.handle_tab_focus();
+                }
+            }
+
+            if down {
+                self.handle_scroll_key(key);
+            }
+        }
+    }
+
+    fn handle_tab_focus(&mut self) {
+        let Some(active_window_id) = self.active_window else {
+            return;
+        };
+
+        let mut focusable = Vec::new();
+        self.collect_focusable_widgets(active_window_id, &mut focusable);
+
+        if focusable.is_empty() {
+            return;
+        }
+
+        let current_index = self
+            .active_widget
+            .and_then(|id| focusable.iter().position(|x| *x == id));
+
+        let next_index = if let Some(idx) = current_index {
+            if self.shift_down {
+                if idx == 0 {
+                    focusable.len() - 1
+                } else {
+                    idx - 1
+                }
+            } else {
+                (idx + 1) % focusable.len()
+            }
+        } else {
+            0
+        };
+
+        let old_widget = self.active_widget;
+        let new_widget = focusable[next_index];
+        self.active_widget = Some(new_widget);
+        self.fb_dirty = true;
+
+        let focused_sym = canon::canon(b'F', b'C', b'S');
+
+        if let Some(old_id) = old_widget {
+            if old_id != new_widget {
+                let mut updates = graph::map();
+                updates.insert(focused_sym, Value::Bool(false));
+                graph::fiat(Some(old_id), canon::WIDGET, updates);
+            }
+        }
+
+        let mut updates = graph::map();
+        updates.insert(focused_sym, Value::Bool(true));
+        graph::fiat(Some(new_widget), canon::WIDGET, updates);
+    }
+
+    fn collect_focusable_widgets(&self, parent_id: Uuid, list: &mut Vec<Uuid>) {
+        let mut children: Vec<&userland::ui_graph::Widget> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(parent_id))
+            .collect();
+
+        // Sort by ID for stability (creation order)
+        children.sort_by_key(|w| w.id);
+
+        for child in children {
+            if child.focusable {
+                list.push(child.id);
+            }
+            self.collect_focusable_widgets(child.id, list);
+        }
+    }
+
+    fn tile_windows(&mut self) {
+        let visible_windows = self.visible_window_ids();
+
+        if visible_windows.is_empty() {
+            return;
+        }
+
+        let count = visible_windows.len() as i32;
+        let mut cols = 1;
+        while cols * cols < count {
+            cols += 1;
+        }
+        let rows = (count + cols - 1) / cols;
+
+        let geo = self.fb_device.geometry();
+        let screen_w = geo.width as i32;
+        let screen_h = geo.height as i32;
+
+        let w = screen_w / cols;
+        let h = screen_h / rows;
+
+        for (i, win_id) in visible_windows.iter().enumerate() {
+            let row = (i as i32) / cols;
+            let col = (i as i32) % cols;
+
+            let x = col * w;
+            let y = row * h;
+
+            if let Some(entry) = self.windows.get_mut(win_id) {
+                entry.window.x = x.max(0) as u64;
+                entry.window.y = y.max(0) as u64;
+                entry.window.width = w.max(MIN_WINDOW_WIDTH) as u64;
+                entry.window.height = h.max(MIN_WINDOW_HEIGHT) as u64;
+            }
+
+            let mut props = BTreeMap::new();
+            props.insert(canon::X, Value::U64(x.max(0) as u64));
+            props.insert(canon::Y, Value::U64(y.max(0) as u64));
+            props.insert(canon::WIDTH, Value::U64(w.max(MIN_WINDOW_WIDTH) as u64));
+            props.insert(canon::HEIGHT, Value::U64(h.max(MIN_WINDOW_HEIGHT) as u64));
+
+            self.update_window_props(*win_id, props);
+        }
+    }
+
+    fn maybe_auto_tile_windows(&mut self) {
+        if self.auto_layout_done {
+            return;
+        }
+
+        let visible_windows = self.visible_window_ids();
+        if visible_windows.len() < AUTO_TILE_MIN_WINDOWS {
+            return;
+        }
+
+        let geo = self.fb_device.geometry();
+        // Reserve banner space so tiled windows start below the toolbar.
+        let available_height = (geo.height as i32).saturating_sub(AUTO_TILE_TOP_OFFSET);
+        if available_height <= 0 {
+            return;
+        }
+
+        let area = Rect::new(0, AUTO_TILE_TOP_OFFSET, geo.width, available_height as u32);
+        self.layout_windows_in_area(area, &visible_windows);
+
+        self.auto_layout_done = true;
+        self.fb_dirty = true;
+    }
+
+    fn layout_windows_in_area(&mut self, area: Rect, window_ids: &[Uuid]) {
+        if window_ids.is_empty() || area.width == 0 || area.height == 0 {
+            return;
+        }
+
+        let count = window_ids.len();
+        let mut cols = 1;
+        while cols * cols < count {
+            cols += 1;
+        }
+        let rows = (count + cols - 1) / cols;
+
+        let items: Vec<LayoutItem> = window_ids
+            .iter()
+            .map(|id| LayoutItem {
+                id: *id,
+                min_width: MIN_WINDOW_WIDTH as u32,
+                min_height: MIN_WINDOW_HEIGHT as u32,
+                ..Default::default()
+            })
+            .collect();
+
+        let spec = LayoutSpec::Grid { rows, cols };
+        let rects = layout::layout(area, spec, &items, AUTO_TILE_MARGIN);
+
+        for (win_id, rect) in rects {
+            if let Some(entry) = self.windows.get_mut(&win_id) {
+                entry.window.x = rect.x.max(0) as u64;
+                entry.window.y = rect.y.max(0) as u64;
+                entry.window.width = rect.width as u64;
+                entry.window.height = rect.height as u64;
+            }
+
+            let mut props = BTreeMap::new();
+            props.insert(canon::X, Value::U64(rect.x.max(0) as u64));
+            props.insert(canon::Y, Value::U64(rect.y.max(0) as u64));
+            props.insert(canon::WIDTH, Value::U64(rect.width as u64));
+            props.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+            self.update_window_props(win_id, props);
+        }
+    }
+
+    fn continue_widget_interaction(&mut self) {
+        if let Some(widget_id) = self.active_widget {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                let wx = widget.x.unwrap_or(0) as i32;
+                let wy = widget.y.unwrap_or(0) as i32;
+                let local_x = self.cursor.x - wx;
+                let local_y = self.cursor.y - wy;
+
+                let mut updates = graph::map();
+                updates.insert(canon::MOUSE_X, Value::I64(local_x as i64));
+                updates.insert(canon::MOUSE_Y, Value::I64(local_y as i64));
+                graph::fiat(Some(widget_id), canon::WIDGET, updates);
+            }
+        }
+    }
+
+    fn end_widget_interaction(&mut self) {
+        if let Some(widget_id) = self.active_widget {
+            let mut updates = graph::map();
+            updates.insert(canon::MOUSE_DOWN, Value::Bool(false));
+            graph::fiat(Some(widget_id), canon::WIDGET, updates);
+            self.active_widget = None;
+        }
+    }
+
+    fn on_pointer_down(&mut self) {
+        if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
+            self.set_active_window(Some(win_id));
+
+            let (win_width, win_height) = {
+                let Some(surface) = self.windows.get(&win_id) else {
+                    return;
+                };
+                (surface.window.width as i32, surface.window.height as i32)
+            };
+            let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height) else {
+                return;
+            };
+
+            let close_rect = close_button_rect(&layout);
+            if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
+                if let Some(surface) = self.windows.get_mut(&win_id) {
+                    surface.close_button_state.pressed = true;
+                }
+                self.drag_state = Some(DragState {
+                    window_id: win_id,
+                    kind: DragKind::CloseButton,
+                });
+                return;
+            }
+
+            let metrics = {
+                let Some(surface) = self.windows.get(&win_id) else {
+                    return;
+                };
+                ContentMetrics::new(surface, &layout)
+            };
+
+            if let Some(widget_id) =
+                self.hit_test_widgets(win_id, &layout, &metrics, self.cursor.x, self.cursor.y)
+            {
+                self.active_widget = Some(widget_id);
+                if let Some(widget) = self.widgets.get(&widget_id) {
+                    let wx = widget.x.unwrap_or(0) as i32;
+                    let wy = widget.y.unwrap_or(0) as i32;
+                    let local_x = self.cursor.x - wx;
+                    let local_y = self.cursor.y - wy;
+
+                    let mut updates = graph::map();
+                    updates.insert(canon::MOUSE_X, Value::I64(local_x as i64));
+                    updates.insert(canon::MOUSE_Y, Value::I64(local_y as i64));
+                    updates.insert(canon::MOUSE_DOWN, Value::Bool(true));
+                    graph::fiat(Some(widget_id), canon::WIDGET, updates);
+
+                    if widget.role == ROLE_TOOLBAR_BUTTON {
+                        println!("Toolbar button clicked: {}", widget_id);
+                        if let Some(action) = &widget.action {
+                            println!("Action: {}", action);
+                        }
+                        return;
+                    }
+                }
+                return;
+            }
+
+            if metrics.max_scroll > 0 {
+                if let (Some(track), Some(thumb), Some(offset)) = (
+                    metrics.scrollbar_track_rect,
+                    metrics.scrollbar_thumb_rect,
+                    metrics.scrollbar_thumb_offset,
+                ) {
+                    if rect_contains(&track, self.cursor.x, self.cursor.y) {
+                        if rect_contains(&thumb, self.cursor.x, self.cursor.y) {
+                            self.drag_state = Some(DragState {
+                                window_id: win_id,
+                                kind: DragKind::ScrollThumb {
+                                    track_height: track.height as i32,
+                                    thumb_height: thumb.height as i32,
+                                    thumb_offset: offset,
+                                    max_scroll: metrics.max_scroll,
+                                    start_cursor_y: self.cursor.y,
+                                },
+                            });
+                        } else {
+                            let page = metrics.viewport_height.max(SCROLL_STEP_LINE);
+                            if self.cursor.y < thumb.y {
+                                self.scroll_window_by(win_id, -page);
+                            } else {
+                                self.scroll_window_by(win_id, page);
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+
+            if let Some(edges) = hit_test_resize(
+                win_x,
+                win_y,
+                win_width,
+                win_height,
+                self.cursor.x,
+                self.cursor.y,
+            ) {
+                self.drag_state = Some(DragState {
+                    window_id: win_id,
+                    kind: DragKind::Resize {
+                        edges,
+                        start_cursor_x: self.cursor.x,
+                        start_cursor_y: self.cursor.y,
+                        start_x: win_x,
+                        start_y: win_y,
+                        start_w: win_width,
+                        start_h: win_height,
+                    },
+                });
+                return;
+            }
+
+            if self.cursor.y >= layout.title_y && self.cursor.y < layout.title_y + layout.title_h {
+                self.drag_state = Some(DragState {
+                    window_id: win_id,
+                    kind: DragKind::Move {
+                        offset_x: self.cursor.x - win_x,
+                        offset_y: self.cursor.y - win_y,
+                    },
+                });
+            }
+        } else {
+            self.set_active_window(None);
+        }
+    }
+
+    fn continue_drag(&mut self) {
+        let Some(drag) = &self.drag_state else {
+            return;
+        };
+
+        match &drag.kind {
+            DragKind::Move { offset_x, offset_y } => {
+                let new_x = max(0, self.cursor.x - offset_x);
+                let new_y = max(0, self.cursor.y - offset_y);
+
+                if let Some(entry) = self.windows.get_mut(&drag.window_id) {
+                    entry.window.x = new_x as u64;
+                    entry.window.y = new_y as u64;
+                }
+
+                let mut props = BTreeMap::new();
+                props.insert(canon::X, Value::U64(new_x as u64));
+                props.insert(canon::Y, Value::U64(new_y as u64));
+
+                self.update_window_props(drag.window_id, props);
+            }
+            DragKind::Resize {
+                edges,
+                start_cursor_x,
+                start_cursor_y,
+                start_x,
+                start_y,
+                start_w,
+                start_h,
+            } => {
+                let dx = self.cursor.x - start_cursor_x;
+                let dy = self.cursor.y - start_cursor_y;
+
+                let mut new_x = *start_x;
+                let mut new_y = *start_y;
+                let mut new_w = *start_w;
+                let mut new_h = *start_h;
+
+                if edges.left {
+                    let proposed_w = start_w - dx;
+                    let clamped_w = max(MIN_WINDOW_WIDTH, proposed_w);
+                    let delta = start_w - clamped_w;
+                    new_x = start_x + delta;
+                    new_w = clamped_w;
+                } else if edges.right {
+                    new_w = max(MIN_WINDOW_WIDTH, start_w + dx);
+                }
+
+                if edges.top {
+                    let proposed_h = start_h - dy;
+                    let clamped_h = max(MIN_WINDOW_HEIGHT, proposed_h);
+                    let delta = start_h - clamped_h;
+                    new_y = start_y + delta;
+                    new_h = clamped_h;
+                } else if edges.bottom {
+                    new_h = max(MIN_WINDOW_HEIGHT, start_h + dy);
+                }
+
+                if new_x < 0 {
+                    let overshoot = -new_x;
+                    new_x = 0;
+                    new_w = max(new_w + overshoot, MIN_WINDOW_WIDTH);
+                }
+                if new_y < 0 {
+                    let overshoot = -new_y;
+                    new_y = 0;
+                    new_h = max(new_h + overshoot, MIN_WINDOW_HEIGHT);
+                }
+
+                if let Some(entry) = self.windows.get_mut(&drag.window_id) {
+                    entry.window.x = new_x as u64;
+                    entry.window.y = new_y as u64;
+                    entry.window.width = new_w as u64;
+                    entry.window.height = new_h as u64;
+                }
+
+                let mut props = BTreeMap::new();
+                props.insert(canon::X, Value::U64(new_x as u64));
+                props.insert(canon::Y, Value::U64(new_y as u64));
+                props.insert(canon::WIDTH, Value::U64(new_w as u64));
+                props.insert(canon::HEIGHT, Value::U64(new_h as u64));
+
+                self.update_window_props(drag.window_id, props);
+                self.clamp_scroll_for(drag.window_id);
+            }
+            DragKind::ScrollThumb {
+                track_height,
+                thumb_height,
+                thumb_offset,
+                max_scroll,
+                start_cursor_y,
+            } => {
+                if *max_scroll <= 0 {
+                    return;
+                }
+                let travel = (*track_height - *thumb_height).max(1);
+                if travel <= 0 {
+                    return;
+                }
+                let delta_pixels = self.cursor.y - start_cursor_y;
+                let new_thumb_offset = clamp_i32(thumb_offset + delta_pixels, 0, travel);
+                let ratio = new_thumb_offset as f32 / travel as f32;
+                let new_scroll = ((ratio * *max_scroll as f32) + 0.5) as i32;
+                self.set_scroll_offset(drag.window_id, new_scroll);
+            }
+            DragKind::CloseButton => {}
+        }
+    }
+
+    fn max_window_z(&self) -> i64 {
+        self.windows.values().map(|w| w.window.z).max().unwrap_or(0)
+    }
+
+    fn ensure_window_has_unique_z(&mut self, window_id: Uuid, prev_max_z: i64) {
+        let Some(entry) = self.windows.get_mut(&window_id) else {
+            return;
+        };
+        if entry.window.z > prev_max_z {
+            return;
+        }
+
+        let new_z = prev_max_z.saturating_add(1);
+        if entry.window.z == new_z {
+            return;
+        }
+
+        entry.window.z = new_z;
+        let mut props = BTreeMap::new();
+        props.insert(canon::Z, Value::I64(new_z));
+        self.update_window_props(window_id, props);
+    }
+
+    fn update_window_props(&self, window_id: Uuid, props: BTreeMap<canon::Symbol, Value>) {
+        if props.is_empty() {
+            return;
+        }
+        let req = AbiRequest::PropsSet {
+            request: GraphPropsRequest {
+                node: window_id,
+                props,
+            },
+        };
+        let _ = userland::runtime().call(req);
+    }
+
+    fn set_active_window(&mut self, window_id: Option<Uuid>) {
+        if self.active_window == window_id {
+            return;
+        }
+
+        let prev_window = self.active_window;
+
+        if let Some(prev) = self.active_window.take() {
+            if let Some(entry) = self.windows.get_mut(&prev) {
+                entry.window.active = false;
+            }
+            let mut props = BTreeMap::new();
+            props.insert(canon::ACTIVE, Value::Bool(false));
+            self.update_window_props(prev, props);
+        }
+
+        if let Some(id) = window_id {
+            let new_z = self.max_window_z().saturating_add(1);
+            if let Some(entry) = self.windows.get_mut(&id) {
+                entry.window.active = true;
+                entry.window.z = new_z;
+            }
+
+            let mut props = BTreeMap::new();
+            props.insert(canon::ACTIVE, Value::Bool(true));
+            props.insert(canon::Z, Value::I64(new_z));
+            self.update_window_props(id, props);
+            self.active_window = Some(id);
+            self.bump_window(id);
+        } else {
+            self.active_window = None;
+            self.update_graph_state();
+        }
+
+        self.content_dirty = true;
+    }
+
+    fn ensure_active_window(&mut self) {
+        if let Some(active) = self.active_window {
+            if let Some(surface) = self.windows.get(&active) {
+                if surface.window.visible {
+                    return;
+                }
+            }
+        }
+
+        if let Some((id, _)) = self
+            .windows
+            .iter()
+            .filter(|(_, surface)| surface.window.active && surface.window.visible)
+            .max_by_key(|(_, surface)| surface.window.z)
+        {
+            if self.active_window != Some(*id) {
+                self.active_window = Some(*id);
+                self.content_dirty = true;
+            }
+            return;
+        }
+
+        if let Some(id) = self.ordered_window_ids().into_iter().last() {
+            self.set_active_window(Some(id));
+        } else {
+            self.set_active_window(None);
+        }
+    }
+
+    fn cursor_kind_for_edges(edges: &ResizeEdges) -> CursorKind {
+        match (edges.left, edges.right, edges.top, edges.bottom) {
+            (true, false, true, false) => CursorKind::ResizeNW,
+            (false, true, true, false) => CursorKind::ResizeNE,
+            (true, false, false, true) => CursorKind::ResizeSW,
+            (false, true, false, true) => CursorKind::ResizeSE,
+            (true, false, false, false) => CursorKind::ResizeW,
+            (false, true, false, false) => CursorKind::ResizeE,
+            (false, false, true, false) => CursorKind::ResizeN,
+            (false, false, false, true) => CursorKind::ResizeS,
+            _ => CursorKind::Arrow,
+        }
+    }
+
+    fn compute_cursor_kind(&self) -> CursorKind {
+        if let Some(drag) = &self.drag_state {
+            return match &drag.kind {
+                DragKind::Move { .. } => CursorKind::Move,
+                DragKind::Resize { edges, .. } => Self::cursor_kind_for_edges(edges),
+                DragKind::ScrollThumb { .. } => CursorKind::Move,
+                DragKind::CloseButton => CursorKind::Arrow,
+            };
+        }
+
+        if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
+            let Some(surface) = self.windows.get(&win_id) else {
+                return CursorKind::Arrow;
+            };
+
+            let win_width = surface.window.width as i32;
+            let win_height = surface.window.height as i32;
+
+            if let Some(edges) = hit_test_resize(
+                win_x,
+                win_y,
+                win_width,
+                win_height,
+                self.cursor.x,
+                self.cursor.y,
+            ) {
+                return Self::cursor_kind_for_edges(&edges);
+            }
+
+            if let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height) {
+                if self.cursor.y >= layout.title_y
+                    && self.cursor.y < layout.title_y + layout.title_h
+                {
+                    return CursorKind::Move;
+                }
+            }
+        }
+
+        CursorKind::Arrow
+    }
+
+    fn update_cursor_kind(&mut self) {
+        let kind = self.compute_cursor_kind();
+        self.cursor.set_kind(kind);
+    }
+
+    fn ingest_cursor(&mut self, thing: &userland::GraphThing) {
+        if thing.kind != canon::CURSOR {
+            return;
+        }
+        let x = thing.fields.get(&canon::X).and_then(|v| v.as_i64());
+        let y = thing.fields.get(&canon::Y).and_then(|v| v.as_i64());
+        let visible = thing.fields.get(&canon::VISIBLE).and_then(|v| v.as_bool());
+        let geo = self.fb_device.geometry();
+        let (width, height) = (geo.width as usize, geo.height as usize);
+        self.cursor.set_from_graph(x, y, visible, width, height);
+    }
+
+    fn ingest_widget(&mut self, thing: &userland::GraphThing) {
+        if let Some(existing) = self.widgets.get_mut(&thing.id) {
+            existing.update(thing);
+
+            if let Some(parent_id) = existing.parent {
+                if let Some(scroll_y) = thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
+                {
+                    if let Some(window) = self.windows.get_mut(&parent_id) {
+                        if window.scrollbar_widget_id == Some(existing.id) {
+                            window.scroll_y = scroll_y as i32;
+                        }
+                    }
+                }
+            }
+        } else {
+            if let Some(widget) = userland::ui_graph::Widget::load(thing) {
+                if let Some(parent_id) = widget.parent {
+                    if let Some(scroll_y) =
+                        thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64())
+                    {
+                        if let Some(window) = self.windows.get_mut(&parent_id) {
+                            if window.scrollbar_widget_id == Some(widget.id) {
+                                window.scroll_y = scroll_y as i32;
+                            }
+                        }
+                    }
+                }
+                self.widgets.insert(widget.id, widget);
+            }
+        }
+    }
+
+    fn ingest_wallpaper(&mut self, thing: &userland::GraphThing) {
+        if let Some(Value::Uuid(mode_id)) = thing.fields.get(&canon::MODE) {
+            let wallpaper = WallpaperState {
+                id: thing.id,
+                mode_node: *mode_id,
+                layers: Vec::new(),
+            };
+            self.wallpapers.insert(thing.id, wallpaper);
+        }
+    }
+
+    fn ingest_layer(&mut self, thing: &userland::GraphThing) {
+        if let Some(Value::Uuid(wallpaper_id)) = thing.fields.get(&canon::WALLPAPER) {
+            let index = thing
+                .fields
+                .get(&canon::INDEX)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as usize;
+            let kind_sym = thing
+                .fields
+                .get(&canon::TYPE)
+                .and_then(|v| v.as_symbol())
+                .unwrap_or(canon::SOLID_COLOR);
+
+            let kind = if kind_sym == canon::SOLID_COLOR {
+                let color_u64 = thing
+                    .fields
+                    .get(&canon::COLOR)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0xFF000000);
+                let r = ((color_u64 >> 16) & 0xFF) as u8;
+                let g = ((color_u64 >> 8) & 0xFF) as u8;
+                let b = (color_u64 & 0xFF) as u8;
+                LayerKind::SolidColor(Rgba::opaque(r, g, b))
+            } else if kind_sym == canon::IMAGE {
+                let filename = thing
+                    .fields
+                    .get(&canon::IMAGE)
+                    .and_then(|v| v.as_text())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                LayerKind::Image(filename)
+            } else {
+                LayerKind::SolidColor(Rgba::opaque(0, 0, 0))
+            };
+
+            let scroll_x = thing
+                .fields
+                .get(&canon::SCROLL_X)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as f64
+                / 1000.0;
+            let scroll_y = thing
+                .fields
+                .get(&canon::SCROLL_Y)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as f64
+                / 1000.0;
+
+            let layer = LayerState {
+                id: thing.id,
+                kind,
+                scroll_factor_x: scroll_x,
+                scroll_factor_y: scroll_y,
+                z_index: index,
+            };
+
+            self.layers.insert(thing.id, layer.clone());
+
+            // Update the wallpaper's layer list
+            if let Some(wallpaper) = self.wallpapers.get_mut(wallpaper_id) {
+                if !wallpaper.layers.contains(&thing.id) {
+                    wallpaper.layers.push(thing.id);
+                }
+                wallpaper.layers.sort_by(|a, b| {
+                    let layer_a = self.layers.get(a).map(|l| l.z_index).unwrap_or(0);
+                    let layer_b = self.layers.get(b).map(|l| l.z_index).unwrap_or(0);
+                    layer_a.cmp(&layer_b)
+                });
+            }
+        }
+    }
+
+    fn ingest_window(&mut self, window: Window) {
+        let window_id = window.id;
+        let is_new = !self.windows.contains_key(&window_id);
+        let prev_max_z = if is_new {
+            Some(self.max_window_z())
+        } else {
+            None
+        };
+
+        if let Some(entry) = self.windows.get_mut(&window_id) {
+            entry.window = window;
+        } else {
+            let (btn_id, btn_state) = create_close_button();
+            self.windows.insert(
+                window_id,
+                WindowSurface {
+                    window,
+                    surface_id: None,
+                    text: String::new(),
+                    bitmap: None,
+                    scroll_y: 0,
+                    scrollbar_widget_id: None,
+                    caret: Caret::default(),
+                    close_button_id: btn_id,
+                    close_button_state: btn_state,
+                    close_button_bitmap: None,
+                },
+            );
+        }
+
+        if is_new {
+            let window = &self.windows[&window_id].window;
+
+            // Check for Place association
+            let place_id = window.place_id;
+            let is_place_root = window.is_place_root;
+
+            // Fallback to mode_index for backward compatibility
+            let target_mode = window
+                .mode_index
+                .map(|i| i as usize)
+                .unwrap_or(self.active_mode);
+
+            let mut assigned = false;
+
+            if let Some(place_id) = place_id {
+                // Find mode for this place
+                let mut found_mode = None;
+                for (idx, mode) in self.modes.iter().enumerate() {
+                    if mode.place_id == Some(place_id) {
+                        found_mode = Some(idx);
+                        break;
+                    }
+                }
+
+                if let Some(idx) = found_mode {
+                    if is_place_root {
+                        self.modes[idx].root_window = Some(window_id);
+                    } else {
+                        self.modes[idx].windows.push(window_id);
+                    }
+                    assigned = true;
+                }
+            }
+
+            if !assigned {
+                if target_mode < self.modes.len() {
+                    if window.is_root {
+                        self.modes[target_mode].root_window = Some(window_id);
+                    } else {
+                        self.modes[target_mode].windows.push(window_id);
+                    }
+                }
+            }
+        }
+
+        if let Some(prev_max_z) = prev_max_z {
+            self.ensure_window_has_unique_z(window_id, prev_max_z);
+        }
+        if let Some(target) = self.windows.get(&window_id).and_then(|w| w.window.target) {
+            if let Some(entry) = self.windows.get_mut(&window_id) {
+                entry.surface_id = Some(target);
+            }
+        }
+        let is_active = self
+            .windows
+            .get(&window_id)
+            .map(|w| w.window.active)
+            .unwrap_or(false);
+        if is_active {
+            self.set_active_window(Some(window_id));
+        } else if self.active_window == Some(window_id) {
+            self.set_active_window(None);
+        } else if is_new {
+            self.bump_window(window_id);
+        }
+
+        self.clamp_scroll_for(window_id);
+        self.maybe_auto_tile_windows();
+    }
+
+    fn bump_window(&mut self, window_id: Uuid) {
+        // Find which mode contains this window and bump it
+        for mode in &mut self.modes {
+            if let Some(pos) = mode.windows.iter().position(|w| *w == window_id) {
+                mode.windows.remove(pos);
+                mode.windows.push(window_id);
+                break;
+            }
+        }
+        self.update_graph_state();
+    }
+
+    fn draw_background(&self, scene: &mut Scene, width: usize, height: usize) {
+        let mode_node_id =
+            userland::simple_uuid(alloc::format!("ModeF{}", self.active_mode + 1).as_bytes());
+
+        let mut active_wallpaper = None;
+        for wallpaper in self.wallpapers.values() {
+            if wallpaper.mode_node == mode_node_id {
+                active_wallpaper = Some(wallpaper);
+                break;
+            }
+        }
+
+        if let Some(wallpaper) = active_wallpaper {
+            for layer_id in &wallpaper.layers {
+                if let Some(layer) = self.layers.get(layer_id) {
+                    match &layer.kind {
+                        LayerKind::SolidColor(color) => {
+                            scene.push(SceneItem::FillRect {
+                                rect: Rect::new(0, 0, width as u32, height as u32),
+                                color: *color,
+                            });
+                        }
+                        LayerKind::Image(filename) => {
+                            if filename == "clouds.bmp" {
+                                let offset_x =
+                                    (self.frame_no as f64 * layer.scroll_factor_x) as i32;
+                                let offset_y =
+                                    (self.frame_no as f64 * layer.scroll_factor_y) as i32;
+
+                                scene.push(SceneItem::BlitImage {
+                                    rect: Rect::new(0, 0, width as u32, height as u32),
+                                    image: self.background.clone(),
+                                    repeat: true,
+                                    offset: (offset_x, offset_y),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(0, 0, width as u32, height as u32),
+                image: self.background.clone(),
+                repeat: true,
+                offset: (0, 0),
+            });
+        }
+    }
+
+    fn draw_windows(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
+        for id in self.ordered_window_ids() {
+            if let Some(surface) = self.windows.get(&id).cloned() {
+                if surface.window.is_root {
+                    self.draw_window_frameless(scene, &surface, fb_width, fb_height);
+                } else if self.debug_layout_mode {
+                    self.draw_debug_window(scene, &surface, fb_width, fb_height);
+                } else {
+                    self.draw_window(scene, &surface, fb_width, fb_height);
+                    if self.debug_overlay_mode {
+                        self.draw_debug_window(scene, &surface, fb_width, fb_height);
+                    }
+                }
+            }
+        }
+    }
+
+    fn draw_debug_window(
+        &self,
+        scene: &mut Scene,
+        surface: &WindowSurface,
+        fb_width: usize,
+        fb_height: usize,
+    ) {
+        let w = surface.window.width as usize;
+        let h = surface.window.height as usize;
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        let x = min(surface.window.x as usize, fb_width);
+        let y = min(surface.window.y as usize, fb_height);
+        let is_active = surface.window.active || self.active_window == Some(surface.window.id);
+
+        let border_color = if is_active {
+            Rgba::new(0xFF, 0, 0, 0xFF) // Red for active
+        } else {
+            Rgba::new(0x00, 0, 0xFF, 0xFF) // Blue for inactive
+        };
+
+        // Draw bounding box (outline)
+        // Top
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, w as u32, 2),
+            color: border_color,
+        });
+        // Bottom
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, (y + h - 2) as i32, w as u32, 2),
+            color: border_color,
+        });
+        // Left
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, 2, h as u32),
+            color: border_color,
+        });
+        // Right
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new((x + w - 2) as i32, y as i32, 2, h as u32),
+            color: border_color,
+        });
+        // Draw ID or Title in the center
+        let label = alloc::format!("ID: {:?}\nActive: {}", surface.window.id, is_active);
+        scene.push(SceneItem::DrawTextBlock {
+            rect: Rect::new(x as i32 + 4, y as i32 + 4, (w - 8) as u32, (h - 8) as u32),
+            text: label,
+            color: border_color,
+            scroll_offset: 0,
+        });
+
+        // Draw Widgets
+        let root_widgets: Vec<Uuid> = self
+            .widgets
+            .values()
+            .filter(|w| w.parent == Some(surface.window.id))
+            .map(|w| w.id)
+            .collect();
+
+        if root_widgets.is_empty() {
+            return;
+        }
+
+        // Compute layout area (assume full window for debug)
+        let client_x = x as i32;
+        let client_y = y as i32;
+        let client_w = w as i32;
+        let client_h = h as i32;
+
+        let mut y_offset = client_y + TITLE_BAR_HEIGHT as i32;
+        let x_offset = client_x + BORDER_THICKNESS;
+        let width = client_w - BORDER_THICKNESS * 2;
+        let mut remaining_h = client_h - TITLE_BAR_HEIGHT as i32 - BORDER_THICKNESS;
+
+        let mut relative_widgets = Vec::new();
+        let mut overlay_widgets = Vec::new();
+
+        for widget_id in root_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if widget.x.is_some() && widget.y.is_some() {
+                    overlay_widgets.push(widget_id);
+                } else {
+                    relative_widgets.push(widget_id);
+                }
+            }
+        }
+
+        for widget_id in relative_widgets {
+            let child_h = self.draw_debug_widget_recursive(
+                scene,
+                surface.window.id,
+                widget_id,
+                x_offset,
+                y_offset,
+                width,
+                remaining_h,
+            );
+            y_offset += child_h;
+            remaining_h = remaining_h.saturating_sub(child_h);
+        }
+
+        for widget_id in overlay_widgets {
+            if let Some(widget) = self.widgets.get(&widget_id) {
+                if let (Some(wx), Some(wy), Some(ww), Some(wh)) =
+                    (widget.x, widget.y, widget.width, widget.height)
+                {
+                    self.draw_debug_widget_recursive(
+                        scene,
+                        surface.window.id,
+                        widget_id,
+                        client_x + wx as i32,
+                        client_y + wy as i32,
+                        ww as i32,
+                        wh as i32,
+                    );
+                }
+            }
+        }
+    }
+
+    fn draw_debug_widget_recursive(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        widget_id: Uuid,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) -> i32 {
+        let Some(widget) = self.widgets.get(&widget_id) else {
+            return 0;
+        };
+        if !widget.visible {
+            return 0;
+        }
+
+        let mut drawn_height = 0;
+
+        if widget.role == ROLE_TOOLBAR {
+            drawn_height = TOOLBAR_HEIGHT;
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget_id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_x = x;
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let btn_w = TOOLBAR_BUTTON_SIZE;
+                    let btn_h = TOOLBAR_BUTTON_SIZE;
+                    let btn_y = y + (drawn_height - btn_h) / 2;
+
+                    self.draw_debug_widget_box(scene, child, child_x, btn_y, btn_w, btn_h);
+                    child_x += btn_w + TOOLBAR_BUTTON_SPACING;
+                }
+            }
+        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget_id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y;
+            let mut remaining_h = h;
+
+            for child_id in children {
+                let child_h = self.draw_debug_widget_recursive(
+                    scene,
+                    window_id,
+                    child_id,
+                    x,
+                    child_y,
+                    w,
+                    remaining_h,
+                );
+                child_y += child_h;
+                drawn_height += child_h;
+                remaining_h = remaining_h.saturating_sub(child_h);
+            }
+        } else if widget.role == ROLE_EDITOR_ROOT {
+            drawn_height = h;
+
+            let scroll_y = if let Some(surface) = self.windows.get(&window_id) {
+                surface.scroll_y
+            } else {
+                0
+            };
+
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget_id))
+                .map(|w| w.id)
+                .collect();
+
+            let mut child_y = y - scroll_y;
+            // Give children plenty of space to draw themselves
+            let child_available_h = 10000;
+
+            for child_id in children {
+                let child_h = self.draw_debug_widget_recursive(
+                    scene,
+                    window_id,
+                    child_id,
+                    x,
+                    child_y,
+                    w,
+                    child_available_h,
+                );
+                child_y += child_h;
+            }
+        } else {
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(32);
+        }
+
+        self.draw_debug_widget_box(scene, widget, x, y, w, drawn_height);
+        drawn_height
+    }
+
+    fn draw_debug_widget_box(
+        &self,
+        scene: &mut Scene,
+        widget: &userland::ui_graph::Widget,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        let color = Rgba::new(0xFF, 0x00, 0xFF, 0x00); // Green
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, w as u32, 2),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y + h - 2, w as u32, 2),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x, y, 2, h as u32),
+            color,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x + w - 2, y, 2, h as u32),
+            color,
+        });
+
+        if let Some(bitmap) = &widget.bitmap {
+            if let Some(bmp) = decode_bmp(bitmap) {
+                scene.push(SceneItem::BlitImage {
+                    rect: Rect::new(x, y, w as u32, h as u32),
+                    image: Arc::new(bmp),
+                    repeat: false,
+                    offset: (0, 0),
+                });
+            }
+        }
+
+        if Some(widget.id) == self.active_widget {
+            scene.push(SceneItem::HatchRect {
+                rect: Rect::new(x, y, w as u32, h as u32),
+                color: Rgba::new(0xFF, 0xFF, 0xFF, 0x00), // Yellow
+                spacing: 4,
+            });
+        }
+    }
+
+    fn draw_max_mode(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
+        if let Some(active_id) = self.active_window {
+            if let Some(surface) = self.windows.get(&active_id).cloned() {
+                if surface.window.visible {
+                    self.draw_window_frameless(scene, &surface, fb_width, fb_height);
+                    return;
+                }
+            }
+        }
+
+        self.draw_background(scene, fb_width, fb_height);
+    }
+
+    fn draw_window_frameless(
+        &self,
+        scene: &mut Scene,
+        surface: &WindowSurface,
+        fb_width: usize,
+        fb_height: usize,
+    ) {
+        let w = surface.window.width as usize;
+        let h = surface.window.height as usize;
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        let x = min(surface.window.x as usize, fb_width);
+        let y = min(surface.window.y as usize, fb_height);
+
+        scene.push(SceneItem::ClipPush {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+        });
+
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+            color: self.theme.client_bg,
+        });
+
+        if let Some(bmp) = &surface.bitmap {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                image: bmp.clone(),
+                repeat: false,
+                offset: (0, 0),
+            });
+        } else if !surface.text.is_empty() {
+            scene.push(SceneItem::DrawTextBlock {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                text: surface.text.clone(),
+                color: COLOR_TEXT,
+                scroll_offset: surface.scroll_y,
+            });
+        }
+
+        let has_widgets = self
+            .widgets
+            .values()
+            .any(|w| w.parent == Some(surface.window.id));
+
+        if has_widgets {
+            let layout = WindowLayout {
+                title_x: 0,
+                title_y: 0,
+                title_w: 0,
+                title_h: 0,
+                client_x: x as i32,
+                client_y: y as i32,
+                client_w: w as i32,
+                client_h: h as i32,
+            };
+            self.draw_widgets(scene, surface.window.id, &layout, layout.client_w);
+        }
+
+        if !surface.window.active {
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
+                color: self.theme.inactive_veil,
+            });
+        }
+
+        scene.push(SceneItem::ClipPop);
+    }
+
+    fn draw_window(
+        &self,
+        scene: &mut Scene,
+        surface: &WindowSurface,
+        fb_width: usize,
+        fb_height: usize,
+    ) {
+        let w = surface.window.width as usize;
+        let h = surface.window.height as usize;
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        let x = min(surface.window.x as usize, fb_width);
+        let y = min(surface.window.y as usize, fb_height);
+        let is_active = surface.window.active || self.active_window == Some(surface.window.id);
+
+        let title_color = if is_active {
+            self.theme.title_active
+        } else {
+            self.theme.title_inactive
+        };
+        let title_text = if is_active {
+            self.theme.title_text_active
+        } else {
+            self.theme.title_text_inactive
+        };
+        let frame_fill = if is_active {
+            self.theme.title_active
+        } else {
+            self.theme.title_inactive
+        };
+
+        // --- Shadow ---
+        // Feathered drop shadow (expanding layers)
+        // Offset (4, 4)
+        let sx = x as i32 + 4;
+        let sy = y as i32 + 4;
+        let sw = w as u32;
+        let sh = h as u32;
+
+        // Core
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(sx, sy, sw, sh),
+            color: Rgba::new(0x40, 0, 0, 0),
+        });
+        // Feather 1
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(sx - 1, sy - 1, sw + 2, sh + 2),
+            color: Rgba::new(0x20, 0, 0, 0),
+        });
+        // Feather 2
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(sx - 2, sy - 2, sw + 4, sh + 4),
+            color: Rgba::new(0x10, 0, 0, 0),
+        });
+        // Feather 3
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(sx - 3, sy - 3, sw + 6, sh + 6),
+            color: Rgba::new(0x08, 0, 0, 0),
+        });
+
+        let Some(layout) = compute_window_layout(x as i32, y as i32, w as i32, h as i32) else {
+            return;
+        };
+        let x0 = x as i32;
+        let y0 = y as i32;
+        let w_i = w as i32;
+        let h_i = h as i32;
+        let inner_x0 = x0 + BORDER_OUTER_THICKNESS;
+        let inner_y0 = y0 + BORDER_OUTER_THICKNESS;
+        let inner_w = w_i - BORDER_OUTER_THICKNESS * 2;
+        let inner_h = h_i - BORDER_OUTER_THICKNESS * 2;
+        let content_x0 = inner_x0 + BORDER_3D_THICKNESS;
+        let content_y0 = inner_y0 + BORDER_3D_THICKNESS;
+        let content_w = inner_w - BORDER_3D_THICKNESS * 2;
+        let content_h = inner_h - BORDER_3D_THICKNESS * 2;
+
+        scene.push(SceneItem::ClipPush {
+            rect: Rect::new(x0, y0, w as u32, h as u32),
+        });
+
+        // 1. Outer Border
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(x0, y0, w as u32, h as u32),
+            color: self.theme.frame_outer,
+        });
+
+        // 2. Bevel lines to make the frame pop
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                inner_x0,
+                inner_y0,
+                inner_w as u32,
+                BORDER_3D_THICKNESS as u32,
+            ),
+            color: self.theme.frame_hilight,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                inner_x0,
+                inner_y0,
+                BORDER_3D_THICKNESS as u32,
+                inner_h as u32,
+            ),
+            color: self.theme.frame_hilight,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                inner_x0 + inner_w - BORDER_3D_THICKNESS,
+                inner_y0,
+                BORDER_3D_THICKNESS as u32,
+                inner_h as u32,
+            ),
+            color: self.theme.frame_shadow,
+        });
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                inner_x0,
+                inner_y0 + inner_h - BORDER_3D_THICKNESS,
+                inner_w as u32,
+                BORDER_3D_THICKNESS as u32,
+            ),
+            color: self.theme.frame_shadow,
+        });
+
+        // 3. Inner Frame (Background / focus ring)
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(content_x0, content_y0, content_w as u32, content_h as u32),
+            color: frame_fill,
+        });
+
+        // 4. Titlebar
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                layout.title_x,
+                layout.title_y,
+                layout.title_w as u32,
+                layout.title_h as u32,
+            ),
+            color: title_color,
+        });
+
+        // Bottom line of titlebar
+        scene.push(SceneItem::FillRect {
+            rect: Rect::new(
+                layout.title_x,
+                layout.title_y + layout.title_h - 1,
+                layout.title_w as u32,
+                1,
+            ),
+            color: self.theme.frame_shadow,
+        });
+
+        // 6. Control Buttons
+        self.draw_close_button(scene, &layout, surface);
+
+        // 5. Title Text
+        let title_max_w = (layout.title_w - TITLE_TEXT_LEFT_PAD - 4).max(0) as u32;
+
+        scene.push(SceneItem::DrawText {
+            origin: (
+                layout.title_x + TITLE_TEXT_LEFT_PAD,
+                layout.title_y + TITLE_TEXT_TOP_OFFSET,
+            ),
+            text: surface.window.title.clone(),
+            color: title_text,
+            max_width: Some(title_max_w),
+        });
+
+        // 7. Client Area
+        let client_y = layout.client_y + 1;
+        let client_h = (layout.client_h - 1).max(0);
+        let client_rect = Rect::new(
+            layout.client_x,
+            client_y,
+            layout.client_w.max(0) as u32,
+            client_h as u32,
+        );
+        scene.push(SceneItem::FillRect {
+            rect: client_rect,
+            color: self.theme.client_bg,
+        });
+
+        let metrics = ContentMetrics::new(surface, &layout);
+        let widget_area_width = if metrics.content_rect.width > 0 {
+            metrics.content_rect.width as i32
+        } else {
+            layout.client_w
+        };
+
+        // Check for widgets
+        let has_widgets = self
+            .widgets
+            .values()
+            .any(|w| w.parent == Some(surface.window.id));
+        if has_widgets {
+            // Adjust layout for widgets (remove the +1 offset used for legacy border?)
+            // The legacy code adds +1 to client_y.
+            // My draw_widgets uses layout.client_y directly.
+            // I should probably stick to layout.client_y for widgets.
+            self.draw_widgets(scene, surface.window.id, &layout, widget_area_width);
+        } else {
+            let content_rect = metrics.content_rect;
+
+            if content_rect.width > 0 && content_rect.height > 0 {
+                if let Some(bmp) = &surface.bitmap {
+                    scene.push(SceneItem::BlitImage {
+                        rect: content_rect,
+                        image: bmp.clone(),
+                        repeat: false,
+                        offset: (0, 0),
+                    });
+                } else if !surface.text.is_empty() {
+                    scene.push(SceneItem::DrawTextBlock {
+                        rect: content_rect,
+                        text: surface.text.clone(),
+                        color: COLOR_TEXT,
+                        scroll_offset: surface.scroll_y,
+                    });
+
+                    // Draw caret
+                    if is_active && surface.caret.visible {
+                        let cx = content_rect.x + surface.caret.x;
+                        let cy = content_rect.y + surface.caret.y - surface.scroll_y;
+                        if cy + surface.caret.height >= content_rect.y
+                            && cy < content_rect.y + content_rect.height as i32
+                        {
+                            scene.push(SceneItem::FillRect {
+                                rect: Rect::new(
+                                    cx,
+                                    cy,
+                                    surface.caret.width as u32,
+                                    surface.caret.height as u32,
+                                ),
+                                color: COLOR_TEXT,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        self.draw_scrollbar_overlay(scene, surface.window.id, &metrics);
+
+        scene.push(SceneItem::ClipPop);
+    }
+
+    fn draw_scrollbar_overlay(&self, scene: &mut Scene, window_id: Uuid, metrics: &ContentMetrics) {
+        let track_rect = match metrics.scrollbar_track_rect {
+            Some(rect) => rect,
+            None => return,
+        };
+
+        scene.push(SceneItem::FillRect {
+            rect: track_rect,
+            color: SCROLLBAR_TRACK_COLOR,
+        });
+
+        let thumb_rect = match metrics.scrollbar_thumb_rect {
+            Some(rect) => rect,
+            None => return,
+        };
+
+        let dragging_thumb = matches!(
+            &self.drag_state,
+            Some(DragState {
+                kind: DragKind::ScrollThumb { .. },
+                window_id: drag_window,
+            }) if *drag_window == window_id
+        );
+
+        let thumb_color = if dragging_thumb {
+            SCROLLBAR_THUMB_HILIGHT
+        } else {
+            SCROLLBAR_THUMB_COLOR
+        };
+
+        scene.push(SceneItem::FillRect {
+            rect: thumb_rect,
+            color: thumb_color,
+        });
+
+        if thumb_rect.height > 1 {
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(thumb_rect.x, thumb_rect.y, thumb_rect.width, 1),
+                color: SCROLLBAR_THUMB_HILIGHT,
+            });
+            scene.push(SceneItem::FillRect {
+                rect: Rect::new(
+                    thumb_rect.x,
+                    thumb_rect.y + thumb_rect.height as i32 - 1,
+                    thumb_rect.width,
+                    1,
+                ),
+                color: SCROLLBAR_THUMB_SHADOW,
+            });
+        }
+    }
+
+    fn draw_cursor(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
+        if !self.cursor.visible {
+            return;
+        }
+        let base_x = clamp_i32(self.cursor.x, 0, fb_width.saturating_sub(1) as i32) as i32;
+        let base_y = clamp_i32(self.cursor.y, 0, fb_height.saturating_sub(1) as i32) as i32;
+        let icon = self.cursor_sprites.for_kind(self.cursor.kind);
+
+        scene.push(SceneItem::DrawCursor {
+            origin: (base_x, base_y),
+            sprite: icon.bitmap.clone(),
+            hotspot: icon.hotspot,
+        });
+    }
+
+    pub fn set_cursor(&mut self, x: i32, y: i32, buttons: u8) {
+        self.cursor.x = x;
+        self.cursor.y = y;
+        self.cursor.buttons = buttons;
+    }
+}
+
+fn default_window(id: Uuid) -> Window {
+    Window {
+        id,
+        title: "window".to_string(),
+        x: 32,
+        y: 32,
+        width: 320,
+        height: 200,
+        z: 0,
+        visible: true,
+        target: None,
+        active: false,
+        is_root: false,
+        is_place_root: false,
+        place_id: None,
+        mode_index: None,
+        window_rect: None,
+        gap: None,
+        flex_direction: None,
+        justify_content: None,
+        align_items: None,
+    }
+}
+
+pub fn sanitize_fb_info(info: FramebufferGeometry) -> FramebufferGeometry {
+    const MAX_DIM: u32 = 4096;
+    let width = info.width.clamp(1, MAX_DIM);
+    let height = info.height.clamp(1, MAX_DIM);
+    let mut pitch = if info.pitch >= width * 4 && info.pitch <= width * 8 {
+        info.pitch
+    } else {
+        width * 4
+    };
+    if pitch < width {
+        pitch = width;
+    }
+    let bpp = if info.bpp == 24 || info.bpp == 32 {
+        info.bpp
+    } else {
+        32
+    };
+    FramebufferGeometry {
+        width,
+        height,
+        pitch,
+        bpp,
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct FramebufferTarget {
+    pub info: FramebufferGeometry,
+    pub addr: *mut u32,
+    pub len_bytes: usize,
+}
+
+#[cfg(feature = "kernel_standalone")]
+pub trait RunnableApp {
+    fn tick(&mut self, ctx: &mut userland::app::AppContext<'_>, tick: u64);
+    fn on_event(&mut self, ctx: &mut userland::app::AppContext<'_>, ev: userland::AppEvent);
+}
+
+#[cfg(feature = "kernel_standalone")]
+impl<T: userland::app::App> RunnableApp for T {
+    fn tick(&mut self, ctx: &mut userland::app::AppContext<'_>, tick: u64) {
+        self.tick(ctx, tick)
+    }
+    fn on_event(&mut self, ctx: &mut userland::app::AppContext<'_>, ev: userland::AppEvent) {
+        self.on_event(ctx, ev)
+    }
+}
+
+#[cfg(feature = "kernel_standalone")]
+struct RunningAppInstance {
+    app: alloc::boxed::Box<dyn RunnableApp>,
+    state: userland::app::AppState,
+    app_id: usize,
+}
+
+#[cfg(feature = "kernel_standalone")]
+static PENDING_SPAWNS: spin::Mutex<Vec<String>> = spin::Mutex::new(Vec::new());
+
+#[cfg(feature = "kernel_standalone")]
+pub fn request_spawn(name: &str) {
+    PENDING_SPAWNS.lock().push(name.to_string());
+}

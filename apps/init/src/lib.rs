@@ -14,7 +14,7 @@ pub struct InitApp {
 }
 
 impl App for InitApp {
-    fn init(ctx: &mut AppContext<'_>) -> Self {
+    fn init(_ctx: &mut AppContext<'_>) -> Self {
         userland::println!("Init process started.");
 
         // Spawn drivers
@@ -94,8 +94,31 @@ impl App for InitApp {
             if thing.kind == canon::LAUNCH_REQUEST {
                 // Check if status is INIT (to avoid re-processing if we update it)
                 let status = thing.fields.get(&canon::STATUS).and_then(|v| v.as_symbol());
-                if status == Some(canon::DONE) {
+                if status == Some(canon::DONE) || status == Some(canon::LAUNCHED) {
                     return;
+                }
+
+                if let Some(place_id) = thing.fields.get(&canon::PLACE).and_then(|v| v.as_uuid()) {
+                    if let Some(place_node) = userland::graph::get_thing(place_id) {
+                        if let Some(pkg) = place_node
+                            .fields
+                            .get(&canon::PLACE_PACKAGE)
+                            .and_then(|v| v.as_text())
+                        {
+                            userland::println!(
+                                "Handling LaunchRequest for Place {} -> {}",
+                                place_id,
+                                pkg
+                            );
+                            userland::sys::spawn(pkg);
+
+                            // Mark as LAUNCHED
+                            let mut updates = userland::map();
+                            updates.insert(canon::STATUS, Value::Symbol(canon::LAUNCHED));
+                            userland::fiat(Some(thing.id), canon::LAUNCH_REQUEST, updates);
+                            return;
+                        }
+                    }
                 }
 
                 if let Some(pkg) = thing.fields.get(&canon::PACKAGE).and_then(|v| v.as_text()) {

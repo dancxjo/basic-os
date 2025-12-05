@@ -21,6 +21,8 @@ impl App for Terminal {
             target: None,
             active: false,
             is_root: true,
+            is_place_root: false,
+            place_id: None,
             mode_index: Some(11), // F12
             window_rect: None,
             gap: None,

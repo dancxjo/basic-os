@@ -54,6 +54,8 @@ impl App for GraphViewerApp {
             target: None,
             active: false,
             is_root: true,
+            is_place_root: false,
+            place_id: None,
             mode_index: Some(0), // F1
             window_rect: None,
             gap: None,

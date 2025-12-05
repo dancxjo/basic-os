@@ -89,6 +89,22 @@ impl App for DemoApp {
         let widget_host_bundle = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"widget_host");
         let mut windows = BTreeMap::new();
 
+        // Bootstrap Sky Place
+        let sky_place_id = userland::simple_uuid(b"SkyPlace");
+        let mut f = graph::map();
+        f.insert(canon::LABEL, Value::Text("Sky Place".into()));
+        f.insert(canon::PLACE_PACKAGE, Value::Text("demo_app".into()));
+        f.insert(canon::PLACE_FULLSCREEN, Value::Bool(true));
+        graph::fiat(Some(sky_place_id), canon::PLACE, f);
+
+        // Bootstrap Mode F2 -> Sky Place
+        let mode_f2_id = userland::simple_uuid(b"ModeF2");
+        let mut f = graph::map();
+        f.insert(canon::MODE_PLACE, Value::Uuid(sky_place_id));
+        f.insert(canon::MODE_INDEX, Value::I64(1));
+        f.insert(canon::LABEL, Value::Text("Sky".into()));
+        graph::fiat(Some(mode_f2_id), canon::MODE, f);
+
         let window_fields = userland::graph::Window {
             id: Uuid::nil(),
             title: "ThingOS Demo Dashboard".to_string(),
@@ -101,6 +117,8 @@ impl App for DemoApp {
             target: None,
             active: false,
             is_root: true,
+            is_place_root: true,
+            place_id: Some(sky_place_id),
             mode_index: Some(1), // F2
             window_rect: None,
             gap: Some(sizes.gap),
@@ -459,6 +477,8 @@ impl PrefsShowcase {
             target: None,
             active: false,
             is_root: true,
+            is_place_root: false,
+            place_id: None,
             mode_index: Some(2),
             window_rect: None,
             gap: Some(16),
@@ -597,6 +617,8 @@ impl PrefsShowcase {
             target: None,
             active: false,
             is_root: false,
+            is_place_root: false,
+            place_id: None,
             mode_index: None,
             window_rect: None,
             gap: Some(12),
@@ -737,6 +759,8 @@ impl PrefsShowcase {
             target: None,
             active: false,
             is_root: false,
+            is_place_root: false,
+            place_id: None,
             mode_index: None,
             window_rect: None,
             gap: Some(12),
@@ -832,6 +856,8 @@ impl QuestionShowcase {
             target: None,
             active: false,
             is_root: false,
+            is_place_root: false,
+            place_id: None,
             mode_index: Some(3),
             window_rect: None,
             gap: Some(12),
