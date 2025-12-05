@@ -13,12 +13,12 @@
 #### 2. Static Mut Cleanup (MEM-01)
 - **Objective**: Remove dangerous `static mut` usage to improve memory safety and comply with Rust 2024 standards.
 - **Kernel**:
-  - Replaced `static mut CACHE` and `BUFF` in `kernel/src/bootloader.rs` with `spin::Once` and `spin::Mutex`.
-  - This ensures thread-safe initialization and access to memory region data.
+  - Replaced `static mut CACHE` and `BUFF` in `kernel/src/bootloader.rs` with `spin::Once` and `UnsafeCell`-based static storage.
+  - **Correction**: Initially used `Vec` which caused OOM during early boot. Replaced with a static array in `.bss` wrapped in `UnsafeCell` to ensure no heap allocation occurs before the heap is initialized.
 - **Compositor**:
   - Replaced `static mut BACKBUFFER_STORAGE` in `compositor/src/main.rs` with `spin::Mutex`.
   - Updated `fallback_framebuffer` to lock the mutex and leak the guard, ensuring exclusive mutable access to the framebuffer memory for the lifetime of the compositor without risking data races.
-- **Status**: ✅ Implemented.
+- **Status**: ✅ Implemented and Verified (Regression fixed).
 
 #### 3. Unsafe Usage & Syscall Boundary (ARCH-02)
 - **Objective**: Map and harden `unsafe` usage in the kernel, specifically at the syscall boundary.

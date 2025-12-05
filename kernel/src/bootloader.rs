@@ -3,6 +3,7 @@ use core::str;
 
 use alloc::borrow::ToOwned;
 use alloc::{boxed::Box, collections::BTreeMap};
+use core::cell::UnsafeCell;
 use limine::memory_map::EntryType;
 use limine::request::{HhdmRequest, MemoryMapRequest, ModuleRequest};
 use log::{debug, info};
@@ -92,22 +93,40 @@ pub struct MemoryRegion {
 }
 
 pub fn collect_memory_regions() -> &'static [MemoryRegion] {
-    static CACHE: Once<&'static [MemoryRegion]> = Once::new();
-    static BUFF: Mutex<[MemoryRegion; 128]> = Mutex::new(
-        [MemoryRegion {
-            base: 0,
-            len: 0,
-            kind: "unknown",
-        }; 128],
-    );
+    // Use UnsafeCell to allow interior mutability during initialization,
+    // but we promise to only read after initialization.
+    // We need a wrapper to implement Sync for the static.
+    struct SafeRegionCache {
+        inner: core::cell::UnsafeCell<[MemoryRegion; 128]>,
+    }
+    unsafe impl Sync for SafeRegionCache {}
 
-    *CACHE.call_once(|| {
+    static REGIONS: SafeRegionCache = SafeRegionCache {
+        inner: core::cell::UnsafeCell::new(
+            [MemoryRegion {
+                base: 0,
+                len: 0,
+                kind: "unknown",
+            }; 128],
+        ),
+    };
+    static INIT: Once<usize> = Once::new();
+
+    let count = *INIT.call_once(|| {
         let resp = MEMMAP_REQUEST
             .get_response()
             .expect("No memory map from Limine");
-        let mut count = 0;
-        let mut buff_guard = BUFF.lock();
+
+        // SAFETY: We are in the initialization block, executed only once.
+        // No other thread can be accessing this because we are in call_once
+        // and we only hand out references after this block returns.
+        let regions = unsafe { &mut *REGIONS.inner.get() };
+        let mut c = 0;
+
         for e in resp.entries().iter() {
+            if c >= regions.len() {
+                break;
+            }
             let kind = match e.entry_type {
                 EntryType::USABLE => "usable",
                 EntryType::RESERVED => "reserved",
@@ -118,35 +137,29 @@ pub fn collect_memory_regions() -> &'static [MemoryRegion] {
                 EntryType::FRAMEBUFFER => "framebuffer",
                 _ => "unknown",
             };
-            buff_guard[count] = MemoryRegion {
+            regions[c] = MemoryRegion {
                 base: e.base,
                 len: e.length,
                 kind,
             };
             debug!(
                 "region {}: base={:#x} len={:#x} kind={}",
-                count, e.base, e.length, kind
+                c, e.base, e.length, kind
             );
-            count += 1;
+            c += 1;
         }
-        // We need to leak the slice to return a static reference,
-        // but since BUFF is static, we can just return a reference to the locked data?
-        // No, we can't return a reference to data inside a Mutex guard.
-        // However, since this is a bootloader info that is constant after initialization,
-        // and we are in a single-threaded boot context (mostly), or we want to cache it.
-        // The original code used static mut BUFF and returned a slice to it.
-        // To be safe and keep the signature, we can leak a Boxed slice copy, or use a different approach.
-        // Given the constraints and the original unsafe code, let's use a safe static with interior mutability
-        // but we need to return &'static [].
+        c
+    });
 
-        // Alternative: Use a static array wrapped in a Sync type that allows unsynchronized access if we guarantee it's initialized once.
-        // Or just leak the vector.
-        let mut vec = alloc::vec::Vec::with_capacity(count);
-        for i in 0..count {
-            vec.push(buff_guard[i]);
-        }
-        vec.leak()
-    })
+    // SAFETY: Initialization is complete (guaranteed by Once).
+    // We return a shared reference to the slice of initialized regions.
+    // The data is effectively immutable now.
+    unsafe {
+        let ptr = REGIONS.inner.get();
+        // We can cast the pointer to the array to a pointer to the first element
+        // and create a slice of length `count`.
+        core::slice::from_raw_parts((*ptr).as_ptr(), count)
+    }
 }
 
 /// Debug helper to print detected memory regions
