@@ -16,6 +16,7 @@ use x86_64::{
     registers::control::Cr3,
     structures::paging::{
         FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate,
+        mapper::TranslateResult,
     },
 };
 
@@ -39,13 +40,13 @@ pub fn create_user_page_table(
     let phys = l4_frame.start_address();
     let virt = hhdm_offset + phys.as_u64();
     info!(
-        "Allocated new user L4 table at {:?} (phys {:?})",
-        virt, phys
+        "Allocated new user L4 table at {:?} (phys {:?}) HHDM: {:?}",
+        virt, phys, hhdm_offset
     );
     let l4_table = unsafe {
         let ptr: *mut PageTable = virt.as_mut_ptr();
         // Zero the page table in place to avoid a 4 KiB stack allocation from PageTable::new()
-        ptr::write_bytes(ptr, 0, 1);
+        ptr::write_bytes(ptr as *mut u8, 0, 4096);
         let table = &mut *ptr;
         table.zero();
         table
@@ -148,10 +149,21 @@ pub fn create_user_page_table(
     (l4_table, offset_page_table)
 }
 
+fn elf_flags_to_pt_flags(ph: &goblin::elf::program_header::ProgramHeader) -> PageTableFlags {
+    let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+    if ph.is_write() {
+        flags |= PageTableFlags::WRITABLE;
+    }
+    if !ph.is_executable() {
+        flags |= PageTableFlags::NO_EXECUTE;
+    }
+    flags
+}
+
 pub fn load_elf<'a>(
     data: &[u8],
     _page_table: &mut PageTable,
-    mapper: &mut impl Mapper<Size4KiB>,
+    mapper: &mut (impl Mapper<Size4KiB> + Translate),
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
 ) -> Result<LoadedElf, &'static str> {
     info!("DEBUG: load_elf start. data len: {}", data.len());
@@ -209,47 +221,71 @@ pub fn load_elf<'a>(
         let start_page = Page::containing_address(vaddr);
         let end_page = Page::containing_address(end_vaddr - 1u64);
 
-        let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
-        if ph.is_write() {
-            flags |= PageTableFlags::WRITABLE;
-        }
-        if !ph.is_executable() {
-            flags |= PageTableFlags::NO_EXECUTE;
-        }
+        let desired_flags = elf_flags_to_pt_flags(ph);
 
         for page in Page::range_inclusive(start_page, end_page) {
-            if mapper.translate_page(page).is_ok() {
-                info!(
-                    "Page {:#x} already mapped, skipping",
-                    page.start_address().as_u64()
-                );
-                continue;
-            }
+            match mapper.translate(page.start_address()) {
+                TranslateResult::Mapped {
+                    flags: existing_flags,
+                    ..
+                } => {
+                    let mut new_flags = existing_flags;
+                    let mut needs_update = false;
 
-            let frame = frame_allocator
-                .allocate_frame()
-                .ok_or("Failed to allocate frame")?;
-            // Leave this commented out as it slows copying significantly
-            // info!(
-            //     "Mapping page {:#x} to frame {:#x} with flags {:?}",
-            //     page.start_address().as_u64(),
-            //     frame.start_address().as_u64(),
-            //     flags
-            // );
+                    if desired_flags.contains(PageTableFlags::WRITABLE)
+                        && !existing_flags.contains(PageTableFlags::WRITABLE)
+                    {
+                        new_flags |= PageTableFlags::WRITABLE;
+                        needs_update = true;
+                    }
 
-            unsafe {
-                mapper
-                    .map_to(page, frame, flags, frame_allocator)
-                    .map_err(|e| {
+                    if existing_flags.contains(PageTableFlags::NO_EXECUTE)
+                        && !desired_flags.contains(PageTableFlags::NO_EXECUTE)
+                    {
+                        new_flags.remove(PageTableFlags::NO_EXECUTE);
+                        needs_update = true;
+                    }
+
+                    if needs_update {
                         info!(
-                            "map_to failed for page {:#x} -> frame {:#x}: {:?}",
+                            "Upgrading page {:#x} flags from {:?} to {:?}",
                             page.start_address().as_u64(),
-                            frame.start_address().as_u64(),
-                            e
+                            existing_flags,
+                            new_flags
                         );
-                        "Failed to map page"
-                    })?
-                    .flush();
+                        unsafe {
+                            mapper
+                                .update_flags(page, new_flags)
+                                .map_err(|_| "Failed to update flags")?
+                                .flush();
+                        }
+                    } else {
+                        info!(
+                            "Page {:#x} already mapped with sufficient flags, skipping remap",
+                            page.start_address().as_u64()
+                        );
+                    }
+                }
+                TranslateResult::NotMapped => {
+                    let frame = frame_allocator
+                        .allocate_frame()
+                        .ok_or("Failed to allocate frame")?;
+                    unsafe {
+                        mapper
+                            .map_to(page, frame, desired_flags, frame_allocator)
+                            .map_err(|e| {
+                                info!(
+                                    "map_to failed for page {:#x} -> frame {:#x}: {:?}",
+                                    page.start_address().as_u64(),
+                                    frame.start_address().as_u64(),
+                                    e
+                                );
+                                "Failed to map page"
+                            })?
+                            .flush();
+                    }
+                }
+                _ => return Err("Invalid translation result"),
             }
         }
 
@@ -261,9 +297,12 @@ pub fn load_elf<'a>(
         for page in Page::range_inclusive(start_page, end_page) {
             let page_start = page.start_address().as_u64();
             let page_end = page_start + 0x1000;
-            let frame = mapper
-                .translate_page(page)
-                .map_err(|_| "Failed to translate page for copy")?;
+
+            let frame = match mapper.translate(page.start_address()) {
+                TranslateResult::Mapped { frame, .. } => frame,
+                _ => return Err("Failed to translate page for copy"),
+            };
+
             let dst_base = hhdm + frame.start_address().as_u64();
 
             // Copy the portion of the file that falls into this page.
