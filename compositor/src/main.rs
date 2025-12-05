@@ -13,7 +13,7 @@ use userland::{println, FramebufferGeometry, WatchManager};
 #[cfg(not(feature = "std"))]
 const FRAME_INTERVAL_SPINS: usize = 10_000_000;
 #[cfg(not(feature = "std"))]
-static mut BACKBUFFER_STORAGE: [u32; 8_388_608] = [0; 8_388_608];
+static BACKBUFFER_STORAGE: spin::Mutex<[u32; 8_388_608]> = spin::Mutex::new([0; 8_388_608]);
 
 #[cfg(not(feature = "std"))]
 #[unsafe(no_mangle)]
@@ -99,6 +99,51 @@ fn discover_framebuffer() -> Option<FramebufferTarget> {
 
 #[cfg(not(feature = "std"))]
 fn fallback_framebuffer() -> FramebufferTarget {
+    // We need a raw pointer to the storage, but we must ensure we have mutable access.
+    // Since this is a fallback and likely only used once or in a controlled manner,
+    // we can lock it and get the pointer. However, the FramebufferTarget expects a pointer
+    // that lives for the duration of the compositor.
+    // The Mutex guard would drop at the end of this function.
+    // Given the constraints of the existing architecture (passing a raw pointer),
+    // and that BACKBUFFER_STORAGE is static, we can use `lock()` to get a reference,
+    // but we can't return a pointer derived from the guard if the guard is dropped.
+    //
+    // SAFETY: This is a fallback framebuffer. We are leaking the lock essentially,
+    // or rather, we are taking a raw pointer to the static data.
+    // Since we changed it to a Mutex, we should technically lock it.
+    // But if we want to persist the access, we might need to keep it locked or use UnsafeCell if we manage safety manually.
+    // For now, let's acquire the lock and leak it to keep the reference valid? No, that deadlocks if we try to lock again.
+    //
+    // Actually, `spin::Mutex` wraps the data. `as_mut_ptr` on the mutex itself? No.
+    // We need to access the inner data.
+    //
+    // If we want to maintain the "static buffer" behavior but safe, we might need `SyncUnsafeCell` (nightly) or just `UnsafeCell` with a `Sync` wrapper if we are sure about single-threaded access in this context.
+    // But the goal is to remove `static mut`.
+    //
+    // Let's use `spin::Mutex` and `try_lock` or just `lock` and get the pointer.
+    // The issue is aliasing rules. If we have a `&mut` from the lock, we can make a `*mut`.
+    // But we must ensure no other `&mut` exists.
+    // Since `compositor` takes ownership of the "device" which uses this pointer, it effectively owns the buffer.
+    //
+    // We can use `data_ptr()` if available or just lock, get ptr, and drop lock?
+    // If we drop the lock, we technically allow others to lock it, but we have a dangling `*mut` that we use as unique?
+    // That's unsafe if someone else locks it.
+    //
+    // Given this is a "fallback" and likely the only user, maybe we can just use `UnsafeCell` and assert safety via comments,
+    // or stick with Mutex and leak the guard?
+    //
+    // Let's try to get the pointer from the Mutex without holding the lock forever, assuming we are the sole owner.
+    // This is still slightly sketchy but better than `static mut`.
+    // Actually, `spin::Mutex` doesn't expose the inner pointer easily without locking.
+    //
+    // Let's change `BACKBUFFER_STORAGE` to `SyncUnsafeCell` equivalent or `RacyCell`.
+    // Or just `static BACKBUFFER_STORAGE: [u32; ...] = ...` but we need it mutable.
+    //
+    // Let's stick to `Mutex` and leak the guard to ensure exclusive access forever.
+    let mut guard = BACKBUFFER_STORAGE.lock();
+    let ptr = guard.as_mut_ptr();
+    core::mem::forget(guard); // Leak the lock so no one else can access it safely.
+
     FramebufferTarget {
         info: FramebufferGeometry {
             width: 1024,
@@ -106,7 +151,7 @@ fn fallback_framebuffer() -> FramebufferTarget {
             pitch: 1024 * 4,
             bpp: 32,
         },
-        addr: unsafe { BACKBUFFER_STORAGE.as_mut_ptr() },
+        addr: ptr,
         len_bytes: 1024 * 768 * 4,
     }
 }

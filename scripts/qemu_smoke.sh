@@ -1,5 +1,5 @@
 #!/bin/bash
-TIMEOUT_SECONDS=20
+TIMEOUT_SECONDS=10
 EXPECTED_TEXT="Kernel started!"
 SERIAL_LOG="smoke_serial.log"
 LOG_FILE="smoke_test.log"

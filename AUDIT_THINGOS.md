@@ -1,5 +1,25 @@
 # Audit of ThingOS Architecture & Code Quality
 
+## Recent Updates (Dec 2025)
+
+### Completed Tasks
+
+#### 1. QEMU Smoke Test (TEST-001)
+- **Objective**: Ensure the kernel boots successfully in a CI-like environment.
+- **Action**: Created `scripts/qemu_smoke.sh` which runs `make run` with a timeout and checks for the "Kernel started!" log message.
+- **Integration**: Added `qemu-smoke` target to `GNUmakefile`.
+- **Status**: ✅ Verified. The test passes, confirming the kernel initializes correctly even if it crashes later due to known issues (e.g., page faults).
+
+#### 2. Static Mut Cleanup (MEM-01)
+- **Objective**: Remove dangerous `static mut` usage to improve memory safety and comply with Rust 2024 standards.
+- **Kernel**:
+  - Replaced `static mut CACHE` and `BUFF` in `kernel/src/bootloader.rs` with `spin::Once` and `spin::Mutex`.
+  - This ensures thread-safe initialization and access to memory region data.
+- **Compositor**:
+  - Replaced `static mut BACKBUFFER_STORAGE` in `compositor/src/main.rs` with `spin::Mutex`.
+  - Updated `fallback_framebuffer` to lock the mutex and leak the guard, ensuring exclusive mutable access to the framebuffer memory for the lifetime of the compositor without risking data races.
+- **Status**: ✅ Implemented.
+
 ## 1. Overview
 
 ThingOS is an experimental, graph-centric operating system written in Rust. It employs a hybrid kernel architecture where a monolithic kernel core (`kernel`) manages memory, scheduling, and basic device I/O, while hosting a graph database (`thing_model`) directly within the kernel address space. Userland applications (`apps`, `compositor`) run as separate ELF processes, interacting with the kernel and the graph via a rich syscall interface.

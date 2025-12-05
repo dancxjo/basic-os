@@ -6,7 +6,7 @@ use alloc::{boxed::Box, collections::BTreeMap};
 use limine::memory_map::EntryType;
 use limine::request::{HhdmRequest, MemoryMapRequest, ModuleRequest};
 use log::{debug, info};
-use spin::Mutex;
+use spin::{Mutex, Once};
 use x86_64::VirtAddr;
 
 #[used]
@@ -90,20 +90,21 @@ pub struct MemoryRegion {
 }
 
 pub fn collect_memory_regions() -> &'static [MemoryRegion] {
-    static mut CACHE: Option<&'static [MemoryRegion]> = None;
-    static mut BUFF: [MemoryRegion; 128] = [MemoryRegion {
-        base: 0,
-        len: 0,
-        kind: "unknown",
-    }; 128];
-    unsafe {
-        if let Some(r) = CACHE {
-            return r;
-        }
+    static CACHE: Once<&'static [MemoryRegion]> = Once::new();
+    static BUFF: Mutex<[MemoryRegion; 128]> = Mutex::new(
+        [MemoryRegion {
+            base: 0,
+            len: 0,
+            kind: "unknown",
+        }; 128],
+    );
+
+    *CACHE.call_once(|| {
         let resp = MEMMAP_REQUEST
             .get_response()
             .expect("No memory map from Limine");
         let mut count = 0;
+        let mut buff_guard = BUFF.lock();
         for e in resp.entries().iter() {
             let kind = match e.entry_type {
                 EntryType::USABLE => "usable",
@@ -115,7 +116,7 @@ pub fn collect_memory_regions() -> &'static [MemoryRegion] {
                 EntryType::FRAMEBUFFER => "framebuffer",
                 _ => "unknown",
             };
-            BUFF[count] = MemoryRegion {
+            buff_guard[count] = MemoryRegion {
                 base: e.base,
                 len: e.length,
                 kind,
@@ -126,11 +127,24 @@ pub fn collect_memory_regions() -> &'static [MemoryRegion] {
             );
             count += 1;
         }
-        let slice = &BUFF[..count];
-        CACHE = Some(slice);
-        debug!("total regions = {}", count);
-        slice
-    }
+        // We need to leak the slice to return a static reference,
+        // but since BUFF is static, we can just return a reference to the locked data?
+        // No, we can't return a reference to data inside a Mutex guard.
+        // However, since this is a bootloader info that is constant after initialization,
+        // and we are in a single-threaded boot context (mostly), or we want to cache it.
+        // The original code used static mut BUFF and returned a slice to it.
+        // To be safe and keep the signature, we can leak a Boxed slice copy, or use a different approach.
+        // Given the constraints and the original unsafe code, let's use a safe static with interior mutability
+        // but we need to return &'static [].
+
+        // Alternative: Use a static array wrapped in a Sync type that allows unsynchronized access if we guarantee it's initialized once.
+        // Or just leak the vector.
+        let mut vec = alloc::vec::Vec::with_capacity(count);
+        for i in 0..count {
+            vec.push(buff_guard[i]);
+        }
+        vec.leak()
+    })
 }
 
 /// Debug helper to print detected memory regions
