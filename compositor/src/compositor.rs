@@ -1864,9 +1864,9 @@ where
     fn ingest_layer(&mut self, thing: &userland::GraphThing) {
         if let Some(Value::Uuid(wallpaper_id)) = thing.fields.get(&canon::WALLPAPER) {
             self.wallpapers
-                .entry(wallpaper_id)
+                .entry(*wallpaper_id)
                 .or_insert_with(|| WallpaperState {
-                    id: wallpaper_id,
+                    id: *wallpaper_id,
                     mode_node: None,
                     place_id: None,
                     layers: Vec::new(),
