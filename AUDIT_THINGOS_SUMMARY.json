@@ -1,0 +1,107 @@
+{
+    "overview": {
+        "short_description": "ThingOS is a hybrid-kernel, graph-centric OS where the kernel hosts a semantic graph ('Thing Model') and userland apps interact via syscalls. It features a custom compositor and widget toolkit.",
+        "main_subsystems": [
+            "kernel",
+            "compositor",
+            "userland",
+            "graph",
+            "drivers"
+        ]
+    },
+    "issues": [
+        {
+            "id": "ARCH-01",
+            "title": "Kernel-Graph Coupling",
+            "severity": "high",
+            "area": "architecture",
+            "files": [
+                "kernel/src/graph/store.rs"
+            ],
+            "summary": "The graph store is embedded in the kernel, violating microkernel principles and creating a large attack surface.",
+            "suggested_next_steps": [
+                "Define a strict interface for the graph store.",
+                "Plan migration to a userland service."
+            ]
+        },
+        {
+            "id": "MEM-01",
+            "title": "Unsafe Static Mutables",
+            "severity": "high",
+            "area": "memory",
+            "files": [
+                "kernel/src/bootloader.rs",
+                "compositor/src/main.rs"
+            ],
+            "summary": "Usage of `static mut` for global state (caches, backbuffers) creates data race risks.",
+            "suggested_next_steps": [
+                "Replace `static mut` with `spin::Mutex` or `Atomic` types.",
+                "Use `OnceCell` for lazy initialization."
+            ]
+        },
+        {
+            "id": "COMP-01",
+            "title": "Compositor God Object",
+            "severity": "medium",
+            "area": "compositor",
+            "files": [
+                "compositor/src/compositor.rs"
+            ],
+            "summary": "The `compositor.rs` file is ~3600 lines and handles too many responsibilities (layout, rendering, events).",
+            "suggested_next_steps": [
+                "Extract layout logic to `layout.rs`.",
+                "Extract event handling to `events.rs`."
+            ]
+        },
+        {
+            "id": "SCHED-01",
+            "title": "Fixed Stack Sizes",
+            "severity": "medium",
+            "area": "scheduling",
+            "files": [
+                "kernel/src/task/scheduler.rs"
+            ],
+            "summary": "Tasks have fixed 256KB stacks with no overflow protection.",
+            "suggested_next_steps": [
+                "Implement guard pages.",
+                "Allow configurable stack sizes."
+            ]
+        }
+    ],
+    "strengths": [
+        {
+            "id": "STRENGTH-001",
+            "title": "Unified Graph Abstraction",
+            "area": "architecture",
+            "files": [
+                "kernel/src/graph/mod.rs"
+            ],
+            "summary": "Consistent use of the graph model for system state and IPC."
+        },
+        {
+            "id": "STRENGTH-002",
+            "title": "Reactive UI Updates",
+            "area": "compositor",
+            "files": [
+                "compositor/src/main.rs"
+            ],
+            "summary": "Use of `WatchManager` to decouple rendering from state changes."
+        }
+    ],
+    "test_recommendations": [
+        {
+            "id": "TEST-001",
+            "title": "Boot Smoke Test",
+            "summary": "Automated QEMU boot that checks for 'Kernel started!' log message.",
+            "estimated_effort": "low",
+            "impact": "high"
+        },
+        {
+            "id": "TEST-002",
+            "title": "Syscall Fuzzing",
+            "summary": "Basic fuzzing of syscall inputs to ensure kernel stability.",
+            "estimated_effort": "medium",
+            "impact": "high"
+        }
+    ]
+}
