@@ -386,6 +386,14 @@ where
         comp.watch_wallpaper = Some(wallpaper_watch);
         comp.watch_layer = Some(layer_watch);
 
+        for thing in userland::graph::get_nodes(wallpaper_pattern.clone()) {
+            comp.ingest_wallpaper(&thing);
+        }
+
+        for thing in userland::graph::get_nodes(layer_pattern) {
+            comp.ingest_layer(&thing);
+        }
+
         for thing in userland::graph::get_nodes(window_pattern) {
             if let Some(window) = Window::load(&thing) {
                 comp.ingest_window(window);
@@ -655,14 +663,14 @@ where
     }
 
     fn draw_mode(&mut self, scene: &mut Scene, width: usize, height: usize) {
+        self.draw_background(scene, width, height);
+
         let mode = &self.modes[self.active_mode];
 
         if let Some(root_id) = mode.root_window {
             if let Some(surface) = self.windows.get(&root_id).cloned() {
                 self.draw_root_window(scene, &surface, width, height);
             }
-        } else {
-            self.draw_background(scene, width, height);
         }
 
         for id in &mode.windows {
@@ -1831,18 +1839,39 @@ where
     }
 
     fn ingest_wallpaper(&mut self, thing: &userland::GraphThing) {
-        if let Some(Value::Uuid(mode_id)) = thing.fields.get(&canon::MODE) {
-            let wallpaper = WallpaperState {
-                id: thing.id,
-                mode_node: *mode_id,
-                layers: Vec::new(),
-            };
-            self.wallpapers.insert(thing.id, wallpaper);
+        if thing.kind != canon::WALLPAPER {
+            return;
         }
+
+        let mode_node = thing.fields.get(&canon::MODE).and_then(|v| v.as_uuid());
+        let place_id = thing.fields.get(&canon::PLACE).and_then(|v| v.as_uuid());
+
+        let layers = self
+            .wallpapers
+            .get(&thing.id)
+            .map(|w| w.layers.clone())
+            .unwrap_or_else(Vec::new);
+
+        let wallpaper = WallpaperState {
+            id: thing.id,
+            mode_node,
+            place_id,
+            layers,
+        };
+        self.wallpapers.insert(thing.id, wallpaper);
     }
 
     fn ingest_layer(&mut self, thing: &userland::GraphThing) {
         if let Some(Value::Uuid(wallpaper_id)) = thing.fields.get(&canon::WALLPAPER) {
+            self.wallpapers
+                .entry(wallpaper_id)
+                .or_insert_with(|| WallpaperState {
+                    id: wallpaper_id,
+                    mode_node: None,
+                    place_id: None,
+                    layers: Vec::new(),
+                });
+
             let index = thing
                 .fields
                 .get(&canon::INDEX)
@@ -2026,22 +2055,36 @@ where
         self.update_graph_state();
     }
 
-    fn draw_background(&self, scene: &mut Scene, width: usize, height: usize) {
+    fn active_wallpaper(&self) -> Option<&WallpaperState> {
+        let place_wallpaper = self
+            .modes
+            .get(self.active_mode)
+            .and_then(|mode| mode.place_id)
+            .and_then(|place_id| {
+                self.wallpapers
+                    .values()
+                    .find(|wallpaper| wallpaper.place_id == Some(place_id))
+            });
+
+        if place_wallpaper.is_some() {
+            return place_wallpaper;
+        }
+
         let mode_node_id =
             userland::simple_uuid(alloc::format!("ModeF{}", self.active_mode + 1).as_bytes());
 
-        let mut active_wallpaper = None;
-        for wallpaper in self.wallpapers.values() {
-            if wallpaper.mode_node == mode_node_id {
-                active_wallpaper = Some(wallpaper);
-                break;
-            }
-        }
+        self.wallpapers
+            .values()
+            .find(|wallpaper| wallpaper.mode_node == Some(mode_node_id))
+    }
 
-        if let Some(wallpaper) = active_wallpaper {
+    fn draw_background(&self, scene: &mut Scene, width: usize, height: usize) {
+        let screen_rect = Rect::new(0, 0, width as u32, height as u32);
+
+        if let Some(wallpaper) = self.active_wallpaper() {
             build_wallpaper_scene(
                 scene,
-                Rect::new(0, 0, width as u32, height as u32),
+                screen_rect,
                 wallpaper,
                 &self.layers,
                 &self.bitmaps,
@@ -2049,7 +2092,7 @@ where
             );
         } else {
             scene.push(SceneItem::FillRect {
-                rect: Rect::new(0, 0, width as u32, height as u32),
+                rect: screen_rect,
                 color: CLEAR_COLOR,
             });
         }

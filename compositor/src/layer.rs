@@ -17,7 +17,8 @@ pub enum LayerKind {
 #[derive(Clone, Debug)]
 pub struct WallpaperState {
     pub id: Uuid,
-    pub mode_node: Uuid,
+    pub mode_node: Option<Uuid>,
+    pub place_id: Option<Uuid>,
     pub layers: Vec<Uuid>,
 }
 
