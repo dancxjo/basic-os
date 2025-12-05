@@ -50,6 +50,7 @@ pub fn create_user_page_table(
         table.zero();
         table
     };
+    info!("DEBUG: l4_table initialized");
     // Copy all higher-half kernel mappings (indices 256-511) to ensure the kernel
     // has full access to its address space (HHDM, kernel code, etc.) while running
     // in the user's context.
@@ -60,6 +61,7 @@ pub fn create_user_page_table(
     for i in 256..512 {
         l4_table[i] = active_l4[i].clone();
     }
+    info!("DEBUG: Kernel mappings copied");
 
     // Verify HHDM is present (it should be in the copied range)
     let hhdm_index = hhdm_offset.p4_index();
@@ -141,6 +143,7 @@ pub fn create_user_page_table(
     if offset_page_table.translate_addr(active_l4_virt).is_none() {
         panic!("HHDM not mapped in user page table!");
     }
+    info!("DEBUG: create_user_page_table finished");
 
     (l4_table, offset_page_table)
 }
@@ -151,7 +154,15 @@ pub fn load_elf<'a>(
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
 ) -> Result<LoadedElf, &'static str> {
+    info!("DEBUG: load_elf start. data len: {}", data.len());
+    if data.len() > 4 {
+        info!(
+            "DEBUG: ELF magic: {:x} {:x} {:x} {:x}",
+            data[0], data[1], data[2], data[3]
+        );
+    }
     let elf = Elf::parse(data).map_err(|_| "Failed to parse ELF")?;
+    info!("DEBUG: ELF parsed successfully");
     let load_base = VirtAddr::new(0x0000_4000_0000_0000);
     let user_stack_size = 16 * 4096;
     let user_stack_top = VirtAddr::new(0x0000_7000_0000_0000);

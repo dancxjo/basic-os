@@ -205,6 +205,7 @@ pub extern "C" fn start_user_task() {
             &mut *active_mapper,
             get_hhdm_offset(),
         );
+        info!("DEBUG: calling load_elf");
         let loaded = load_elf(module_bytes, new_l4, &mut new_mapper, &mut *frame_allocator)
             .expect("Failed to load ELF");
         (new_l4, loaded)
