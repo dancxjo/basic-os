@@ -15,6 +15,7 @@ pub mod graph_viewer;
 pub mod graphics;
 pub mod heap;
 pub mod interactions;
+pub mod layout_instantiator;
 pub mod questions;
 pub mod runtime;
 pub mod sys;
@@ -198,26 +199,41 @@ pub mod canon {
     pub const TASK: Symbol = canon(b'T', b'S', b'K');
     pub const LAUNCH_REQUEST: Symbol = canon(b'L', b'R', b'Q');
     pub const CAN_EDIT: Symbol = canon(b'C', b'E', b'D');
+
+    // Layout Template Symbols
+    pub const LAYOUT_TEMPLATE: Symbol = canon(b'L', b'T', b'P');
+    pub const LAYOUT_REGION: Symbol = canon(b'L', b'R', b'G');
+    pub const CONTAINS: Symbol = canon(b'C', b'O', b'N');
+    pub const BINDS_TO: Symbol = canon(b'B', b'N', b'T');
+    pub const FLEX_DIRECTION: Symbol = cc('F', 'D');
+    pub const FLEX_GROW: Symbol = cc('F', 'G');
+    pub const FLEX_SHRINK: Symbol = cc('F', 'S');
     pub const DRIVES: Symbol = canon(b'D', b'R', b'V');
-    pub const ABOVE: Symbol = canon(b'A', b'B', b'V');
-    pub const ACTIVE_WINDOW: Symbol = canon(b'A', b'C', b'W');
     pub const FOR_DOCUMENT: Symbol = canon(b'F', b'D', b'C');
     pub const HANDLED_BY: Symbol = canon(b'H', b'D', b'B');
     pub const REQUESTS: Symbol = canon(b'R', b'Q', b'S');
     pub const SAVE_EVENT: Symbol = canon(b'S', b'A', b'V');
     pub const APPLIES_TO: Symbol = canon(b'A', b'P', b'L');
 
+    // Restored Symbols
+    pub const ROLE: Symbol = canon(b'R', b'O', b'L');
+    pub const WIDGET: Symbol = canon(b'W', b'G', b'T');
+    pub const WIDGET_KIND: Symbol = canon(b'W', b'K', b'D');
+    pub const ICON_NAME: Symbol = canon(b'I', b'C', b'N');
+    pub const FOCUSABLE: Symbol = canon(b'F', b'O', b'C');
+    pub const BINDS: Symbol = canon(b'B', b'N', b'D');
+    pub const ABOVE: Symbol = canon(b'A', b'B', b'V');
+    pub const ACTIVE_WINDOW: Symbol = canon(b'A', b'C', b'W');
+    pub const MODE: Symbol = canon(b'M', b'O', b'D');
+    pub const SELECTED_INDEX: Symbol = canon(b'S', b'L', b'X');
+
     // Document & Editor symbols
     pub const DOCUMENT: Symbol = canon(b'D', b'O', b'C');
     pub const VIEW: Symbol = canon(b'V', b'I', b'W');
-    pub const WIDGET: Symbol = canon(b'W', b'D', b'G');
-    pub const ROLE: Symbol = canon(b'R', b'O', b'L');
     pub const WIDGET_ROLE: Symbol = canon(b'W', b'R', b'L');
-    pub const ICON_NAME: Symbol = canon(b'I', b'C', b'N');
     pub const ACTION: Symbol = canon(b'A', b'C', b'N');
     pub const LABEL: Symbol = canon(b'L', b'B', b'L');
     pub const DESCRIPTION: Symbol = canon(b'D', b'S', b'C');
-    pub const FOCUSABLE: Symbol = canon(b'F', b'C', b'S');
     pub const FOCUSED: Symbol = canon(b'F', b'C', b'D');
     pub const TAB_INDEX: Symbol = canon(b'T', b'B', b'I');
     pub const CHILD: Symbol = canon(b'C', b'H', b'D');
@@ -231,7 +247,18 @@ pub mod canon {
     pub const MIME: Symbol = canon(b'M', b'I', b'M');
     pub const ENCODING: Symbol = canon(b'E', b'N', b'C');
     pub const LENGTH: Symbol = canon(b'L', b'E', b'N');
-    pub const MODE: Symbol = canon(b'M', b'O', b'D');
+    pub const CURRENT_MODE: Symbol = canon(b'C', b'M', b'D');
+    pub const WALLPAPER: Symbol = canon(b'W', b'L', b'P');
+    pub const LAYER: Symbol = canon(b'L', b'Y', b'R');
+    pub const SOLID_COLOR: Symbol = canon(b'S', b'L', b'C');
+    pub const IMAGE: Symbol = canon(b'I', b'M', b'G');
+    pub const SCROLL_X: Symbol = canon(b'S', b'C', b'X');
+    pub const OPACITY: Symbol = canon(b'O', b'P', b'C');
+    pub const Z_ORDER: Symbol = canon(b'Z', b'O', b'R');
+    pub const TILE_MODE: Symbol = canon(b'T', b'L', b'M');
+    pub const LAYERS: Symbol = canon(b'L', b'Y', b'S');
+    pub const ROOT_LAYOUT: Symbol = canon(b'R', b'L', b'Y');
+    pub const INDEX: Symbol = canon(b'I', b'D', b'X');
     pub const OF: Symbol = cc('O', 'F');
     pub const SHOWS: Symbol = canon(b'S', b'H', b'W');
     pub const EDITED_BY: Symbol = canon(b'E', b'D', b'B');
@@ -251,17 +278,18 @@ pub mod canon {
     pub const ANSWER_KIND: Symbol = canon(b'A', b'K', b'D');
     pub const VALUE_BOOL: Symbol = canon(b'V', b'B', b'L');
     pub const VALUE_TEXT: Symbol = canon(b'V', b'T', b'X');
+    pub const TAG: Symbol = canon(b'T', b'A', b'G');
+    pub const SHOW_TAG: Symbol = canon(b'S', b'H', b'T');
+    pub const PREFERRED_WIDGET: Symbol = canon(b'P', b'W', b'G');
     pub const VALUE_NUMBER: Symbol = canon(b'V', b'N', b'M');
     pub const INTERACTION: Symbol = canon(b'I', b'T', b'N');
     pub const INTERACTION_KIND: Symbol = canon(b'I', b'K', b'D');
     pub const USES_WIDGET: Symbol = canon(b'U', b'W', b'D');
     pub const RESULT_WRITES: Symbol = canon(b'R', b'S', b'W');
     pub const RESULT_EXECUTES: Symbol = canon(b'R', b'S', b'E');
-    pub const SELECTED_INDEX: Symbol = canon(b'S', b'E', b'L');
     pub const FOCUSED_INDEX: Symbol = canon(b'F', b'O', b'C');
     pub const THEME: Symbol = canon(b'T', b'H', b'M');
     pub const WIDGET_KIND_LISTBOX: Symbol = canon(b'W', b'L', b'B');
-    pub const BINDS: Symbol = canon(b'B', b'I', b'N');
 
     pub const NOTIFICATION: Symbol = canon(b'N', b'T', b'F');
     pub const ALERT: Symbol = canon(b'A', b'L', b'R');
@@ -274,7 +302,6 @@ pub mod canon {
     pub const PERSIST: Symbol = canon(b'P', b'S', b'T');
     pub const WIDGET_KIND_NOTIFICATION: Symbol = canon(b'W', b'N', b'T');
 
-    pub const WIDGET_KIND: Symbol = cc('W', 'K');
     pub const THING_WIDGET: Symbol = canon(b'T', b'H', b'W');
 }
 

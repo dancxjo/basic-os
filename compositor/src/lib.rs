@@ -759,6 +759,28 @@ impl CursorState {
 }
 
 #[derive(Clone, Debug)]
+pub enum LayerKind {
+    SolidColor(Rgba),
+    Image(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct WallpaperState {
+    pub id: Uuid,
+    pub mode_node: Uuid,
+    pub layers: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LayerState {
+    pub id: Uuid,
+    pub kind: LayerKind,
+    pub scroll_factor_x: f64,
+    pub scroll_factor_y: f64,
+    pub z_index: usize,
+}
+
+#[derive(Clone, Debug)]
 pub struct ModeSlot {
     pub mode_index: u8,
     pub root_window: Option<Uuid>,
@@ -787,6 +809,10 @@ pub struct Compositor<F, R> {
     watch_cursor: Option<WatchId>,
     watch_fb: Option<WatchId>,
     watch_widgets: Option<WatchId>,
+    watch_mode: Option<WatchId>,
+    watch_wallpaper: Option<WatchId>,
+    watch_layer: Option<WatchId>,
+    current_mode_node: Uuid,
     fb_id: Option<Uuid>,
     fb_dirty: bool,
     content_dirty: bool,
@@ -796,6 +822,8 @@ pub struct Compositor<F, R> {
     active_window: Option<Uuid>,
     active_mode: usize,
     modes: [ModeSlot; 12],
+    wallpapers: BTreeMap<Uuid, WallpaperState>,
+    layers: BTreeMap<Uuid, LayerState>,
     saved_sky_geometry: BTreeMap<Uuid, Rect>,
     theme: Theme,
     background: Arc<Bitmap>,
@@ -827,6 +855,21 @@ where
         fields.insert(canon::NAME, Value::Text("CompositorState".into()));
         userland::fiat(Some(state_node), canon::COMPOSITOR, fields);
 
+        let current_mode_node = userland::simple_uuid(b"CurrentMode");
+        let mut fields = userland::map();
+        fields.insert(canon::KIND, Value::Symbol(canon::CURRENT_MODE));
+        fields.insert(canon::INDEX, Value::I64(0));
+        userland::fiat(Some(current_mode_node), canon::CURRENT_MODE, fields);
+
+        for i in 0..12 {
+            let mode_node = userland::simple_uuid(alloc::format!("ModeF{}", i + 1).as_bytes());
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::MODE));
+            fields.insert(canon::INDEX, Value::I64(i as i64));
+            fields.insert(canon::NAME, Value::Text(alloc::format!("Mode F{}", i + 1)));
+            userland::fiat(Some(mode_node), canon::MODE, fields);
+        }
+
         let modes = core::array::from_fn(|i| ModeSlot::new(i as u8));
 
         Self {
@@ -841,6 +884,10 @@ where
             watch_cursor: None,
             watch_fb: None,
             watch_widgets: None,
+            watch_mode: None,
+            watch_wallpaper: None,
+            watch_layer: None,
+            current_mode_node,
             fb_id: None,
             fb_dirty: false,
             content_dirty: true,
@@ -850,6 +897,8 @@ where
             active_window: None,
             active_mode: 0,
             modes,
+            wallpapers: BTreeMap::new(),
+            layers: BTreeMap::new(),
             saved_sky_geometry: BTreeMap::new(),
             theme,
             background,
@@ -915,6 +964,44 @@ where
         userland::fiat(Some(self.state_node), canon::COMPOSITOR, fields);
     }
 
+    fn init_wallpapers(&mut self) {
+        // Create a wallpaper node for each mode
+        for i in 0..12 {
+            let mode_node = userland::simple_uuid(alloc::format!("ModeF{}", i + 1).as_bytes());
+            let wallpaper_node =
+                userland::simple_uuid(alloc::format!("WallpaperF{}", i + 1).as_bytes());
+
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::WALLPAPER));
+            fields.insert(canon::MODE, Value::Uuid(mode_node));
+            userland::fiat(Some(wallpaper_node), canon::WALLPAPER, fields);
+
+            // Create default layers for the wallpaper
+            // Layer 0: Background color (Sky)
+            let layer0_node = userland::simple_uuid(alloc::format!("LayerF{}_0", i + 1).as_bytes());
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::LAYER));
+            fields.insert(canon::WALLPAPER, Value::Uuid(wallpaper_node));
+            fields.insert(canon::INDEX, Value::I64(0));
+            fields.insert(canon::TYPE, Value::Symbol(canon::SOLID_COLOR));
+            // Default sky color
+            fields.insert(canon::COLOR, Value::U64(0xFF87CEEB));
+            userland::fiat(Some(layer0_node), canon::LAYER, fields);
+
+            // Layer 1: Clouds (Image)
+            let layer1_node = userland::simple_uuid(alloc::format!("LayerF{}_1", i + 1).as_bytes());
+            let mut fields = userland::map();
+            fields.insert(canon::KIND, Value::Symbol(canon::LAYER));
+            fields.insert(canon::WALLPAPER, Value::Uuid(wallpaper_node));
+            fields.insert(canon::INDEX, Value::I64(1));
+            fields.insert(canon::TYPE, Value::Symbol(canon::IMAGE));
+            fields.insert(canon::IMAGE, Value::Text("clouds.bmp".to_string()));
+            fields.insert(canon::SCROLL_X, Value::I64(500)); // Parallax factor * 1000
+            fields.insert(canon::SCROLL_Y, Value::I64(100));
+            userland::fiat(Some(layer1_node), canon::LAYER, fields);
+        }
+    }
+
     pub fn init_with_watches(
         watch_manager: &mut WatchManager,
         app_id: usize,
@@ -948,6 +1035,15 @@ where
         let mut widget_pattern = NodePattern::default();
         widget_pattern.labels.push(canon::WIDGET);
 
+        let mut mode_pattern = NodePattern::default();
+        mode_pattern.labels.push(canon::CURRENT_MODE);
+
+        let mut wallpaper_pattern = NodePattern::default();
+        wallpaper_pattern.labels.push(canon::WALLPAPER);
+
+        let mut layer_pattern = NodePattern::default();
+        layer_pattern.labels.push(canon::LAYER);
+
         let surface_watch = watch_manager.register_pattern(app_id, surface_pattern.clone());
         let window_watch = watch_manager.register_pattern(app_id, window_pattern.clone());
         let cursor_watch = watch_manager.register_pattern(app_id, cursor_pattern.clone());
@@ -955,8 +1051,13 @@ where
         let mouse_watch = watch_manager.register_pattern(app_id, mouse_pattern);
         let keyboard_watch = watch_manager.register_pattern(app_id, keyboard_pattern);
         let widget_watch = watch_manager.register_pattern(app_id, widget_pattern.clone());
+        let mode_watch = watch_manager.register_pattern(app_id, mode_pattern);
+        let wallpaper_watch = watch_manager.register_pattern(app_id, wallpaper_pattern.clone());
+        let layer_watch = watch_manager.register_pattern(app_id, layer_pattern.clone());
 
         let mut comp = Self::new(fb_device, renderer);
+        comp.init_wallpapers();
+
         comp.watch_surfaces = Some(surface_watch);
         comp.watch_windows = Some(window_watch);
         comp.watch_mouse = Some(mouse_watch);
@@ -964,6 +1065,9 @@ where
         comp.watch_cursor = Some(cursor_watch);
         comp.watch_fb = Some(fb_watch);
         comp.watch_widgets = Some(widget_watch);
+        comp.watch_mode = Some(mode_watch);
+        comp.watch_wallpaper = Some(wallpaper_watch);
+        comp.watch_layer = Some(layer_watch);
 
         for thing in userland::graph::get_nodes(window_pattern) {
             if let Some(window) = Window::load(&thing) {
@@ -1020,6 +1124,23 @@ where
                     }
                 } else if Some(*watch) == self.watch_widgets {
                     self.ingest_widget(thing);
+                    self.content_dirty = true;
+                } else if Some(*watch) == self.watch_mode {
+                    if thing.id == self.current_mode_node {
+                        if let Some(Value::I64(idx)) = thing.fields.get(&canon::INDEX) {
+                            let idx = (*idx).max(0).min(11) as usize;
+                            if idx != self.active_mode {
+                                self.active_mode = idx;
+                                self.content_dirty = true;
+                                self.update_graph_state();
+                            }
+                        }
+                    }
+                } else if Some(*watch) == self.watch_wallpaper {
+                    self.ingest_wallpaper(thing);
+                    self.content_dirty = true;
+                } else if Some(*watch) == self.watch_layer {
+                    self.ingest_layer(thing);
                     self.content_dirty = true;
                 }
             }
@@ -2405,8 +2526,10 @@ where
         if self.active_mode == new_mode_idx {
             return;
         }
-        self.active_mode = new_mode_idx;
-        self.fb_dirty = true;
+        // Update the graph node instead of local state
+        let mut fields = userland::map();
+        fields.insert(canon::INDEX, Value::I64(new_mode_idx as i64));
+        userland::fiat(Some(self.current_mode_node), canon::CURRENT_MODE, fields);
     }
 
     fn ingest_key_event(&mut self, thing: &userland::GraphThing) {
@@ -3108,6 +3231,90 @@ where
         }
     }
 
+    fn ingest_wallpaper(&mut self, thing: &userland::GraphThing) {
+        if let Some(Value::Uuid(mode_id)) = thing.fields.get(&canon::MODE) {
+            let wallpaper = WallpaperState {
+                id: thing.id,
+                mode_node: *mode_id,
+                layers: Vec::new(),
+            };
+
+            self.wallpapers.insert(thing.id, wallpaper);
+        }
+    }
+
+    fn ingest_layer(&mut self, thing: &userland::GraphThing) {
+        if let Some(Value::Uuid(wallpaper_id)) = thing.fields.get(&canon::WALLPAPER) {
+            let index = thing
+                .fields
+                .get(&canon::INDEX)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as usize;
+            let kind_sym = thing
+                .fields
+                .get(&canon::TYPE)
+                .and_then(|v| v.as_symbol())
+                .unwrap_or(canon::SOLID_COLOR);
+
+            let kind = if kind_sym == canon::SOLID_COLOR {
+                let color_u64 = thing
+                    .fields
+                    .get(&canon::COLOR)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0xFF000000);
+                let r = ((color_u64 >> 16) & 0xFF) as u8;
+                let g = ((color_u64 >> 8) & 0xFF) as u8;
+                let b = (color_u64 & 0xFF) as u8;
+                LayerKind::SolidColor(Rgba::opaque(r, g, b))
+            } else if kind_sym == canon::IMAGE {
+                let filename = thing
+                    .fields
+                    .get(&canon::IMAGE)
+                    .and_then(|v| v.as_text())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                LayerKind::Image(filename)
+            } else {
+                LayerKind::SolidColor(Rgba::opaque(0, 0, 0))
+            };
+
+            let scroll_x = thing
+                .fields
+                .get(&canon::SCROLL_X)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as f64
+                / 1000.0;
+            let scroll_y = thing
+                .fields
+                .get(&canon::SCROLL_Y)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as f64
+                / 1000.0;
+
+            let layer = LayerState {
+                id: thing.id,
+                kind,
+                scroll_factor_x: scroll_x,
+                scroll_factor_y: scroll_y,
+                z_index: index,
+            };
+
+            self.layers.insert(thing.id, layer.clone());
+
+            // Update the wallpaper's layer list
+            if let Some(wallpaper) = self.wallpapers.get_mut(wallpaper_id) {
+                if !wallpaper.layers.contains(&thing.id) {
+                    wallpaper.layers.push(thing.id);
+                }
+                wallpaper.layers.sort_by(|a, b| {
+                    let layer_a = self.layers.get(a).map(|l| l.z_index).unwrap_or(0);
+                    let layer_b = self.layers.get(b).map(|l| l.z_index).unwrap_or(0);
+                    layer_a.cmp(&layer_b)
+                });
+            }
+        }
+    }
+
     fn ingest_window(&mut self, window: Window) {
         let window_id = window.id;
         let is_new = !self.windows.contains_key(&window_id);
@@ -3192,12 +3399,53 @@ where
     }
 
     fn draw_background(&self, scene: &mut Scene, width: usize, height: usize) {
-        scene.push(SceneItem::BlitImage {
-            rect: Rect::new(0, 0, width as u32, height as u32),
-            image: self.background.clone(),
-            repeat: true,
-            offset: (0, 0),
-        });
+        let mode_node_id =
+            userland::simple_uuid(alloc::format!("ModeF{}", self.active_mode + 1).as_bytes());
+
+        let mut active_wallpaper = None;
+        for wallpaper in self.wallpapers.values() {
+            if wallpaper.mode_node == mode_node_id {
+                active_wallpaper = Some(wallpaper);
+                break;
+            }
+        }
+
+        if let Some(wallpaper) = active_wallpaper {
+            for layer_id in &wallpaper.layers {
+                if let Some(layer) = self.layers.get(layer_id) {
+                    match &layer.kind {
+                        LayerKind::SolidColor(color) => {
+                            scene.push(SceneItem::FillRect {
+                                rect: Rect::new(0, 0, width as u32, height as u32),
+                                color: *color,
+                            });
+                        }
+                        LayerKind::Image(filename) => {
+                            if filename == "clouds.bmp" {
+                                let offset_x =
+                                    (self.frame_no as f64 * layer.scroll_factor_x) as i32;
+                                let offset_y =
+                                    (self.frame_no as f64 * layer.scroll_factor_y) as i32;
+
+                                scene.push(SceneItem::BlitImage {
+                                    rect: Rect::new(0, 0, width as u32, height as u32),
+                                    image: self.background.clone(),
+                                    repeat: true,
+                                    offset: (offset_x, offset_y),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            scene.push(SceneItem::BlitImage {
+                rect: Rect::new(0, 0, width as u32, height as u32),
+                image: self.background.clone(),
+                repeat: true,
+                offset: (0, 0),
+            });
+        }
     }
 
     fn draw_windows(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
