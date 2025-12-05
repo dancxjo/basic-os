@@ -10,8 +10,8 @@
 //! saved context (registers + interrupt frame).
 
 pub mod context;
+pub mod elf;
 pub mod executable;
 pub mod launcher;
 pub mod runtime;
 pub mod scheduler;
-pub mod elf;

@@ -648,7 +648,7 @@ fn raster_draw_cursor(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::{boxed::Box, vec};
+    use alloc::vec;
 
     #[test]
     fn bitmap_pixel_respects_bounds() {
@@ -681,106 +681,115 @@ mod tests {
     }
 
     #[test]
-    fn raster_fill_rect_with_alpha_and_clipping() {
-        let mut backend = BitmapRenderer::new(4, 4);
-        backend.storage.fill(0xFFFFFFFF); // White background
+    fn raster_fill_rect_without_alpha_obeys_clip() {
+        let mut backend = BitmapRenderer::new(3, 3);
+        backend.storage.fill(0x11111111);
 
-        // Rect partially outside: (-1, -1, 3, 3) -> clipped to (0, 0, 2, 2)
-        // Color: 0x80FF0000 (Red, 50% alpha)
-        let rect = Rect::new(-1, -1, 3, 3);
-        let color = Rgba::new(128, 255, 0, 0);
-        let clip = Some(Rect::new(0, 0, 4, 4));
+        let rect = Rect::new(1, 1, 3, 3);
+        let clip = Some(Rect::new(1, 0, 1, 3));
+        let color = Rgba::new(0xFF, 0x12, 0x34, 0x56);
 
         raster_fill_rect(&mut backend, &rect, color, clip);
 
-        // Expected color: 0xFFFF7F7F
-        let expected = 0xFFFF7F7F;
-        let white = 0xFFFFFFFF;
-
-        // (0,0), (0,1), (1,0), (1,1) should be blended
-        assert_eq!(backend.storage[0], expected, "0,0");
-        assert_eq!(backend.storage[1], expected, "1,0");
-        assert_eq!(backend.storage[4], expected, "0,1");
-        assert_eq!(backend.storage[5], expected, "1,1");
-
-        // Others should be white
-        assert_eq!(backend.storage[2], white, "2,0");
-        assert_eq!(backend.storage[3], white, "3,0");
+        let mut expected = vec![0x11111111; 9];
+        expected[4] = color.to_u32();
+        expected[7] = color.to_u32();
+        assert_eq!(backend.storage, expected);
     }
 
     #[test]
-    fn raster_blit_image_with_repeat_and_offset() {
+    fn raster_fill_rect_with_alpha_and_clipping() {
         let mut backend = BitmapRenderer::new(4, 4);
-        // 2x2 pattern:
-        // R G
-        // B W
+        backend.storage.fill(0xFFFFFFFF);
+
+        let rect = Rect::new(0, 0, 4, 4);
+        let color = Rgba::new(128, 255, 0, 0);
+        let clip = Some(Rect::new(1, 1, 2, 2));
+
+        raster_fill_rect(&mut backend, &rect, color, clip);
+
+        let mut expected = vec![0xFFFFFFFF; 16];
+        let blended = 0xFFFF7F7F;
+        expected[5] = blended;
+        expected[6] = blended;
+        expected[9] = blended;
+        expected[10] = blended;
+        assert_eq!(backend.storage, expected);
+    }
+
+    #[test]
+    fn raster_blit_image_with_repeat_and_offset_wraps() {
+        let mut backend = BitmapRenderer::new(4, 4);
         let bmp = Bitmap::new(2, 2, vec![0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFFFF]);
 
-        // Draw to full 4x4
-        // Offset (1, 1) -> (0,0) on screen maps to (1,1) in image (White)
-        let rect = Rect::new(0, 0, 4, 4);
-        let offset = (1, 1);
+        raster_blit_image(
+            &mut backend,
+            &Rect::new(0, 0, 4, 4),
+            &bmp,
+            true,
+            (1, 1),
+            None,
+        );
 
-        raster_blit_image(&mut backend, &rect, &bmp, true, offset, None);
-
-        // (0,0) -> sample(1, 1) -> White
-        // (1,0) -> sample(2, 1) -> sample(0, 1) -> Blue
-        // (0,1) -> sample(1, 2) -> sample(1, 0) -> Green
-        // (1,1) -> sample(2, 2) -> sample(0, 0) -> Red
-
-        assert_eq!(backend.storage[0], 0xFFFFFFFF, "0,0 should be White");
-        assert_eq!(backend.storage[1], 0xFF0000FF, "1,0 should be Blue");
-        assert_eq!(backend.storage[4], 0xFF00FF00, "0,1 should be Green");
-        assert_eq!(backend.storage[5], 0xFFFF0000, "1,1 should be Red");
+        let expected = vec![
+            0xFFFFFFFF, 0xFF0000FF, 0xFFFFFFFF, 0xFF0000FF, 0xFF00FF00, 0xFFFF0000, 0xFF00FF00,
+            0xFFFF0000, 0xFFFFFFFF, 0xFF0000FF, 0xFFFFFFFF, 0xFF0000FF, 0xFF00FF00, 0xFFFF0000,
+            0xFF00FF00, 0xFFFF0000,
+        ];
+        assert_eq!(backend.storage, expected);
     }
 
     #[test]
-    fn raster_draw_text_block_wrapping_and_scroll() {
-        let mut backend = BitmapRenderer::new(20, 20);
-        // "AB"
-        // A is 8x16, B is 8x16. Total 16 width.
-        // If max width is 10, it should wrap?
-
-        let rect = Rect::new(0, 0, 10, 20);
+    fn raster_draw_text_block_wraps_and_scrolls_without_overflow() {
+        let mut backend = BitmapRenderer::new(16, 32);
+        let rect = Rect::new(0, 0, 10, 32);
         let text = "\u{2588}\u{2588}";
-        let color = Rgba::new(255, 255, 255, 255);
-        let scroll_offset = 0;
+        let color = Rgba::new(0xFF, 0xFF, 0xFF, 0xFF);
 
-        raster_draw_text_block(&mut backend, &rect, text, color, scroll_offset, None);
+        raster_draw_text_block(&mut backend, &rect, text, color, FONT_HEIGHT as i32, None);
 
-        // A region: y=0..16
-        let mut a_drawn = false;
-        for y in 0..16 {
-            for x in 0..8 {
-                if backend.storage[y * 20 + x] != 0 {
-                    a_drawn = true;
-                }
+        let visible_line_has_pixels = (0..FONT_HEIGHT).any(|y| {
+            backend.storage[y * backend.width..y * backend.width + rect.width as usize]
+                .iter()
+                .any(|px| *px != 0)
+        });
+        assert!(
+            visible_line_has_pixels,
+            "wrapped glyph should render after scroll"
+        );
+
+        for y in 0..FONT_HEIGHT {
+            for x in rect.width as usize..backend.width {
+                assert_eq!(
+                    backend.storage[y * backend.width + x],
+                    0,
+                    "pixels should not overflow rect width"
+                );
             }
         }
-        assert!(a_drawn, "A should be drawn");
 
-        // B region: y=16..32 (but clipped to 20)
-        // So y=16..20
-        let mut b_drawn = false;
-        for y in 16..20 {
-            for x in 0..8 {
-                if backend.storage[y * 20 + x] != 0 {
-                    b_drawn = true;
-                }
-            }
+        for y in FONT_HEIGHT..backend.height {
+            let row_start = y * backend.width;
+            let row = &backend.storage[row_start..row_start + backend.width];
+            assert!(
+                row.iter().all(|px| *px == 0),
+                "scrolled-off content should not draw below the first visible line"
+            );
         }
-        assert!(b_drawn, "B should be drawn wrapped");
+    }
 
-        // Check that nothing is drawn at (8, 0) where B would have been if not wrapped
-        let mut b_not_here = true;
-        for y in 0..16 {
-            for x in 8..16 {
-                if backend.storage[y * 20 + x] != 0 {
-                    b_not_here = false;
-                }
-            }
-        }
-        assert!(b_not_here, "B should not be drawn on first line");
+    #[test]
+    fn present_partial_inside_bounds() {
+        let mut storage = vec![0u32; 4 * 3];
+        let mut device = BitmapFramebufferDevice::new(4, 3, 4 * 4, storage.as_mut_ptr());
+
+        let frame: Vec<u32> = (0..12).collect();
+        let dirty = Rect::new(1, 1, 2, 1);
+
+        device.present_partial(&frame, dirty);
+
+        let expected = vec![0, 0, 0, 0, 0, 5, 6, 0, 0, 0, 0, 0];
+        assert_eq!(storage, expected);
     }
 
     #[test]
@@ -788,18 +797,14 @@ mod tests {
         let mut storage = vec![0u32; 4 * 4];
         let mut device = BitmapFramebufferDevice::new(4, 4, 4 * 4, storage.as_mut_ptr());
 
-        let frame = vec![0xFFFFFFFF; 4 * 4]; // All white
-
-        // Dirty rect partially outside: (-1, -1, 3, 3) -> clipped to (0, 0, 2, 2)
+        let frame = vec![0xFFFFFFFF; 4 * 4];
         let dirty = Rect::new(-1, -1, 3, 3);
 
         device.present_partial(&frame, dirty);
 
-        assert_eq!(storage[0], 0xFFFFFFFF);
-        assert_eq!(storage[1], 0xFFFFFFFF);
-        assert_eq!(storage[2], 0);
-        assert_eq!(storage[4], 0xFFFFFFFF);
-        assert_eq!(storage[5], 0xFFFFFFFF);
-        assert_eq!(storage[6], 0);
+        let expected = vec![
+            0xFFFFFFFF, 0xFFFFFFFF, 0, 0, 0xFFFFFFFF, 0xFFFFFFFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        assert_eq!(storage, expected);
     }
 }

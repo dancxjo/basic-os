@@ -242,22 +242,28 @@ run-hdd-bios: $(IMAGE_NAME).hdd
 		-hda $(IMAGE_NAME).hdd \
 		$(QEMUFLAGS)
 	
-ovmf/ovmf-code-$(KARCH).fd:
-	mkdir -p ovmf
-	curl -Lo $@ https://github.com/rust-osdev/ovmf-prebuilt/releases/latest/download/ovmf-code-$(KARCH).fd
-	case "$(KARCH)" in \
-		aarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=67108864 2>/dev/null;; \
-		loongarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=5242880 2>/dev/null;; \
-		riscv64) dd if=/dev/zero of=$@ bs=1 count=0 seek=33554432 2>/dev/null;; \
-	esac
+OVMF_VERSION = edk2-stable202508-r1
+OVMF_URL = https://github.com/rust-osdev/ovmf-prebuilt/releases/download/$(OVMF_VERSION)/$(OVMF_VERSION)-bin.tar.xz
 
-ovmf/ovmf-vars-$(KARCH).fd:
+ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd:
 	mkdir -p ovmf
-	curl -Lo $@ https://github.com/rust-osdev/ovmf-prebuilt/releases/latest/download/ovmf-vars-$(KARCH).fd
+	curl -Lo ovmf/ovmf.tar.xz $(OVMF_URL)
+	tar -xf ovmf/ovmf.tar.xz -C ovmf
+	if [ "$(KARCH)" = "x86_64" ]; then \
+		cp ovmf/$(OVMF_VERSION)-bin/x64/code.fd ovmf/ovmf-code-$(KARCH).fd; \
+		cp ovmf/$(OVMF_VERSION)-bin/x64/vars.fd ovmf/ovmf-vars-$(KARCH).fd; \
+	else \
+		cp ovmf/$(OVMF_VERSION)-bin/$(KARCH)/code.fd ovmf/ovmf-code-$(KARCH).fd; \
+		cp ovmf/$(OVMF_VERSION)-bin/$(KARCH)/vars.fd ovmf/ovmf-vars-$(KARCH).fd; \
+	fi
+	rm -rf ovmf/ovmf.tar.xz ovmf/$(OVMF_VERSION)-bin
 	case "$(KARCH)" in \
-		aarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=67108864 2>/dev/null;; \
-		loongarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=5242880 2>/dev/null;; \
-		riscv64) dd if=/dev/zero of=$@ bs=1 count=0 seek=33554432 2>/dev/null;; \
+		aarch64) dd if=/dev/zero of=ovmf/ovmf-code-$(KARCH).fd bs=1 count=0 seek=67108864 2>/dev/null; \
+			 dd if=/dev/zero of=ovmf/ovmf-vars-$(KARCH).fd bs=1 count=0 seek=67108864 2>/dev/null;; \
+		loongarch64) dd if=/dev/zero of=ovmf/ovmf-code-$(KARCH).fd bs=1 count=0 seek=5242880 2>/dev/null; \
+			     dd if=/dev/zero of=ovmf/ovmf-vars-$(KARCH).fd bs=1 count=0 seek=5242880 2>/dev/null;; \
+		riscv64) dd if=/dev/zero of=ovmf/ovmf-code-$(KARCH).fd bs=1 count=0 seek=33554432 2>/dev/null; \
+			 dd if=/dev/zero of=ovmf/ovmf-vars-$(KARCH).fd bs=1 count=0 seek=33554432 2>/dev/null;; \
 	esac
 
 limine/limine:

@@ -354,7 +354,10 @@ unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
 
         // Panic if we allocate in the forbidden stack range
         if addr >= 0x37a5000 && addr < 0x4000000 {
-            panic!("BootFrameAllocator allocated forbidden frame in STACK RANGE: {:#x}", addr);
+            panic!(
+                "BootFrameAllocator allocated forbidden frame in STACK RANGE: {:#x}",
+                addr
+            );
         }
 
         check_reserved_ranges(phys_addr);

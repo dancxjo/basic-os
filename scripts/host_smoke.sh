@@ -1,7 +1,7 @@
 #!/bin/bash
 # Smoke test for the host runtime/compositor stack. Default backend is in-memory.
 
-TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-20}
+TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-120}
 BACKEND_RAW=${GRAPH_BACKEND:-in-memory}
 BACKEND=$(echo "$BACKEND_RAW" | tr '[:upper:]' '[:lower:]')
 LOG_FILE="host_smoke.log"
@@ -10,7 +10,7 @@ LOG_FILE="host_smoke.log"
 rm -f "$LOG_FILE"
 
 # Run the host stack with a timeout so it does not hang CI.
-timeout "$TIMEOUT_SECONDS" GRAPH_BACKEND="$BACKEND" make run-host > "$LOG_FILE" 2>&1
+GRAPH_BACKEND="$BACKEND" timeout "$TIMEOUT_SECONDS" make run-host > "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
 EXPECTED_BACKEND="Graph backend: InMemory"

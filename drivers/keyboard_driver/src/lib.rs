@@ -583,8 +583,6 @@ fn device_id() -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_OID, KEYBOARD_DEVICE_NAME.as_bytes())
 }
 
-
-
 #[derive(Clone, Copy)]
 enum KeyCode {
     Character { base: char, shifted: Option<char> },
