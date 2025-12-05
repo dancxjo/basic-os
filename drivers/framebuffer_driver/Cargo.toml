@@ -19,4 +19,4 @@ disable_panic_handler = []
 
 [[bin]]
 name = "framebuffer_driver"
-path = "src/lib.rs"
+path = "src/main.rs"

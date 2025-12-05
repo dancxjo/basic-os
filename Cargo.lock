@@ -196,6 +196,7 @@ dependencies = [
  "spin 0.9.8",
  "text_editor",
  "thing_abi",
+ "thing_host",
  "thing_viewer",
  "tiny_http",
  "tungstenite",

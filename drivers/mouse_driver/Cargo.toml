@@ -17,12 +17,8 @@ disable_panic_handler = []
 
 [[bin]]
 name = "mouse_driver"
-path = "src/lib.rs"
-[profile.release]
-panic = "abort"
+path = "src/main.rs"
+
 
 [lib]
 path = "src/lib.rs"
-
-[unstable]
-build-std = ["core"]

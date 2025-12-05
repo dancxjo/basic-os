@@ -199,5 +199,3 @@ const MOUSE_IRQ_LINE: u8 = 12;
 fn device_id() -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_OID, MOUSE_DEVICE_NAME.as_bytes())
 }
-
-app_main!(MouseDriver);

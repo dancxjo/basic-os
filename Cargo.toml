@@ -21,3 +21,9 @@ serde_derive = { version = "1.0" }
 
 [patch.crates-io]
 ascii = { path = "third_party/ascii" }
+
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

@@ -19,6 +19,3 @@ std = ["serde/std", "thing_host"]
 kernel_hosted = []
 kernel_standalone = []
 disable_panic_handler = []
-
-[profile.release]
-panic = "abort"

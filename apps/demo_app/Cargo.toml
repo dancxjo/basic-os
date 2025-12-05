@@ -21,11 +21,6 @@ host = ["std"]
 name = "demo_app"
 path = "src/main.rs"
 
-[profile.release]
-panic = "abort"
 
 [lib]
 path = "src/lib.rs"
-
-[unstable]
-build-std = ["core"]

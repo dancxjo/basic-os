@@ -17,4 +17,4 @@ disable_panic_handler = []
 
 [[bin]]
 name = "keyboard_driver"
-path = "src/lib.rs"
+path = "src/main.rs"

@@ -96,6 +96,7 @@ static mut HEAP_SPACE: HeapBuffer = HeapBuffer([0; 32 * 1024 * 1024]);
     not(feature = "kernel_hosted"),
     not(feature = "kernel_standalone")
 ))]
+#[allow(static_mut_refs)]
 pub fn init_heap() {
     unsafe {
         let start = HEAP_SPACE.0.as_mut_ptr();

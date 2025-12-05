@@ -63,17 +63,9 @@ debug_frame_sanity = []
 debug_heap_canaries = []
 debug_task_context = []
 
-[profile.release]
-panic = "abort"
-
-[profile.dev]
-panic = "abort"
 
 [build-dependencies]
 cc = "1.0"
 
 [package.metadata.cargo-xbuild]
 target = "x86_64-unknown-none"
-
-[build]
-rustflags = ["-C", "target-cpu=x86-64"]

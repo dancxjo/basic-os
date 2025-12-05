@@ -583,7 +583,7 @@ fn device_id() -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_OID, KEYBOARD_DEVICE_NAME.as_bytes())
 }
 
-app_main!(KeyboardDriver);
+
 
 #[derive(Clone, Copy)]
 enum KeyCode {

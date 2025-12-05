@@ -68,4 +68,4 @@ impl FramebufferDriver {
     }
 }
 
-app_main!(FramebufferDriver);
+

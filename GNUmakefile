@@ -312,11 +312,12 @@ run-host:
 .PHONY: run-hosted
 run-hosted:
 	docker compose -f docker-compose.neo4j.yml up -d
+	cargo build -p compositor --features host --target x86_64-unknown-linux-gnu
 	GRAPH_BACKEND=neo4j \
 	NEO4J_URI=$(HOST_NEO4J_URI) \
 	NEO4J_USER=$(HOST_NEO4J_USER) \
 	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
-	cargo run -p thing_host --bin thing_host --features neo4j --target x86_64-unknown-linux-gnu
+	cargo run -p thing_host --bin thing_host --features neo4j --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/compositor
 
 
 .PHONY: kernel

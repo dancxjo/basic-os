@@ -3,16 +3,12 @@ use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
+use alloc::vec::Vec;
 use userland::flex::{AlignItems, FlexDirection, JustifyContent};
 use userland::graph::{GraphPropsGetRequest, GraphPropsRequest};
 use userland::prelude::*;
-use userland::questions::{
-    attach_question_to_form, ensure_action_interaction, ensure_form, ensure_question_interaction,
-    ensure_question_with_answer,
-};
-use userland::{
-    canon, graph, AnswerValue, AppEvent, InteractionBinding, QuestionBinding, Symbol, ThingFilter,
-};
+use userland::questions::{attach_question_to_form, ensure_form, ensure_question_with_answer};
+use userland::{canon, graph, AnswerValue, AppEvent, QuestionBinding, Symbol, ThingFilter};
 use uuid::Uuid;
 use widget_checkbox::CHECKED;
 
@@ -450,6 +446,17 @@ impl DemoApp {
 
 const OPTIONS_SYM: Symbol = canon::canon(b'O', b'P', b'T');
 const QUESTION_ROW_HEIGHT: u64 = 48;
+
+fn create_transition_value_node(bundle_id: Uuid) -> Uuid {
+    let id = Uuid::new_v5(&Uuid::NAMESPACE_OID, b"prefs_transition_value");
+    let mut fields = graph::map();
+    fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+    fields.insert(canon::BUNDLE_ID, Value::Uuid(bundle_id));
+    fields.insert(canon::ITEM_VALUE, Value::Text(String::from("None")));
+    fields.insert(canon::TEXT, Value::Text(String::from("None")));
+    graph::fiat(Some(id), canon::WIDGET, fields);
+    id
+}
 
 struct PrefsShowcase {
     main_window: WindowHandle,

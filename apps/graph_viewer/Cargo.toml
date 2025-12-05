@@ -7,7 +7,7 @@ edition = "2021"
 userland = { path = "../../userland" }
 thing_abi = { path = "../../thing_abi" }
 uuid = { version = "1.10.0", default-features = false, features = ["v5"] }
-unifont = { version = "1.1.0+data-15.1.05", default-features = false }
+unifont = { version = "1.1.0", default-features = false }
 
 [features]
 default = []
