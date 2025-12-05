@@ -46,7 +46,7 @@ pub fn create_user_page_table(
     let l4_table = unsafe {
         let ptr: *mut PageTable = virt.as_mut_ptr();
         // Zero the page table in place to avoid a 4 KiB stack allocation from PageTable::new()
-        ptr::write_bytes(ptr as *mut u8, 0, 4096);
+        ptr::write_bytes(ptr, 0, 1);
         let table = &mut *ptr;
         table.zero();
         table
@@ -173,7 +173,9 @@ pub fn load_elf<'a>(
             data[0], data[1], data[2], data[3]
         );
     }
+    crate::serial_println!("DEBUG: Calling Elf::parse");
     let elf = Elf::parse(data).map_err(|_| "Failed to parse ELF")?;
+    crate::serial_println!("DEBUG: Elf::parse returned");
     info!("DEBUG: ELF parsed successfully");
     let load_base = VirtAddr::new(0x0000_4000_0000_0000);
     let user_stack_size = 16 * 4096;
@@ -248,10 +250,15 @@ pub fn load_elf<'a>(
 
                     if needs_update {
                         info!(
-                            "Upgrading page {:#x} flags from {:?} to {:?}",
+                            "DEBUG: about to upgrade flags for page {:#x} (segment flags={:#x})",
                             page.start_address().as_u64(),
-                            existing_flags,
-                            new_flags
+                            ph.p_flags
+                        );
+                        info!(
+                            "Upgrading page {:#x} flags from {:#x} to {:#x}",
+                            page.start_address().as_u64(),
+                            existing_flags.bits(),
+                            new_flags.bits()
                         );
                         unsafe {
                             mapper
@@ -293,6 +300,11 @@ pub fn load_elf<'a>(
         let file_end = seg_start + file_size as u64;
         let mem_end = seg_start + mem_size as u64;
         let hhdm = get_hhdm_offset().as_u64();
+
+        if ph.p_flags == 0x6 {
+            info!("DEBUG: skipping copy for RW segment as a test");
+            continue;
+        }
 
         for page in Page::range_inclusive(start_page, end_page) {
             let page_start = page.start_address().as_u64();
@@ -412,4 +424,50 @@ pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: Phys
         TaskMode::User,
     ));
     unsafe { jump_to_context(&*ctx, new_table) };
+}
+
+pub fn test_page_flag_upgrade(
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    active_mapper: &mut (impl Mapper<Size4KiB> + Translate),
+    hhdm_offset: VirtAddr,
+) {
+    info!("[TEST] page_flag_upgrade start");
+
+    // Create a dummy user page table
+    let (_l4_table, mut mapper) =
+        create_user_page_table(frame_allocator, active_mapper, hhdm_offset);
+
+    let test_virt = VirtAddr::new(0x4000_1000);
+    let frame = frame_allocator.allocate_frame().expect("test frame alloc");
+
+    info!(
+        "[TEST] Mapping page {:#x} to frame {:#x} (READ_ONLY)",
+        test_virt.as_u64(),
+        frame.start_address().as_u64()
+    );
+
+    unsafe {
+        mapper
+            .map_to(
+                Page::<Size4KiB>::containing_address(test_virt),
+                frame,
+                PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE,
+                frame_allocator,
+            )
+            .expect("map_to failed")
+            .flush();
+    }
+
+    info!("[TEST] Upgrading flags to WRITABLE");
+    let new_flags =
+        PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE;
+
+    unsafe {
+        mapper
+            .update_flags(Page::<Size4KiB>::containing_address(test_virt), new_flags)
+            .expect("update_flags failed")
+            .flush();
+    }
+
+    info!("[TEST] page_flag_upgrade completed without fault");
 }

@@ -16,6 +16,8 @@ use crate::drivers::framebuffer::{Framebuffer, get_framebuffer_info, register_fr
 use crate::drivers::{keyboard, mouse, serial};
 use crate::mm::allocator::{BootFrameAllocator, init_heap, init_paging, prime_allocator_sanity};
 use crate::system::direct_runtime::{KernelDirectRuntime, syscall_handler};
+#[cfg(feature = "kernel_multitask")]
+use crate::task::executable::test_page_flag_upgrade;
 #[cfg(not(feature = "kernel_multitask"))]
 use crate::task::executable::{create_user_page_table, jump_to_user, load_elf};
 #[cfg(feature = "kernel_multitask")]
@@ -48,8 +50,12 @@ impl System {
         let framebuffer = init_drivers();
         let _clock = init_clock();
         info!("ThingOS initialized.");
+
         #[cfg(feature = "kernel_multitask")]
-        init_user_tasks(&mut mapper, &mut frame_allocator);
+        {
+            // test_page_flag_upgrade(&mut frame_allocator, &mut mapper, get_hhdm_offset());
+            init_user_tasks(&mut mapper, &mut frame_allocator);
+        }
 
         Self {
             frame_allocator: SpinMutex::new(frame_allocator),

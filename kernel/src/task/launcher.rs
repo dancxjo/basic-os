@@ -140,10 +140,21 @@ pub extern "C" fn start_user_task() {
     info!("start_user_task called. CR3={:#x}", cr3);
 
     info!("start_user_task reached, calling next_user_module...");
-    let module = next_user_module().unwrap_or_else(|| {
+    let mut module = next_user_module().unwrap_or_else(|| {
         info!("No remaining user modules to start; halting task.");
         loop {}
     });
+
+    while get_module(module.name).map(|s| s.len()).unwrap_or(0) == 0 {
+        info!(
+            "DEBUG: launcher path returned empty module {}; skipping and falling back to next module",
+            module.name
+        );
+        module = next_user_module().unwrap_or_else(|| {
+            info!("No remaining user modules to start; halting task.");
+            loop {}
+        });
+    }
     info!("next_user_module returned {:?}", module.name);
 
     // Create a Task node for this running instance

@@ -30,6 +30,11 @@ $(call USER_VARIABLE,HOST_NEO4J_URI,bolt://127.0.0.1:7687)
 $(call USER_VARIABLE,HOST_NEO4J_USER,neo4j)
 # Default password must meet Neo4j minimum length (>=8). Can be overridden on the command line.
 $(call USER_VARIABLE,HOST_NEO4J_PASSWORD,neo4jpass)
+$(call USER_VARIABLE,GRAPH_BACKEND,in-memory)
+
+HOST_GRAPH_BACKEND = $(shell echo $(GRAPH_BACKEND) | tr '[:upper:]' '[:lower:]')
+$(call USER_VARIABLE,HOST_FEATURES,$(if $(filter neo4j,$(HOST_GRAPH_BACKEND)),neo4j,))
+HOST_FEATURES_FLAG = $(if $(strip $(HOST_FEATURES)),--features "$(HOST_FEATURES)",)
 
 .PHONY: all
 all: $(IMAGE_NAME).iso
@@ -50,6 +55,10 @@ run-hdd: run-hdd-$(KARCH)
 qemu-smoke:
 	./scripts/qemu_smoke.sh
 	@./scripts/qemu_smoke.sh
+
+.PHONY: host-smoke
+host-smoke:
+	./scripts/host_smoke.sh
 
 .PHONY: run-x86_64
 run-x86_64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
@@ -297,7 +306,7 @@ ifeq ($(MODE),native)
 	$(MAKE) run
 else ifeq ($(MODE),hosted)
 	$(MAKE) userland
-	cargo run -p thing_host --bin thing_host --features "$(HOST_FEATURES)" --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/compositor
+	cargo run -p thing_host --bin thing_host $(HOST_FEATURES_FLAG) --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/compositor
 endif
 
 .PHONY: demo_app
@@ -307,22 +316,20 @@ ifeq ($(MODE),native)
 	$(MAKE) run
 else ifeq ($(MODE),hosted)
 	$(MAKE) userland
-	cargo run -p thing_host --bin thing_host --features "$(HOST_FEATURES)" --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/demo_app
+	cargo run -p thing_host --bin thing_host $(HOST_FEATURES_FLAG) --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/demo_app
 endif
 
-.PHONY: run-host
-run-host:
-	cargo run -p compositor --features host --target x86_64-unknown-linux-gnu
-
-.PHONY: run-hosted
-run-hosted:
-	docker compose -f docker-compose.neo4j.yml up -d
+.PHONY: run-host run-hosted
+run-host run-hosted:
+ifeq ($(HOST_GRAPH_BACKEND),neo4j)
+	@docker compose -f docker-compose.neo4j.yml up -d || { echo "Neo4j container failed to start; continuing so the host server can run."; true; }
+endif
 	cargo build -p compositor --features host --target x86_64-unknown-linux-gnu
-	GRAPH_BACKEND=neo4j \
+	GRAPH_BACKEND=$(HOST_GRAPH_BACKEND) \
 	NEO4J_URI=$(HOST_NEO4J_URI) \
 	NEO4J_USER=$(HOST_NEO4J_USER) \
 	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
-	cargo run -p thing_host --bin thing_host --features neo4j --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/compositor
+	cargo run -p thing_host --bin thing_host $(HOST_FEATURES_FLAG) --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/compositor
 
 
 .PHONY: kernel

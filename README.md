@@ -222,32 +222,29 @@ cargo run -p compositor --features host --target x86_64-unknown-linux-gnu
 
 This leaks a `thing_host::HostRuntime` into `userland`, resizes the virtual framebuffer automatically when the browser window resizes, and serves the SVG at `http://127.0.0.1:8080/frame.svg`. The browser presses the `/input` endpoint with JSON mouse/key events; today those only update the compositor’s cursor state.
 
+`make run-host` (alias `make run-hosted`) wraps the same flow through the host runtime: it defaults to the in-memory graph backend and still launches the HTTP server even if Neo4j is unavailable. Set `GRAPH_BACKEND=neo4j` to start the Docker service and enable the `thing_host/neo4j` feature automatically.
+
 ### Neo4j-backed workflow
 
 The host runtime can swap its graph store for a Neo4j instance without changing the ABI that the compositor, apps, and drivers see. A typical setup:
 
 ```bash
-# 1. Start Neo4j locally (default creds neo4j/secret)
-docker compose -f docker-compose.neo4j.yml up -d
+# 1. Launch the host compositor against Neo4j (starts Docker if needed)
+GRAPH_BACKEND=neo4j make run-host
 
-# 2. Launch the host compositor with the neo4j feature enabled
+# 2. In another terminal, exercise the ABI like a host app would
 GRAPH_BACKEND=neo4j \
 NEO4J_URI=bolt://127.0.0.1:7687 \
 NEO4J_USER=neo4j \
-NEO4J_PASSWORD=secret \
-cargo run -p compositor --features "host thing_host/neo4j" --target x86_64-unknown-linux-gnu
-
-# 3. In another terminal, exercise the ABI like a host app would
-GRAPH_BACKEND=neo4j \
-NEO4J_URI=bolt://127.0.0.1:7687 \
-NEO4J_USER=neo4j \
-NEO4J_PASSWORD=secret \
+NEO4J_PASSWORD=neo4jpass \
 cargo run -p graph_client --features thing_host/neo4j --target x86_64-unknown-linux-gnu
 ```
 
 `graph_client` uses the same userland graph helpers as real apps: it creates Things, links them, and performs both `find_by_kind` and pattern queries. You can confirm the nodes/edges via the Neo4j Browser (`http://127.0.0.1:7474`) while the host compositor keeps rendering through the host ABI.
 
 Prefer one command? `make host-clouds-neo4j` runs the same flow end-to-end (Docker Neo4j, host compositor, and the Clouds demo app) against the Linux host using the Neo4j backend.
+
+For a quick check that the hosted stack still boots, use `make host-smoke` (set `GRAPH_BACKEND=neo4j` to cover that path); it runs the host runtime under a short timeout and verifies the HTTP server banner.
 
 ## Current limitations
 
