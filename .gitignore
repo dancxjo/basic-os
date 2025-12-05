@@ -41,3 +41,5 @@ third_party/
 !/fonts-cache/.gitignore
 smoke_test.log
 smoke_serial.log
+host_smoke.log
+*.log

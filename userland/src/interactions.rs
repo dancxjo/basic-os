@@ -1,7 +1,7 @@
 use crate::graph::GraphThing;
 use crate::{canon, graph, Value};
 use alloc::string::String;
-use thing_abi::GraphPropsRequest;
+use thing_abi::{AbiRequest, AbiResponse, GraphPropsRequest, ThingRuntime};
 use uuid::Uuid;
 
 use crate::questions::{AnswerKind, QuestionBinding};
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn question_binding_creates_interaction() {
-        let runtime = HostRuntime::new();
+        let runtime = Box::leak(Box::new(HostRuntime::new()));
         set_runtime(runtime);
 
         let question = graph::fiat(None, canon::QUESTION, graph::map());
@@ -271,8 +271,13 @@ mod tests {
 
         let interaction = ensure_question_interaction(&binding, Some(widget), Some("Label"), None);
 
-        let loaded = graph::load_thing::<GraphThing>(interaction.interaction)
-            .expect("interaction should exist");
+        let response = runtime.call(thing_abi::AbiRequest::Get {
+            id: interaction.interaction,
+        });
+        let loaded = match response {
+            thing_abi::AbiResponse::Get { thing } => thing.expect("interaction should exist"),
+            _ => panic!("unexpected response: {:?}", response),
+        };
         assert_eq!(
             loaded
                 .fields

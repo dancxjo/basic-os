@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn test_ui_graph() {
         // Initialize host runtime for testing
-        let runtime = HostRuntime::new();
+        let runtime = Box::leak(Box::new(HostRuntime::new()));
         set_runtime(runtime);
 
         // Create a window widget

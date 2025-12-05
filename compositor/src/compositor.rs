@@ -19,7 +19,7 @@ use userland::{
 
 use crate::bitmap::{decode_bmp, load_background, Bitmap};
 use crate::cursor::{build_cursor_sprites, CursorKind, CursorSprites, CursorState};
-use crate::layer::{LayerKind, LayerState, WallpaperState};
+use crate::layer::{build_wallpaper_scene, LayerKind, LayerState, WallpaperState};
 use crate::layout::{self, AlignItems, FlexDirection, JustifyContent, LayoutItem, LayoutSpec};
 use crate::mode::ModeSlot;
 use crate::scene::{Scene, SceneItem};
@@ -34,11 +34,11 @@ use crate::types::{
     TITLE_BAR_HEIGHT, TITLE_TEXT_LEFT_PAD, TITLE_TEXT_TOP_OFFSET, TOOLBAR_BUTTON_SIZE,
     TOOLBAR_BUTTON_SPACING, TOOLBAR_HEIGHT,
 };
+use crate::widget_manager::WidgetManager;
 use crate::window::{
     close_button_rect, compute_window_layout, hit_test_resize, point_in_rect, rect_contains, Caret,
     ContentMetrics, DragKind, DragState, ResizeEdges, WindowLayout, WindowSurface,
 };
-use crate::widget_manager::WidgetManager;
 
 use core::sync::atomic::{AtomicU64, Ordering};
 static UUID_COUNTER: AtomicU64 = AtomicU64::new(0x10000);
@@ -136,7 +136,7 @@ pub struct Compositor<F, R> {
     layers: BTreeMap<Uuid, LayerState>,
     saved_sky_geometry: BTreeMap<Uuid, Rect>,
     theme: Theme,
-    background: Arc<Bitmap>,
+    bitmaps: BTreeMap<String, Arc<Bitmap>>,
     drag_state: Option<DragState>,
     alt_down: bool,
     shift_down: bool,
@@ -156,6 +156,8 @@ where
         let geo = fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
         let background = load_background();
+        let mut bitmaps = BTreeMap::new();
+        bitmaps.insert("clouds.bmp".to_string(), background);
         let theme = THEME;
         let cursor_sprites = build_cursor_sprites();
 
@@ -212,7 +214,7 @@ where
             layers: BTreeMap::new(),
             saved_sky_geometry: BTreeMap::new(),
             theme,
-            background,
+            bitmaps,
             drag_state: None,
             alt_down: false,
             shift_down: false,
@@ -954,14 +956,6 @@ where
         false
     }
 
-
-
-
-
-
-
-
-
     fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, surface: &WindowSurface) {
         let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(layout);
 
@@ -997,8 +991,6 @@ where
             offset: (0, 0),
         });
     }
-
-
 
     fn ingest_surface(&mut self, thing: &userland::GraphThing) {
         if thing.kind != canon::SURFACE {
@@ -1237,7 +1229,8 @@ where
         };
 
         let mut focusable = Vec::new();
-        self.widget_manager.collect_focusable_widgets(active_window_id, &mut focusable);
+        self.widget_manager
+            .collect_focusable_widgets(active_window_id, &mut focusable);
 
         if focusable.is_empty() {
             return;
@@ -1281,8 +1274,6 @@ where
         updates.insert(focused_sym, Value::Bool(true));
         graph::fiat(Some(new_widget), canon::WIDGET, updates);
     }
-
-
 
     fn tile_windows(&mut self) {
         let visible_windows = self.visible_window_ids();
@@ -1453,9 +1444,13 @@ where
                 ContentMetrics::new(surface, &layout)
             };
 
-            if let Some(widget_id) =
-                self.widget_manager.hit_test_widgets(win_id, &layout, &metrics, self.cursor.x, self.cursor.y)
-            {
+            if let Some(widget_id) = self.widget_manager.hit_test_widgets(
+                win_id,
+                &layout,
+                &metrics,
+                self.cursor.x,
+                self.cursor.y,
+            ) {
                 self.widget_manager.active_widget = Some(widget_id);
                 if let Some(widget) = self.widget_manager.widgets.get(&widget_id) {
                     let wx = widget.x.unwrap_or(0) as i32;
@@ -2044,39 +2039,18 @@ where
         }
 
         if let Some(wallpaper) = active_wallpaper {
-            for layer_id in &wallpaper.layers {
-                if let Some(layer) = self.layers.get(layer_id) {
-                    match &layer.kind {
-                        LayerKind::SolidColor(color) => {
-                            scene.push(SceneItem::FillRect {
-                                rect: Rect::new(0, 0, width as u32, height as u32),
-                                color: *color,
-                            });
-                        }
-                        LayerKind::Image(filename) => {
-                            if filename == "clouds.bmp" {
-                                let offset_x =
-                                    (self.frame_no as f64 * layer.scroll_factor_x) as i32;
-                                let offset_y =
-                                    (self.frame_no as f64 * layer.scroll_factor_y) as i32;
-
-                                scene.push(SceneItem::BlitImage {
-                                    rect: Rect::new(0, 0, width as u32, height as u32),
-                                    image: self.background.clone(),
-                                    repeat: true,
-                                    offset: (offset_x, offset_y),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
+            build_wallpaper_scene(
+                scene,
+                Rect::new(0, 0, width as u32, height as u32),
+                wallpaper,
+                &self.layers,
+                &self.bitmaps,
+                (self.frame_no as f64, self.frame_no as f64),
+            );
         } else {
-            scene.push(SceneItem::BlitImage {
+            scene.push(SceneItem::FillRect {
                 rect: Rect::new(0, 0, width as u32, height as u32),
-                image: self.background.clone(),
-                repeat: true,
-                offset: (0, 0),
+                color: CLEAR_COLOR,
             });
         }
     }
@@ -2167,8 +2141,6 @@ where
             surface.scroll_y,
         );
     }
-
-
 
     fn draw_max_mode(&self, scene: &mut Scene, fb_width: usize, fb_height: usize) {
         if let Some(active_id) = self.active_window {
