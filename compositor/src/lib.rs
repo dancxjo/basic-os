@@ -892,6 +892,7 @@ where
     pub fn resize(&mut self, width: usize, height: usize) {
         self.cursor.x = clamp_i32(self.cursor.x, 0, width.saturating_sub(1) as i32);
         self.cursor.y = clamp_i32(self.cursor.y, 0, height.saturating_sub(1) as i32);
+        self.content_dirty = true;
     }
 
     fn update_graph_state(&self) {
@@ -1162,7 +1163,7 @@ where
             scene.push(SceneItem::BlitImage {
                 rect: Rect::new(x as i32, y as i32, bmp.width as u32, bmp.height as u32),
                 image: bmp.clone(),
-                repeat: false,
+                repeat: true,
                 offset: (0, 0),
             });
         } else if !surface.text.is_empty() {
