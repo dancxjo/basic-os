@@ -49,30 +49,24 @@ impl FlexShowcase {
         updates.insert(canon::HEIGHT, Value::U64(400));
         graph::fiat(Some(window.window_id()), canon::WINDOW, updates);
 
-        // Helper to create a widget
-        let create_widget = |parent: Uuid, label: &str, height: Option<u64>, grow: Option<f32>| {
+        // Helper to create a widget tile that demonstrates flex sizing.
+        let create_widget = |parent: Uuid, label: &str, height: u64, grow: f32| {
             let id = Uuid::new_v5(&parent, label.as_bytes());
             let mut f = graph::map();
             f.insert(canon::PARENT, Value::Uuid(parent));
-            f.insert(canon::ROLE, Value::Text("button".into())); // Use button role for border/background
+            f.insert(canon::ROLE, Value::Text("thing_tile".into()));
             f.insert(canon::LABEL, Value::Text(label.into()));
             f.insert(canon::VISIBLE, Value::Bool(true));
-
-            if let Some(h) = height {
-                f.insert(canon::HEIGHT, Value::U64(h));
-                f.insert(canon::MIN_HEIGHT, Value::U64(h));
-            }
-
-            if let Some(g) = grow {
-                f.insert(canon::cc('F', 'G'), Value::I64(g as i64));
-            }
-
+            f.insert(canon::HEIGHT, Value::U64(height));
+            f.insert(canon::MIN_HEIGHT, Value::U64(height));
+            f.insert(canon::cc('F', 'G'), Value::I64(grow as i64));
             graph::fiat(Some(id), canon::WIDGET, f);
         };
 
-        create_widget(window.window_id(), "Fixed 50px", Some(50), None);
-        create_widget(window.window_id(), "Grow 1", None, Some(1.0));
-        create_widget(window.window_id(), "Grow 2", None, Some(2.0));
+        create_widget(window.window_id(), "Fixed 60px (grow 0)", 60, 0.0);
+        create_widget(window.window_id(), "Grow 1", 40, 1.0);
+        create_widget(window.window_id(), "Grow 2", 40, 2.0);
+        create_widget(window.window_id(), "Grow 3", 40, 3.0);
 
         FlexShowcase { _window: window }
     }

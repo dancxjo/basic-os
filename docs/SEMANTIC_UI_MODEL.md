@@ -107,21 +107,12 @@ A `Cursor` represents a position within a scrollable content area.
 2.  **Compositor Integration**: Update the compositor to render based on the `:Widget` tree.
 3.  **Input Mapping**: Map keyboard and mouse events to cursor movements and widget interactions.
 
-## Layout Fields
+## Layout fields
 
-Widgets support a Flexbox-inspired layout model. The following properties control sizing and positioning:
+The compositor leans on a Flex-style layout. Width and height act as preferred sizes (the flex basis), while the following fields tune how children share space:
 
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `width` | u64 | Preferred width (layout hint). |
-| `height` | u64 | Preferred height (layout hint). |
-| `min_width` | u64 | Minimum width (overrides default 0). |
-| `min_height` | u64 | Minimum height (overrides default 0). |
-| `max_width` | u64 | Maximum width. |
-| `max_height` | u64 | Maximum height. |
-| `flex_grow` | f32 | Flex grow factor (default 0.0). Determines how much the widget grows relative to siblings to fill available space. |
-| `flex_shrink` | f32 | Flex shrink factor (default 1.0). Determines how much the widget shrinks relative to siblings when space is insufficient. |
-| `flex_direction` | String | "row" or "column". Defines the main axis for children. |
-| `justify_content` | String | "start", "end", "center", "space_between", "space_around", "space_evenly". Alignment along the main axis. |
-| `align_items` | String | "start", "end", "center", "stretch". Alignment along the cross axis. |
-| `gap` | i32 | Gap between children in logical units. |
+- Minimums: `min_width`/`min_height` override the default minimum of 0. If no minimum is provided, the compositor falls back to the preferred size; with no hints at all height defaults to 30px so rows remain visible.
+- Maximums: `max_width`/`max_height` clamp growth when provided.
+- Flex factors: `flex_grow` controls how much extra space a widget claims (default `0.0`), and `flex_shrink` controls how it gives space back (default `1.0`).
+- Direction and alignment: `flex_direction` sets the main axis (`row` or `column`), `justify_content` aligns along that axis, and `align_items` aligns across it (`stretch` by default).
+- Gaps: `gap` sets spacing between children inside a container.

@@ -27,13 +27,19 @@ pub struct Widget {
     pub focusable: bool,
     pub tab_index: Option<i64>,
     pub bitmap: Option<alloc::vec::Vec<u8>>,
+    /// Layout sizing hints used by the compositor's flex layout:
+    /// - `width`/`height` are preferred sizes.
+    /// - `min_width`/`min_height` override the default minimum (0).
+    /// - `max_width`/`max_height` clamp growth when set.
+    /// - `flex_grow`/`flex_shrink` mirror Flexbox semantics (defaults 0.0/1.0).
+    /// - `gap` applies spacing between this widget's children.
     /// Preferred width (layout hint).
     pub width: Option<u64>,
     /// Preferred height (layout hint).
     pub height: Option<u64>,
     /// Minimum width (overrides default 0).
     pub min_width: Option<u64>,
-    /// Minimum height (overrides default 0).
+    /// Minimum height (overrides default 0; layout falls back to preferred height or 30px when unset).
     pub min_height: Option<u64>,
     /// Maximum width.
     pub max_width: Option<u64>,
