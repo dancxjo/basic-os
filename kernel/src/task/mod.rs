@@ -14,3 +14,4 @@ pub mod executable;
 pub mod launcher;
 pub mod runtime;
 pub mod scheduler;
+pub mod elf;

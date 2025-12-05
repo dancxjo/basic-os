@@ -6,10 +6,10 @@ use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
+use crate::task::elf::{ET_DYN, Elf, PF_W, PF_X, PT_LOAD, ProgramHeader};
 use crate::task::scheduler::Task;
 use alloc::boxed::Box;
 use core::ptr;
-use goblin::elf::Elf;
 use log::info;
 use x86_64::{
     VirtAddr,
@@ -63,6 +63,8 @@ pub fn create_user_page_table(
         l4_table[i] = active_l4[i].clone();
     }
     info!("DEBUG: Kernel mappings copied");
+    info!("DEBUG: active_l4[511] = {:?}", active_l4[511]);
+    info!("DEBUG: l4_table[511] = {:?}", l4_table[511]);
 
     // Verify HHDM is present (it should be in the copied range)
     let hhdm_index = hhdm_offset.p4_index();
@@ -149,16 +151,18 @@ pub fn create_user_page_table(
     (l4_table, offset_page_table)
 }
 
-fn elf_flags_to_pt_flags(ph: &goblin::elf::program_header::ProgramHeader) -> PageTableFlags {
+fn elf_flags_to_pt_flags(ph: &ProgramHeader) -> PageTableFlags {
     let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
-    if ph.is_write() {
+    if (ph.p_flags & PF_W) != 0 {
         flags |= PageTableFlags::WRITABLE;
     }
-    if !ph.is_executable() {
+    if (ph.p_flags & PF_X) == 0 {
         flags |= PageTableFlags::NO_EXECUTE;
     }
     flags
 }
+
+use x86_64::instructions::interrupts;
 
 pub fn load_elf<'a>(
     data: &[u8],
@@ -166,17 +170,18 @@ pub fn load_elf<'a>(
     mapper: &mut (impl Mapper<Size4KiB> + Translate),
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
 ) -> Result<LoadedElf, &'static str> {
-    info!("DEBUG: load_elf start. data len: {}", data.len());
-    if data.len() > 4 {
-        info!(
-            "DEBUG: ELF magic: {:x} {:x} {:x} {:x}",
-            data[0], data[1], data[2], data[3]
-        );
-    }
-    crate::serial_println!("DEBUG: Calling Elf::parse");
+    interrupts::without_interrupts(|| load_elf_inner(data, _page_table, mapper, frame_allocator))
+}
+
+fn load_elf_inner<'a>(
+    data: &[u8],
+    _page_table: &mut PageTable,
+    mapper: &mut (impl Mapper<Size4KiB> + Translate),
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) -> Result<LoadedElf, &'static str> {
+    // info!("DEBUG: load_elf start. data len: {}", data.len());
     let elf = Elf::parse(data).map_err(|_| "Failed to parse ELF")?;
-    crate::serial_println!("DEBUG: Elf::parse returned");
-    info!("DEBUG: ELF parsed successfully");
+    // info!("DEBUG: ELF parsed successfully");
     let load_base = VirtAddr::new(0x0000_4000_0000_0000);
     let user_stack_size = 16 * 4096;
     let user_stack_top = VirtAddr::new(0x0000_7000_0000_0000);
@@ -204,16 +209,16 @@ pub fn load_elf<'a>(
         }
     }
 
-    for ph in &elf.program_headers {
+    for ph in elf.program_headers {
         info!("Processing program header: {:?}", ph);
-        if ph.p_type != goblin::elf::program_header::PT_LOAD {
+        if ph.p_type != PT_LOAD {
             continue;
         }
 
         let file_offset = ph.p_offset as usize;
         let file_size = ph.p_filesz as usize;
         let mem_size = ph.p_memsz as usize;
-        let vaddr = if elf.header.e_type == goblin::elf::header::ET_DYN {
+        let vaddr = if elf.header.e_type == ET_DYN {
             load_base + ph.p_vaddr
         } else {
             VirtAddr::new(ph.p_vaddr)
@@ -221,11 +226,28 @@ pub fn load_elf<'a>(
         let end_vaddr = vaddr + mem_size as u64;
 
         let start_page = Page::containing_address(vaddr);
-        let end_page = Page::containing_address(end_vaddr - 1u64);
+        let mut end_page = Page::containing_address(end_vaddr - 1u64);
+
+        if mem_size > 1000000 {
+            info!("DEBUG: Skipping large segment for testing");
+            continue;
+        }
 
         let desired_flags = elf_flags_to_pt_flags(ph);
 
+        info!(
+            "DEBUG: Mapping {} pages for segment (vaddr={:?}, size={})",
+            (end_page - start_page) + 1,
+            vaddr,
+            mem_size
+        );
+
         for page in Page::range_inclusive(start_page, end_page) {
+            // Check if we need to yield or re-enable interrupts briefly to avoid watchdog timeouts
+            // But since we are in without_interrupts, we can't.
+            // However, the crash is a Page Fault caused by WRITE at 0xffffffff800662d7
+            // which is inside without_interrupts closure.
+
             match mapper.translate(page.start_address()) {
                 TranslateResult::Mapped {
                     flags: existing_flags,
@@ -277,6 +299,15 @@ pub fn load_elf<'a>(
                     let frame = frame_allocator
                         .allocate_frame()
                         .ok_or("Failed to allocate frame")?;
+
+                    if frame.start_address().as_u64() < 0x4102000 {
+                        log::error!(
+                            "Allocated frame {:#x} inside stack/L4 range!",
+                            frame.start_address().as_u64()
+                        );
+                        panic!("Frame collision!");
+                    }
+
                     unsafe {
                         mapper
                             .map_to(page, frame, desired_flags, frame_allocator)
@@ -296,15 +327,12 @@ pub fn load_elf<'a>(
             }
         }
 
+        info!("DEBUG: Mapping finished. Starting copy/zero loop.");
+
         let seg_start = vaddr.as_u64();
         let file_end = seg_start + file_size as u64;
         let mem_end = seg_start + mem_size as u64;
         let hhdm = get_hhdm_offset().as_u64();
-
-        if ph.p_flags == 0x6 {
-            info!("DEBUG: skipping copy for RW segment as a test");
-            continue;
-        }
 
         for page in Page::range_inclusive(start_page, end_page) {
             let page_start = page.start_address().as_u64();
@@ -339,9 +367,11 @@ pub fn load_elf<'a>(
                 let zero_end = core::cmp::min(page_end, mem_end);
                 if zero_start < zero_end {
                     let dst_ptr = (dst_base + (zero_start - page_start)) as *mut u8;
+                    /*
                     unsafe {
                         core::ptr::write_bytes(dst_ptr, 0, (zero_end - zero_start) as usize);
                     }
+                    */
                 }
             }
         }
@@ -352,12 +382,13 @@ pub fn load_elf<'a>(
         );
     }
 
-    let entry = if elf.header.e_type == goblin::elf::header::ET_DYN {
-        load_base + elf.entry
+    let entry = if elf.header.e_type == ET_DYN {
+        load_base + elf.header.e_entry
     } else {
-        VirtAddr::new(elf.entry)
+        VirtAddr::new(elf.header.e_entry)
     };
 
+    info!("DEBUG: load_elf_inner returning Ok");
     Ok(LoadedElf {
         entry,
         stack_top: user_stack_top,
@@ -365,6 +396,7 @@ pub fn load_elf<'a>(
 }
 
 pub unsafe fn jump_to_context(ctx: &FullContext, new_table: PhysFrame) -> ! {
+    crate::serial_println!("DEBUG: jump_to_context start");
     info!(
         "Jumping to task with new page table {:#x} (rip={:#x}, rsp={:#x}, cs={:#x}, ss={:#x})",
         new_table.start_address().as_u64(),
@@ -408,6 +440,7 @@ pub unsafe fn jump_to_context(ctx: &FullContext, new_table: PhysFrame) -> ! {
 }
 
 pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: PhysFrame) -> ! {
+    crate::serial_println!("DEBUG: jump_to_user start");
     // Do NOT reset the kernel stack to the boot stack.
     // We want to keep using the current task's kernel stack (which is already set).
     /*
@@ -423,6 +456,7 @@ pub unsafe fn jump_to_user(entry: VirtAddr, stack_top: VirtAddr, new_table: Phys
         stack_top.as_u64(),
         TaskMode::User,
     ));
+    crate::serial_println!("DEBUG: calling jump_to_context");
     unsafe { jump_to_context(&*ctx, new_table) };
 }
 

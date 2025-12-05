@@ -230,7 +230,7 @@ The host runtime can swap its graph store for a Neo4j instance without changing 
 
 ```bash
 # 1. Launch the host compositor against Neo4j (starts Docker if needed)
-GRAPH_BACKEND=neo4j make run-host
+make run-host-neo4j
 
 # 2. In another terminal, exercise the ABI like a host app would
 GRAPH_BACKEND=neo4j \

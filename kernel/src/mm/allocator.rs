@@ -121,6 +121,11 @@ pub struct BootFrameAllocator {
 impl BootFrameAllocator {
     #[cfg(not(feature = "mm_advanced"))]
     pub fn new() -> Self {
+        // Log the address of the new instance to detect duplicates
+        // We can't easily print 'self' address here as we are constructing it,
+        // but we can print a marker.
+        log::info!("BootFrameAllocator::new() called");
+
         let mut usable_ranges: [Option<Range<usize>>; 32] = Default::default();
         let mut range_count = 0;
 
@@ -142,8 +147,11 @@ impl BootFrameAllocator {
         );
 
         // FORCE RESERVE the observed stack collision range
+        // The user observed 0x37e6000 being allocated and causing issues.
+        // We extend the range to include it.
+        // We also reserve a larger chunk to avoid any potential overlaps with Task 0 stack.
         let collision_start = 0x37a5000;
-        let collision_end = 0x37e6000;
+        let collision_end = 0x5000000; // Extended to cover Task 0 stack and early allocations
         log::warn!(
             "BootFrameAllocator: FORCE RESERVING collision range {:#x} - {:#x}",
             collision_start,
@@ -344,8 +352,9 @@ unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
         let addr = self.allocate_frame_internal()?;
         let phys_addr = PhysAddr::new(addr as u64);
 
-        if addr >= 0x37a5000 && addr <= 0x37e6000 {
-            log::warn!("Allocating frame in STACK RANGE: {:#x}", addr);
+        // Panic if we allocate in the forbidden stack range
+        if addr >= 0x37a5000 && addr < 0x4000000 {
+            panic!("BootFrameAllocator allocated forbidden frame in STACK RANGE: {:#x}", addr);
         }
 
         check_reserved_ranges(phys_addr);

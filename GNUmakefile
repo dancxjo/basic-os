@@ -331,6 +331,10 @@ endif
 	NEO4J_PASSWORD=$(HOST_NEO4J_PASSWORD) \
 	cargo run -p thing_host --bin thing_host $(HOST_FEATURES_FLAG) --target x86_64-unknown-linux-gnu -- --launch-app target/x86_64-unknown-linux-gnu/debug/compositor
 
+.PHONY: run-host-neo4j
+run-host-neo4j:
+	GRAPH_BACKEND=neo4j $(MAKE) run-host
+
 
 .PHONY: kernel
 kernel: third_party

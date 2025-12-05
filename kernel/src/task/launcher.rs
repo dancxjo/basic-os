@@ -129,6 +129,9 @@ pub extern "C" fn start_user_task() {
 #[cfg(feature = "kernel_multitask")]
 #[unsafe(no_mangle)]
 pub extern "C" fn start_user_task() {
+    let canary1: u64 = 0xDEAD_BEEF_DEAD_BEEF;
+    let mut canary2: u64 = 0xCAFE_BABE_CAFE_BABE;
+
     crate::klog_irq!(b'{');
     crate::serial_println!("DEBUG: start_user_task entry");
     let cr3 = unsafe {
@@ -216,9 +219,36 @@ pub extern "C" fn start_user_task() {
             &mut *active_mapper,
             get_hhdm_offset(),
         );
-        info!("DEBUG: calling load_elf");
+        info!(
+            "DEBUG: calling load_elf. RSP={:#x}",
+            x86_64::registers::control::Cr3::read()
+                .0
+                .start_address()
+                .as_u64()
+        ); // Placeholder for RSP read
+        let rsp_before: u64;
+        unsafe {
+            core::arch::asm!("mov {}, rsp", out(reg) rsp_before);
+        }
+        info!("DEBUG: calling load_elf. RSP={:#x}", rsp_before);
+
         let loaded = load_elf(module_bytes, new_l4, &mut new_mapper, &mut *frame_allocator)
             .expect("Failed to load ELF");
+
+        let rsp_after: u64;
+        unsafe {
+            core::arch::asm!("mov {}, rsp", out(reg) rsp_after);
+        }
+        info!("DEBUG: returned from load_elf. RSP={:#x}", rsp_after);
+
+        if canary1 != 0xDEAD_BEEF_DEAD_BEEF || canary2 != 0xCAFE_BABE_CAFE_BABE {
+            panic!(
+                "Stack corruption detected! canary1={:#x}, canary2={:#x}",
+                canary1, canary2
+            );
+        }
+        info!("DEBUG: Canaries intact after load_elf");
+
         (new_l4, loaded)
     };
 
