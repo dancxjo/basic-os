@@ -106,3 +106,22 @@ A `Cursor` represents a position within a scrollable content area.
 1.  **Layout Engine**: Implement a layout system that reads the `:Widget` tree and calculates positions/sizes.
 2.  **Compositor Integration**: Update the compositor to render based on the `:Widget` tree.
 3.  **Input Mapping**: Map keyboard and mouse events to cursor movements and widget interactions.
+
+## Layout Fields
+
+Widgets support a Flexbox-inspired layout model. The following properties control sizing and positioning:
+
+| Property | Type | Description |
+| :--- | :--- | :--- |
+| `width` | u64 | Preferred width (layout hint). |
+| `height` | u64 | Preferred height (layout hint). |
+| `min_width` | u64 | Minimum width (overrides default 0). |
+| `min_height` | u64 | Minimum height (overrides default 0). |
+| `max_width` | u64 | Maximum width. |
+| `max_height` | u64 | Maximum height. |
+| `flex_grow` | f32 | Flex grow factor (default 0.0). Determines how much the widget grows relative to siblings to fill available space. |
+| `flex_shrink` | f32 | Flex shrink factor (default 1.0). Determines how much the widget shrinks relative to siblings when space is insufficient. |
+| `flex_direction` | String | "row" or "column". Defines the main axis for children. |
+| `justify_content` | String | "start", "end", "center", "space_between", "space_around", "space_evenly". Alignment along the main axis. |
+| `align_items` | String | "start", "end", "center", "stretch". Alignment along the cross axis. |
+| `gap` | i32 | Gap between children in logical units. |

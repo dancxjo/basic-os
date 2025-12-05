@@ -14,8 +14,8 @@ use widget_checkbox::CHECKED;
 
 const TRANSITION_OPTIONS: &[&str] = &["None", "Slide", "Fade", "Zoom"];
 
+use crate::template_builder::{RegionBuilder, TemplateBuilder};
 use userland::layout_instantiator::LayoutInstantiator;
-use crate::template_builder::{TemplateBuilder, RegionBuilder};
 
 pub struct DemoApp {
     _windows: BTreeMap<Uuid, WindowHandle>,
@@ -29,6 +29,53 @@ pub struct DemoApp {
     entries: &'static [DashboardEntry],
     prefs: PrefsShowcase,
     questions: QuestionShowcase,
+    flex_demo: FlexShowcase,
+}
+
+struct FlexShowcase {
+    _window: WindowHandle,
+}
+
+impl FlexShowcase {
+    fn new(ctx: &mut AppContext<'_>) -> Self {
+        let window = ctx.create_window("Flex Layout Demo");
+
+        // Update window to use flex column
+        let mut updates = graph::map();
+        updates.insert(canon::cc('F', 'D'), FlexDirection::Column.to_value());
+        updates.insert(canon::GAP, Value::I64(10));
+        // Set initial size
+        updates.insert(canon::WIDTH, Value::U64(300));
+        updates.insert(canon::HEIGHT, Value::U64(400));
+        graph::fiat(Some(window.window_id()), canon::WINDOW, updates);
+
+        // Helper to create a widget
+        let create_widget = |parent: Uuid, label: &str, height: Option<u64>, grow: Option<f32>| {
+            let id = Uuid::new_v5(&parent, label.as_bytes());
+            let mut f = graph::map();
+            f.insert(canon::PARENT, Value::Uuid(parent));
+            f.insert(canon::ROLE, Value::Text("button".into())); // Use button role for border/background
+            f.insert(canon::LABEL, Value::Text(label.into()));
+            f.insert(canon::VISIBLE, Value::Bool(true));
+
+            if let Some(h) = height {
+                f.insert(canon::HEIGHT, Value::U64(h));
+                f.insert(canon::MIN_HEIGHT, Value::U64(h));
+            }
+
+            if let Some(g) = grow {
+                f.insert(canon::cc('F', 'G'), Value::I64(g as i64));
+            }
+
+            graph::fiat(Some(id), canon::WIDGET, f);
+        };
+
+        create_widget(window.window_id(), "Fixed 50px", Some(50), None);
+        create_widget(window.window_id(), "Grow 1", None, Some(1.0));
+        create_widget(window.window_id(), "Grow 2", None, Some(2.0));
+
+        FlexShowcase { _window: window }
+    }
 }
 
 struct LayoutNumbers {
@@ -136,14 +183,14 @@ impl App for DemoApp {
 
         // Define the Layout Template
         let template = TemplateBuilder::new("dashboard_layout", "dashboard", Some(1));
-        
+
         // Top Bar
         template.add_region(
             RegionBuilder::new("top_bar")
                 .role("top_status_bar")
                 .height(sizes.top_bar_h)
                 .text("ThingOS Demo Dashboard")
-                .binds_to("top_bar")
+                .binds_to("top_bar"),
         );
 
         // Toolbar Row
@@ -152,7 +199,7 @@ impl App for DemoApp {
             .flex_dir(FlexDirection::Row)
             .gap((sizes.gap / 2).into())
             .height(40);
-        
+
         for (i, entry) in DASHBOARD_ENTRIES.iter().enumerate() {
             toolbar = toolbar.child(
                 RegionBuilder::new(entry.label)
@@ -161,7 +208,7 @@ impl App for DemoApp {
                     .target(entry.target)
                     .icon(entry.icon)
                     .binds_to("selection") // Binds to selection node
-                    .focusable(true)
+                    .focusable(true),
             );
         }
         template.add_region(toolbar);
@@ -180,7 +227,7 @@ impl App for DemoApp {
                 .role("listbox_default")
                 .width(sizes.rail_w)
                 .binds_to("selection")
-                .focusable(true)
+                .focusable(true),
         );
 
         // Main Content
@@ -191,7 +238,7 @@ impl App for DemoApp {
                 .shrink(1)
                 .width(400)
                 .height(400)
-                .binds_to("main_content")
+                .binds_to("main_content"),
         );
 
         // Right Sidebar
@@ -204,7 +251,7 @@ impl App for DemoApp {
         sidebar = sidebar.child(
             RegionBuilder::new("mini_graph")
                 .role("graph_mini_viewer")
-                .height(sizes.mini_graph_h)
+                .height(sizes.mini_graph_h),
         );
 
         sidebar = sidebar.child(
@@ -213,7 +260,7 @@ impl App for DemoApp {
                 .height(260)
                 .grow(1)
                 .shrink(1)
-                .binds_to("inspector")
+                .binds_to("inspector"),
         );
 
         // Controls Panel
@@ -221,23 +268,23 @@ impl App for DemoApp {
             .role("window_root")
             .flex_dir(FlexDirection::Column)
             .gap(6);
-        
+
         controls = controls.child(
             RegionBuilder::new("control_checkbox")
                 .kind("checkbox")
                 .text("Enable feature")
                 .width(160)
                 .height(28)
-                .focusable(true)
+                .focusable(true),
         );
-        
+
         controls = controls.child(
             RegionBuilder::new("control_radio_a")
                 .kind("radio_button")
                 .text("Mode A")
                 .width(140)
                 .height(28)
-                .focusable(true)
+                .focusable(true),
         );
 
         controls = controls.child(
@@ -246,14 +293,14 @@ impl App for DemoApp {
                 .text("Mode B")
                 .width(140)
                 .height(28)
-                .focusable(true)
+                .focusable(true),
         );
 
         controls = controls.child(
             RegionBuilder::new("control_image")
                 .role("image")
                 .width(120)
-                .height(80)
+                .height(80),
         );
 
         sidebar = sidebar.child(controls);
@@ -262,7 +309,7 @@ impl App for DemoApp {
             RegionBuilder::new("status_widget")
                 .kind("status_widget")
                 .height(sizes.status_h)
-                .binds_to("status")
+                .binds_to("status"),
         );
 
         body = body.child(sidebar);
@@ -271,12 +318,12 @@ impl App for DemoApp {
         // Instantiate Layout
         let mut bindings = BTreeMap::new();
         bindings.insert("selection".to_string(), selection_node);
-        
+
         LayoutInstantiator::instantiate(
             window.window_id(),
             template.id(),
             &bindings,
-            widget_host_bundle
+            widget_host_bundle,
         );
 
         // Re-acquire IDs for updates (using deterministic UUIDs based on names used in template)
@@ -286,9 +333,10 @@ impl App for DemoApp {
 
         let prefs = PrefsShowcase::new(ctx, widget_host_bundle);
         let questions = QuestionShowcase::new(ctx, widget_host_bundle);
+        let flex_demo = FlexShowcase::new(ctx);
 
         let entries = DASHBOARD_ENTRIES;
-        
+
         // Populate list items (we need list_id for this)
         populate_launcher_items(list_id, selection_node, widget_host_bundle);
 
@@ -298,6 +346,7 @@ impl App for DemoApp {
             entries,
             prefs,
             questions,
+            flex_demo,
         };
 
         app.update_selection(0);
@@ -334,7 +383,7 @@ impl App for DemoApp {
 impl DemoApp {
     fn update_selection(&mut self, idx: usize) {
         let entry = &self.entries[idx];
-        
+
         // Re-calculate IDs since we don't store them anymore
         let top_bar_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, "top_bar".as_bytes());
         let inspector_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, "inspector".as_bytes());
@@ -347,7 +396,10 @@ impl DemoApp {
             canon::TEXT,
             Value::Text(format!("ThingOS Demo Dashboard — {}", entry.label)),
         );
-        graph::set_props(GraphPropsRequest { node: top_bar_id, props: title_fields });
+        graph::set_props(GraphPropsRequest {
+            node: top_bar_id,
+            props: title_fields,
+        });
 
         // Update inspector display
         let mut inspector_fields = graph::map();
@@ -357,7 +409,10 @@ impl DemoApp {
         );
         inspector_fields.insert(canon::KIND, Value::Text(entry.target.into()));
         inspector_fields.insert(canon::TITLE, Value::Text(entry.label.into()));
-        graph::set_props(GraphPropsRequest { node: inspector_id, props: inspector_fields });
+        graph::set_props(GraphPropsRequest {
+            node: inspector_id,
+            props: inspector_fields,
+        });
 
         // Update status text
         let mut status_fields = graph::map();
@@ -365,7 +420,10 @@ impl DemoApp {
             canon::TEXT,
             Value::Text(format!("Selected {}", entry.label)),
         );
-        graph::set_props(GraphPropsRequest { node: status_id, props: status_fields });
+        graph::set_props(GraphPropsRequest {
+            node: status_id,
+            props: status_fields,
+        });
 
         // Update main content image with a color keyed to the entry
         let (r, g, b) = entry.color;
@@ -374,12 +432,18 @@ impl DemoApp {
         main_fields.insert(canon::cc('I', 'D'), Value::Bytes(img));
         main_fields.insert(canon::WIDTH, Value::U64(320));
         main_fields.insert(canon::HEIGHT, Value::U64(240));
-        graph::set_props(GraphPropsRequest { node: main_widget_id, props: main_fields });
+        graph::set_props(GraphPropsRequest {
+            node: main_widget_id,
+            props: main_fields,
+        });
 
         // Keep selection node in sync (useful if we programmatically change idx later)
         let mut selection_fields = graph::map();
         selection_fields.insert(canon::SELECTED_INDEX, Value::I64(idx as i64));
-        graph::set_props(GraphPropsRequest { node: self.selection_node, props: selection_fields });
+        graph::set_props(GraphPropsRequest {
+            node: self.selection_node,
+            props: selection_fields,
+        });
 
         // Optional: request launch of the selected package
         let mut launch_fields = graph::map();
@@ -418,8 +482,7 @@ impl PrefsShowcase {
             id: Some(transition_value),
         });
 
-        let (main_window, _) =
-            Self::create_main_window(ctx, widget_host_bundle, transition_value);
+        let (main_window, _) = Self::create_main_window(ctx, widget_host_bundle, transition_value);
         let (dialog_window, _) =
             Self::create_dialog_window(ctx, widget_host_bundle, transition_value);
         let buttons_window = Self::create_buttons_window(ctx, widget_host_bundle);
@@ -449,13 +512,20 @@ impl PrefsShowcase {
             canon::TEXT,
             Value::Text(format!("Graph emits: {value_text}")),
         );
-        
+
         // Update footer widgets by deterministic ID
         let main_footer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, "f3_footer_status".as_bytes());
-        let dialog_footer_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, "f3_dialog_footer_status".as_bytes());
-        
-        graph::set_props(GraphPropsRequest { node: main_footer_id, props: fields.clone() });
-        graph::set_props(GraphPropsRequest { node: dialog_footer_id, props: fields });
+        let dialog_footer_id =
+            Uuid::new_v5(&Uuid::NAMESPACE_OID, "f3_dialog_footer_status".as_bytes());
+
+        graph::set_props(GraphPropsRequest {
+            node: main_footer_id,
+            props: fields.clone(),
+        });
+        graph::set_props(GraphPropsRequest {
+            node: dialog_footer_id,
+            props: fields,
+        });
     }
 
     fn create_main_window(
@@ -489,7 +559,7 @@ impl PrefsShowcase {
         let window = ctx.create_window_with(window_fields);
 
         let template = TemplateBuilder::new("prefs_main_layout", "window_root", None);
-        
+
         let mut root = RegionBuilder::new("f3_root")
             .role("window_root")
             .flex_dir(FlexDirection::Column)
@@ -524,34 +594,34 @@ impl PrefsShowcase {
             .flex_dir(FlexDirection::Row)
             .gap(8)
             .grow(0);
-            
+
         font_row = font_row.child(
             RegionBuilder::new("prefs_font_label")
                 .kind("plain_text")
                 .text("Font:")
                 .width(80)
-                .height(24)
+                .height(24),
         );
-        
+
         // ... (We could add more font controls here if needed)
-        
+
         content = content.child(font_row);
-        
+
         // Transition Row
         let mut trans_row = RegionBuilder::new("prefs_trans_row")
             .role("container")
             .flex_dir(FlexDirection::Row)
             .gap(8)
             .grow(0);
-            
+
         trans_row = trans_row.child(
             RegionBuilder::new("prefs_trans_label")
                 .kind("plain_text")
                 .text("Transition:")
                 .width(100)
-                .height(24)
+                .height(24),
         );
-        
+
         // Transition Buttons
         for opt in TRANSITION_OPTIONS {
             trans_row = trans_row.child(
@@ -560,43 +630,41 @@ impl PrefsShowcase {
                     .text(*opt)
                     .width(100)
                     .height(32)
-                    .focusable(true)
-                    // We need to bind this to the transition value
-                    // But radio buttons usually bind to a value node and set it on click
-                    // For now, let's assume the widget handles it if we set the right props
-                    // Or we can use `TARGET` to update the node?
-                    // The original code used `create_widget` and didn't seem to wire up the click explicitly in `create_main_window`?
-                    // Ah, `create_widget` just creates it.
-                    // The original code didn't show the wiring for these buttons in the snippet I read.
-                    // But `PrefsShowcase` has `transition_value`.
-                    // Let's assume we want these buttons to update `transition_value`.
+                    .focusable(true), // We need to bind this to the transition value
+                                      // But radio buttons usually bind to a value node and set it on click
+                                      // For now, let's assume the widget handles it if we set the right props
+                                      // Or we can use `TARGET` to update the node?
+                                      // The original code used `create_widget` and didn't seem to wire up the click explicitly in `create_main_window`?
+                                      // Ah, `create_widget` just creates it.
+                                      // The original code didn't show the wiring for these buttons in the snippet I read.
+                                      // But `PrefsShowcase` has `transition_value`.
+                                      // Let's assume we want these buttons to update `transition_value`.
             );
         }
-        
+
         content = content.child(trans_row);
         root = root.child(content);
-        
+
         // Footer
         root = root.child(
             RegionBuilder::new("f3_footer_status")
                 .kind("plain_text")
                 .text("Graph emits: None")
                 .width(window_width)
-                .height(24)
+                .height(24),
         );
-        
+
         template.add_region(root);
-        
+
         LayoutInstantiator::instantiate(
             window.window_id(),
             template.id(),
             &BTreeMap::new(),
-            widget_host_bundle
+            widget_host_bundle,
         );
 
         (window, Uuid::nil()) // We don't need to return the footer ID anymore
     }
-
 
     fn create_dialog_window(
         ctx: &mut AppContext<'_>,
@@ -629,7 +697,7 @@ impl PrefsShowcase {
         let window = ctx.create_window_with(window_fields);
 
         let template = TemplateBuilder::new("prefs_dialog_layout", "window_root", None);
-        
+
         let mut root = RegionBuilder::new("prefs_dialog_root")
             .role("window_root")
             .flex_dir(FlexDirection::Column)
@@ -644,7 +712,7 @@ impl PrefsShowcase {
             .flex_dir(FlexDirection::Row)
             .gap(16)
             .grow(0);
-            
+
         buttons_row = buttons_row.child(
             RegionBuilder::new("prefs_confirm")
                 .kind("button")
@@ -652,9 +720,9 @@ impl PrefsShowcase {
                 .width(120)
                 .height(32)
                 .grow(1)
-                .focusable(true)
+                .focusable(true),
         );
-        
+
         buttons_row = buttons_row.child(
             RegionBuilder::new("prefs_cancel")
                 .kind("button")
@@ -662,9 +730,9 @@ impl PrefsShowcase {
                 .width(120)
                 .height(32)
                 .grow(1)
-                .focusable(true)
+                .focusable(true),
         );
-        
+
         root = root.child(buttons_row);
 
         // Transition Row
@@ -672,16 +740,16 @@ impl PrefsShowcase {
             .role("container")
             .flex_dir(FlexDirection::Row)
             .gap(12);
-            
+
         transition_row = transition_row.child(
             RegionBuilder::new("prefs_dialog_transition_label")
                 .kind("plain_text")
                 .text("Transition:")
                 .width(120)
                 .height(28)
-                .role("label")
+                .role("label"),
         );
-        
+
         transition_row = transition_row.child(
             RegionBuilder::new("prefs_dialog_transition_select")
                 .kind("select")
@@ -700,9 +768,9 @@ impl PrefsShowcase {
                             .map(|s| Value::Text(String::from(*s)))
                             .collect(),
                     ),
-                )
+                ),
         );
-        
+
         root = root.child(transition_row);
 
         // Footer
@@ -711,23 +779,23 @@ impl PrefsShowcase {
                 .kind("plain_text")
                 .text("Graph emits: None")
                 .width(300)
-                .height(28)
+                .height(28),
         );
-        
+
         template.add_region(root);
-        
+
         LayoutInstantiator::instantiate(
             window.window_id(),
             template.id(),
             &BTreeMap::new(),
-            widget_host_bundle
+            widget_host_bundle,
         );
-        
+
         // We need to ensure action interactions for the buttons
         // Since LayoutInstantiator creates widgets with deterministic IDs, we can calculate them
         let confirm_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, "prefs_confirm".as_bytes());
         let cancel_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, "prefs_cancel".as_bytes());
-        
+
         ensure_action_interaction(
             transition_value_node,
             Some(confirm_id),
@@ -771,60 +839,60 @@ impl PrefsShowcase {
         let window = ctx.create_window_with(window_fields);
 
         let template = TemplateBuilder::new("prefs_buttons_layout", "window_root", None);
-        
+
         let mut root = RegionBuilder::new("prefs_button_root")
             .role("window_root")
             .flex_dir(FlexDirection::Column)
             .gap(10);
-            
+
         root = root.child(
             RegionBuilder::new("prefs_button_primary")
                 .kind("button")
                 .text("Primary")
                 .width(160)
                 .height(36)
-                .focusable(true)
+                .focusable(true),
         );
-        
+
         root = root.child(
             RegionBuilder::new("prefs_button_secondary")
                 .kind("button")
                 .text("Secondary")
                 .width(160)
                 .height(36)
-                .focusable(true)
+                .focusable(true),
         );
-        
+
         let mut toggle_row = RegionBuilder::new("prefs_button_toggle_row")
             .role("container")
             .flex_dir(FlexDirection::Row);
-            
+
         toggle_row = toggle_row.child(
             RegionBuilder::new("prefs_toggle_label")
                 .kind("plain_text")
                 .text("Notifications")
                 .width(180)
-                .height(24)
+                .height(24),
         );
-        
+
         toggle_row = toggle_row.child(
             RegionBuilder::new("prefs_toggle")
                 .kind("checkbox")
                 .width(120)
                 .height(24)
                 .focusable(true)
-                .prop(CHECKED, Value::Bool(true))
+                .prop(CHECKED, Value::Bool(true)),
         );
-        
+
         root = root.child(toggle_row);
-        
+
         template.add_region(root);
-        
+
         LayoutInstantiator::instantiate(
             window.window_id(),
             template.id(),
             &BTreeMap::new(),
-            widget_host_bundle
+            widget_host_bundle,
         );
 
         window
@@ -866,7 +934,7 @@ impl QuestionShowcase {
             align_items: Some(AlignItems::Stretch),
         };
         let window = ctx.create_window_with(window_fields);
-        
+
         let form_id = ensure_form(None, "Semantic question demo");
 
         let mut questions = Vec::new();
@@ -885,12 +953,18 @@ impl QuestionShowcase {
         let mut q1_props = graph::map();
         q1_props.insert(canon::TAG, Value::Text(tag.into()));
         q1_props.insert(canon::PREFERRED_WIDGET, Value::Text("toggle".into()));
-        graph::set_props(graph::GraphPropsRequest { node: q1, props: q1_props });
+        graph::set_props(graph::GraphPropsRequest {
+            node: q1,
+            props: q1_props,
+        });
         attach_question_to_form(form_id, q1);
 
         let seed1 = alloc::format!("{}-{}-qwidget", window.window_id(), q1);
         let w1_id = userland::simple_uuid(seed1.as_bytes());
-        questions.push(BoundQuestion { widget_id: w1_id, binding: b1 });
+        questions.push(BoundQuestion {
+            widget_id: w1_id,
+            binding: b1,
+        });
 
         // Question 2
         let question_two_label = "Allow telemetry?";
@@ -905,19 +979,25 @@ impl QuestionShowcase {
         let mut q2_props = graph::map();
         q2_props.insert(canon::TAG, Value::Text(tag.into()));
         q2_props.insert(canon::PREFERRED_WIDGET, Value::Text("toggle".into()));
-        graph::set_props(graph::GraphPropsRequest { node: q2, props: q2_props });
+        graph::set_props(graph::GraphPropsRequest {
+            node: q2,
+            props: q2_props,
+        });
         attach_question_to_form(form_id, q2);
 
         let seed2 = alloc::format!("{}-{}-qwidget", window.window_id(), q2);
         let w2_id = userland::simple_uuid(seed2.as_bytes());
-        questions.push(BoundQuestion { widget_id: w2_id, binding: b2 });
+        questions.push(BoundQuestion {
+            widget_id: w2_id,
+            binding: b2,
+        });
 
         // Template
         let mut template = RegionBuilder::new("question_root")
             .role("window_root")
             .flex_dir(FlexDirection::Column)
             .gap(12);
-            
+
         // Intro Text
         template = template.child(
             RegionBuilder::new("question_intro")
@@ -934,12 +1014,12 @@ impl QuestionShowcase {
                 .role("container")
                 .flex_dir(FlexDirection::Column)
                 .gap(8)
-                .prop(canon::SHOW_TAG, Value::Text(tag.into()))
+                .prop(canon::SHOW_TAG, Value::Text(tag.into())),
         );
-        
+
         let tb = TemplateBuilder::new("question_showcase", "window_root", None);
         tb.add_region(template);
-        
+
         LayoutInstantiator::instantiate(
             window.window_id(),
             tb.id(),
@@ -999,8 +1079,6 @@ impl QuestionShowcase {
         });
     }
 }
-
-
 
 fn populate_launcher_items(list_id: Uuid, selection_node: Uuid, widget_host_bundle: Uuid) {
     for (i, entry) in DASHBOARD_ENTRIES.iter().enumerate() {

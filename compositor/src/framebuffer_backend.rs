@@ -102,7 +102,8 @@ impl RendererBackend for BitmapRenderer {
                     sprite,
                     hotspot,
                 } => {
-                    raster_draw_cursor(self, *origin, sprite, *hotspot);
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_cursor(self, *origin, sprite, *hotspot, clip);
                 }
                 SceneItem::ClipPush { rect } => {
                     let parent_clip = clip_stack.last().copied().flatten();
@@ -173,7 +174,7 @@ impl RendererBackend for BitmapRenderer {
                     hotspot,
                 } => {
                     let clip = clip_stack.last().copied().flatten();
-                    raster_draw_cursor_clipped(self, *origin, sprite, *hotspot, clip);
+                    raster_draw_cursor(self, *origin, sprite, *hotspot, clip);
                 }
                 SceneItem::ClipPush { rect } => {
                     let parent_clip = clip_stack.last().copied().flatten();
@@ -316,14 +317,15 @@ impl<'a> FramebufferDevice<&'a [u32]> for BitmapFramebufferDevice {
         let stride_u32 = self.pitch / 4;
 
         // Clip dirty rect to framebuffer bounds
-        let x = clamp_i32(dirty_rect.x, 0, self.width as i32) as usize;
-        let y = clamp_i32(dirty_rect.y, 0, self.height as i32) as usize;
-        let w = clamp_i32(dirty_rect.width as i32, 0, (self.width - x) as i32) as usize;
-        let h = clamp_i32(dirty_rect.height as i32, 0, (self.height - y) as i32) as usize;
-
-        if w == 0 || h == 0 {
+        let fb_rect = Rect::new(0, 0, self.width as u32, self.height as u32);
+        let Some(rect) = intersect_rect(dirty_rect, fb_rect) else {
             return;
-        }
+        };
+
+        let x = rect.x as usize;
+        let y = rect.y as usize;
+        let w = rect.width as usize;
+        let h = rect.height as usize;
 
         for row in 0..h {
             let curr_y = y + row;
@@ -574,68 +576,6 @@ fn raster_draw_cursor(
     origin: (i32, i32),
     sprite: &Bitmap,
     hotspot: (i32, i32),
-) {
-    if backend.width == 0 || sprite.width == 0 || sprite.height == 0 {
-        return;
-    }
-
-    let top_left_x = origin.0 - hotspot.0;
-    let top_left_y = origin.1 - hotspot.1;
-
-    let start_x = clamp_i32(top_left_x, 0, backend.width as i32);
-    let start_y = clamp_i32(top_left_y, 0, backend.height as i32);
-    let end_x = clamp_i32(top_left_x + sprite.width as i32, 0, backend.width as i32);
-    let end_y = clamp_i32(top_left_y + sprite.height as i32, 0, backend.height as i32);
-
-    let sprite_data = &sprite.pixels;
-    let sprite_width = sprite.width;
-
-    for y in start_y..end_y {
-        let sy = (y - top_left_y) as usize;
-        let sx_start = (start_x - top_left_x) as usize;
-        let sx_end = (end_x - top_left_x) as usize;
-        let sprite_row = &sprite_data[sy * sprite_width + sx_start..sy * sprite_width + sx_end];
-
-        let dst_row_start = (y as usize) * backend.width + (start_x as usize);
-        let dst_row =
-            &mut backend.storage[dst_row_start..dst_row_start + (end_x - start_x) as usize];
-
-        for (px, dst) in sprite_row.iter().zip(dst_row.iter_mut()) {
-            let px = *px;
-            let alpha = (px >> 24) & 0xFF;
-            if alpha == 0 {
-                continue;
-            }
-
-            let out = if alpha == 0xFF {
-                px
-            } else {
-                let inv_a = 255 - alpha;
-                let dst_val = *dst;
-                let dst_r = (dst_val >> 16) & 0xFF;
-                let dst_g = (dst_val >> 8) & 0xFF;
-                let dst_b = dst_val & 0xFF;
-
-                let src_r = (px >> 16) & 0xFF;
-                let src_g = (px >> 8) & 0xFF;
-                let src_b = px & 0xFF;
-
-                let r = src_r + (dst_r * inv_a) / 255;
-                let g = src_g + (dst_g * inv_a) / 255;
-                let b = src_b + (dst_b * inv_a) / 255;
-
-                0xFF000000 | (r << 16) | (g << 8) | b
-            };
-            *dst = out;
-        }
-    }
-}
-
-fn raster_draw_cursor_clipped(
-    backend: &mut BitmapRenderer,
-    origin: (i32, i32),
-    sprite: &Bitmap,
-    hotspot: (i32, i32),
     clip: Option<Rect>,
 ) {
     if backend.width == 0 || sprite.width == 0 || sprite.height == 0 {
@@ -723,10 +663,143 @@ mod tests {
     #[test]
     fn raster_blit_image_skips_out_of_bounds_when_not_repeating() {
         let mut backend = BitmapRenderer::new(3, 3);
-        let bmp = Bitmap::new(2, 2, vec![1, 2, 3, 4]);
+        let bmp = Bitmap::new(2, 2, vec![0xFF000001, 0xFF000002, 0xFF000003, 0xFF000004]);
 
-        raster_blit_image(&mut backend, &Rect::new(0, 0, 3, 3), &bmp, false, None);
+        raster_blit_image(
+            &mut backend,
+            &Rect::new(0, 0, 3, 3),
+            &bmp,
+            false,
+            (0, 0),
+            None,
+        );
 
-        assert_eq!(backend.storage, &[1, 2, 0, 3, 4, 0, 0, 0, 0]);
+        assert_eq!(
+            backend.storage,
+            &[0xFF000001, 0xFF000002, 0, 0xFF000003, 0xFF000004, 0, 0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn raster_fill_rect_with_alpha_and_clipping() {
+        let mut backend = BitmapRenderer::new(4, 4);
+        backend.storage.fill(0xFFFFFFFF); // White background
+
+        // Rect partially outside: (-1, -1, 3, 3) -> clipped to (0, 0, 2, 2)
+        // Color: 0x80FF0000 (Red, 50% alpha)
+        let rect = Rect::new(-1, -1, 3, 3);
+        let color = Rgba::new(128, 255, 0, 0);
+        let clip = Some(Rect::new(0, 0, 4, 4));
+
+        raster_fill_rect(&mut backend, &rect, color, clip);
+
+        // Expected color: 0xFFFF7F7F
+        let expected = 0xFFFF7F7F;
+        let white = 0xFFFFFFFF;
+
+        // (0,0), (0,1), (1,0), (1,1) should be blended
+        assert_eq!(backend.storage[0], expected, "0,0");
+        assert_eq!(backend.storage[1], expected, "1,0");
+        assert_eq!(backend.storage[4], expected, "0,1");
+        assert_eq!(backend.storage[5], expected, "1,1");
+
+        // Others should be white
+        assert_eq!(backend.storage[2], white, "2,0");
+        assert_eq!(backend.storage[3], white, "3,0");
+    }
+
+    #[test]
+    fn raster_blit_image_with_repeat_and_offset() {
+        let mut backend = BitmapRenderer::new(4, 4);
+        // 2x2 pattern:
+        // R G
+        // B W
+        let bmp = Bitmap::new(2, 2, vec![0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFFFF]);
+
+        // Draw to full 4x4
+        // Offset (1, 1) -> (0,0) on screen maps to (1,1) in image (White)
+        let rect = Rect::new(0, 0, 4, 4);
+        let offset = (1, 1);
+
+        raster_blit_image(&mut backend, &rect, &bmp, true, offset, None);
+
+        // (0,0) -> sample(1, 1) -> White
+        // (1,0) -> sample(2, 1) -> sample(0, 1) -> Blue
+        // (0,1) -> sample(1, 2) -> sample(1, 0) -> Green
+        // (1,1) -> sample(2, 2) -> sample(0, 0) -> Red
+
+        assert_eq!(backend.storage[0], 0xFFFFFFFF, "0,0 should be White");
+        assert_eq!(backend.storage[1], 0xFF0000FF, "1,0 should be Blue");
+        assert_eq!(backend.storage[4], 0xFF00FF00, "0,1 should be Green");
+        assert_eq!(backend.storage[5], 0xFFFF0000, "1,1 should be Red");
+    }
+
+    #[test]
+    fn raster_draw_text_block_wrapping_and_scroll() {
+        let mut backend = BitmapRenderer::new(20, 20);
+        // "AB"
+        // A is 8x16, B is 8x16. Total 16 width.
+        // If max width is 10, it should wrap?
+
+        let rect = Rect::new(0, 0, 10, 20);
+        let text = "\u{2588}\u{2588}";
+        let color = Rgba::new(255, 255, 255, 255);
+        let scroll_offset = 0;
+
+        raster_draw_text_block(&mut backend, &rect, text, color, scroll_offset, None);
+
+        // A region: y=0..16
+        let mut a_drawn = false;
+        for y in 0..16 {
+            for x in 0..8 {
+                if backend.storage[y * 20 + x] != 0 {
+                    a_drawn = true;
+                }
+            }
+        }
+        assert!(a_drawn, "A should be drawn");
+
+        // B region: y=16..32 (but clipped to 20)
+        // So y=16..20
+        let mut b_drawn = false;
+        for y in 16..20 {
+            for x in 0..8 {
+                if backend.storage[y * 20 + x] != 0 {
+                    b_drawn = true;
+                }
+            }
+        }
+        assert!(b_drawn, "B should be drawn wrapped");
+
+        // Check that nothing is drawn at (8, 0) where B would have been if not wrapped
+        let mut b_not_here = true;
+        for y in 0..16 {
+            for x in 8..16 {
+                if backend.storage[y * 20 + x] != 0 {
+                    b_not_here = false;
+                }
+            }
+        }
+        assert!(b_not_here, "B should not be drawn on first line");
+    }
+
+    #[test]
+    fn present_partial_clipping() {
+        let mut storage = vec![0u32; 4 * 4];
+        let mut device = BitmapFramebufferDevice::new(4, 4, 4 * 4, storage.as_mut_ptr());
+
+        let frame = vec![0xFFFFFFFF; 4 * 4]; // All white
+
+        // Dirty rect partially outside: (-1, -1, 3, 3) -> clipped to (0, 0, 2, 2)
+        let dirty = Rect::new(-1, -1, 3, 3);
+
+        device.present_partial(&frame, dirty);
+
+        assert_eq!(storage[0], 0xFFFFFFFF);
+        assert_eq!(storage[1], 0xFFFFFFFF);
+        assert_eq!(storage[2], 0);
+        assert_eq!(storage[4], 0xFFFFFFFF);
+        assert_eq!(storage[5], 0xFFFFFFFF);
+        assert_eq!(storage[6], 0);
     }
 }

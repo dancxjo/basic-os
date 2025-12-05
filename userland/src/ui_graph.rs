@@ -27,15 +27,28 @@ pub struct Widget {
     pub focusable: bool,
     pub tab_index: Option<i64>,
     pub bitmap: Option<alloc::vec::Vec<u8>>,
+    /// Preferred width (layout hint).
     pub width: Option<u64>,
+    /// Preferred height (layout hint).
     pub height: Option<u64>,
+    /// Minimum width (overrides default 0).
+    pub min_width: Option<u64>,
+    /// Minimum height (overrides default 0).
+    pub min_height: Option<u64>,
+    /// Maximum width.
+    pub max_width: Option<u64>,
+    /// Maximum height.
+    pub max_height: Option<u64>,
     pub x: Option<u64>,
     pub y: Option<u64>,
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<AlignItems>,
+    /// Flex grow factor (default 0.0).
     pub flex_grow: Option<f32>,
+    /// Flex shrink factor (default 1.0).
     pub flex_shrink: Option<f32>,
+    /// Gap between children (if container).
     pub gap: Option<i32>,
 }
 
@@ -138,6 +151,27 @@ impl Widget {
 
         if let Some(height) = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64()) {
             self.height = Some(height);
+        }
+
+        if let Some(w) = thing.fields.get(&canon::MIN_WIDTH).and_then(|v| v.as_u64()) {
+            self.min_width = Some(w);
+        }
+        if let Some(w) = thing.fields.get(&canon::MAX_WIDTH).and_then(|v| v.as_u64()) {
+            self.max_width = Some(w);
+        }
+        if let Some(h) = thing
+            .fields
+            .get(&canon::MIN_HEIGHT)
+            .and_then(|v| v.as_u64())
+        {
+            self.min_height = Some(h);
+        }
+        if let Some(h) = thing
+            .fields
+            .get(&canon::MAX_HEIGHT)
+            .and_then(|v| v.as_u64())
+        {
+            self.max_height = Some(h);
         }
 
         if let Some(x) = thing.fields.get(&canon::X).and_then(|v| v.as_u64()) {
@@ -287,6 +321,17 @@ impl Thingable for Widget {
             .and_then(|v| v.as_i64())
             .map(|v| v as i32);
 
+        let min_width = thing.fields.get(&canon::MIN_WIDTH).and_then(|v| v.as_u64());
+        let max_width = thing.fields.get(&canon::MAX_WIDTH).and_then(|v| v.as_u64());
+        let min_height = thing
+            .fields
+            .get(&canon::MIN_HEIGHT)
+            .and_then(|v| v.as_u64());
+        let max_height = thing
+            .fields
+            .get(&canon::MAX_HEIGHT)
+            .and_then(|v| v.as_u64());
+
         Some(Widget {
             id: thing.id,
             role,
@@ -303,6 +348,10 @@ impl Thingable for Widget {
             bitmap,
             width,
             height,
+            min_width,
+            min_height,
+            max_width,
+            max_height,
             x,
             y,
             flex_direction,

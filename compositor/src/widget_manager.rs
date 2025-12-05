@@ -193,11 +193,12 @@ impl WidgetManager {
             .filter_map(|id| {
                 self.widgets.get(id).map(|w| LayoutItem {
                     id: *id,
-                    min_width: w.width.unwrap_or(0) as u32,
-                    min_height: w.height.unwrap_or(30) as u32, // Default height 30 if unknown
+                    min_width: w.min_width.unwrap_or(w.width.unwrap_or(0)) as u32,
+                    min_height: w.min_height.unwrap_or(w.height.unwrap_or(30)) as u32,
+                    max_width: w.max_width.map(|v| v as u32),
+                    max_height: w.max_height.map(|v| v as u32),
                     flex_grow: w.flex_grow.unwrap_or(0.0),
                     flex_shrink: w.flex_shrink.unwrap_or(1.0),
-                    ..Default::default()
                 })
             })
             .collect();

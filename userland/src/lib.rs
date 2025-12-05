@@ -113,13 +113,17 @@ pub mod canon {
     pub const ICON: Symbol = canon(b'I', b'C', b'N');
     pub const ACTIVATED: Symbol = canon(b'A', b'C', b'T');
     pub const Y: Symbol = canon(b'Y', b' ', b' ');
+    pub const SCROLL_Y: Symbol = canon(b'S', b'C', b'Y');
+    pub const CONTENT_HEIGHT: Symbol = canon(b'C', b'T', b'H');
 
     pub const Z: Symbol = canon(b'Z', b'I', b'N');
     pub const WIDTH: Symbol = canon(b'W', b'D', b'T');
-    pub const VIEWPORT_HEIGHT: Symbol = canon(b'V', b'P', b'H');
-    pub const CONTENT_HEIGHT: Symbol = canon(b'C', b'T', b'H');
-    pub const SCROLL_Y: Symbol = canon(b'S', b'C', b'Y');
+    pub const MIN_WIDTH: Symbol = canon(b'M', b'N', b'W');
+    pub const MAX_WIDTH: Symbol = canon(b'M', b'X', b'W');
     pub const HEIGHT: Symbol = canon(b'H', b'G', b'T');
+    pub const MIN_HEIGHT: Symbol = canon(b'M', b'N', b'H');
+    pub const MAX_HEIGHT: Symbol = canon(b'M', b'X', b'H');
+    pub const VIEWPORT_HEIGHT: Symbol = canon(b'V', b'P', b'H');
     pub const PITCH: Symbol = canon(b'P', b'T', b'H');
     pub const BPP: Symbol = canon(b'B', b'P', b'P');
     pub const ADDR: Symbol = canon(b'A', b'D', b'R');
