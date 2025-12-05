@@ -46,6 +46,11 @@ run-debug: run-debug-$(KARCH)
 .PHONY: run-hdd
 run-hdd: run-hdd-$(KARCH)
 
+.PHONY: qemu-smoke
+qemu-smoke:
+	./scripts/qemu_smoke.sh
+	@./scripts/qemu_smoke.sh
+
 .PHONY: run-x86_64
 run-x86_64: ovmf/ovmf-code-$(KARCH).fd ovmf/ovmf-vars-$(KARCH).fd $(IMAGE_NAME).iso
 	qemu-system-$(KARCH) \
@@ -230,7 +235,7 @@ run-hdd-bios: $(IMAGE_NAME).hdd
 	
 ovmf/ovmf-code-$(KARCH).fd:
 	mkdir -p ovmf
-	curl -Lo $@ https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/ovmf-code-$(KARCH).fd
+	curl -Lo $@ https://github.com/rust-osdev/ovmf-prebuilt/releases/latest/download/ovmf-code-$(KARCH).fd
 	case "$(KARCH)" in \
 		aarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=67108864 2>/dev/null;; \
 		loongarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=5242880 2>/dev/null;; \
@@ -239,7 +244,7 @@ ovmf/ovmf-code-$(KARCH).fd:
 
 ovmf/ovmf-vars-$(KARCH).fd:
 	mkdir -p ovmf
-	curl -Lo $@ https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/ovmf-vars-$(KARCH).fd
+	curl -Lo $@ https://github.com/rust-osdev/ovmf-prebuilt/releases/latest/download/ovmf-vars-$(KARCH).fd
 	case "$(KARCH)" in \
 		aarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=67108864 2>/dev/null;; \
 		loongarch64) dd if=/dev/zero of=$@ bs=1 count=0 seek=5242880 2>/dev/null;; \

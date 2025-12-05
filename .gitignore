@@ -39,3 +39,5 @@ userland.bin
 third_party/
 /fonts-cache/*
 !/fonts-cache/.gitignore
+smoke_test.log
+smoke_serial.log
