@@ -141,13 +141,14 @@ fn create_toolbar() {
     // Toolbar container
     let toolbar_id = userland::simple_uuid(b"Toolbar");
     let mut fields = userland::map();
-    fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+    fields.insert(canon::KIND, Value::Symbol(canon::WINDOW));
     fields.insert(canon::cc('W', 'K'), Value::Text("toolbar".into()));
     fields.insert(canon::WIDTH, Value::U64(800)); // Screen width?
     fields.insert(canon::HEIGHT, Value::U64(40));
     fields.insert(canon::X, Value::I64(0));
     fields.insert(canon::Y, Value::I64(0)); // Top
-    userland::fiat(Some(toolbar_id), canon::WIDGET, fields);
+    fields.insert(canon::NAME, Value::Text("Toolbar".into()));
+    userland::fiat(Some(toolbar_id), canon::WINDOW, fields);
 
     // Button 1: Clouds
     create_toolbar_button(toolbar_id, "Clouds", "demo_app", "clouds", 0);
@@ -159,7 +160,7 @@ fn create_toolbar() {
     create_toolbar_button(toolbar_id, "Thing", "thing_viewer", "graph", 2);
 }
 
-fn create_toolbar_button(_parent: Uuid, label: &str, target: &str, icon_path: &str, index: i32) {
+fn create_toolbar_button(parent: Uuid, label: &str, target: &str, icon_path: &str, index: i32) {
     let id = userland::simple_uuid(label.as_bytes()); // Simple ID generation
     let mut fields = userland::map();
     fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
@@ -167,6 +168,7 @@ fn create_toolbar_button(_parent: Uuid, label: &str, target: &str, icon_path: &s
     fields.insert(canon::WIDTH, Value::U64(60));
     fields.insert(canon::HEIGHT, Value::U64(30));
     fields.insert(canon::ICON_NAME, Value::Text(icon_path.into()));
+    fields.insert(canon::PARENT, Value::Uuid(parent));
 
     // Position relative to toolbar? Or absolute?
     // If absolute, we need to know toolbar position.

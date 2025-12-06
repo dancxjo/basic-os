@@ -181,7 +181,36 @@ where
             userland::fiat(Some(mode_node), canon::MODE, fields);
         }
 
-        let modes = core::array::from_fn(|i| ModeSlot::new(i as u8));
+        let mut modes = core::array::from_fn(|i| ModeSlot::new(i as u8));
+        modes[0].place_id = Some(userland::simple_uuid(b"sky"));
+
+        let mut layers = BTreeMap::new();
+        let mut wallpapers = BTreeMap::new();
+
+        // Sky Wallpaper
+        let sky_layer_id = next_uuid();
+        layers.insert(
+            sky_layer_id,
+            LayerState {
+                id: sky_layer_id,
+                kind: LayerKind::Image("clouds.bmp".to_string()),
+                scroll_factor_x: 0.5,
+                scroll_factor_y: 0.5,
+                z_index: 0,
+            },
+        );
+
+        let sky_place_id = userland::simple_uuid(b"sky");
+        let sky_wallpaper_id = next_uuid();
+        wallpapers.insert(
+            sky_wallpaper_id,
+            WallpaperState {
+                id: sky_wallpaper_id,
+                mode_node: None,
+                place_id: Some(sky_place_id),
+                layers: vec![sky_layer_id],
+            },
+        );
 
         Self {
             frame_no: 0,
@@ -208,10 +237,10 @@ where
             cursor_sprites,
             active_window: None,
             active_mode: 0,
-            active_place: None,
+            active_place: modes[0].place_id,
             modes,
-            wallpapers: BTreeMap::new(),
-            layers: BTreeMap::new(),
+            wallpapers,
+            layers,
             saved_sky_geometry: BTreeMap::new(),
             theme,
             bitmaps,
@@ -455,6 +484,7 @@ where
                                 self.active_mode = idx;
                                 self.content_dirty = true;
                                 self.active_place = self.modes[idx].place_id;
+                                self.ensure_mode_app(idx);
                                 self.update_graph_state();
                             }
                         }
@@ -2612,6 +2642,38 @@ where
         self.cursor.x = x;
         self.cursor.y = y;
         self.cursor.buttons = buttons;
+    }
+
+    fn ensure_mode_app(&mut self, mode_idx: usize) {
+        let mode = &mut self.modes[mode_idx];
+        if mode.root_window.is_some() {
+            return;
+        }
+
+        if let Some(place_id) = mode.place_id {
+            if let Some(place_thing) = userland::graph::get_thing(place_id) {
+                if let Some(app_name) = place_thing
+                    .fields
+                    .get(&canon::APP)
+                    .and_then(|v| v.as_text())
+                {
+                    self.launch_app_for_place(app_name, place_id, mode_idx);
+                }
+            }
+        }
+    }
+
+    fn launch_app_for_place(&self, app_name: &str, place_id: Uuid, mode_idx: usize) {
+        let intent_id = next_uuid();
+        let mut fields = userland::map();
+        fields.insert(canon::KIND, Value::Symbol(canon::LAUNCH_INTENT));
+        fields.insert(canon::APP, Value::Text(app_name.to_string()));
+        fields.insert(canon::PLACE, Value::Uuid(place_id));
+        fields.insert(canon::MODE_INDEX, Value::I64(mode_idx as i64));
+
+        userland::fiat(Some(intent_id), canon::LAUNCH_INTENT, fields);
+
+        userland::sys::spawn(app_name);
     }
 }
 

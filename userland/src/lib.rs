@@ -98,6 +98,7 @@ pub mod canon {
     pub const FRAME_READY: Symbol = canon(b'F', b'R', b'M');
     pub const SURFACE: Symbol = canon(b'S', b'F', b'C');
     pub const CURSOR: Symbol = canon(b'C', b'R', b'S');
+    pub const LAUNCH_INTENT: Symbol = canon(b'L', b'N', b'C');
     pub const DRIVER_INPUT: Symbol = canon(b'I', b'N', b'P');
     pub const DRIVER_DISPLAY: Symbol = canon(b'D', b'S', b'P');
     pub const DRIVER_STORAGE: Symbol = canon(b'S', b'T', b'R');

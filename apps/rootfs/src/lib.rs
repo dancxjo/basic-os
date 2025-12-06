@@ -51,6 +51,14 @@ pub fn init() {
     // Create /fonts
     let fonts_id = create_directory("fonts", Some(root_id));
     userland::println!("Created /fonts: {:?}", fonts_id);
+
+    // Create /places
+    let places_id = create_directory("places", Some(root_id));
+    userland::println!("Created /places: {:?}", places_id);
+
+    // Create /places/sky
+    create_place("sky", places_id, "graph_viewer");
+
     create_font_file(
         "NotoSansSymbols-Regular.ttf",
         fonts_id,
@@ -71,6 +79,23 @@ pub fn init() {
 
     // Populate /dev
     create_device("tty0", dev_id);
+}
+
+fn create_place(name: &str, parent: Uuid, app_name: &str) -> Uuid {
+    let id = userland::simple_uuid(name.as_bytes());
+
+    let mut fields = userland::map();
+    fields.insert(canon::NAME, Value::Text(name.into()));
+    fields.insert(canon::KIND, Value::Symbol(canon::PLACE));
+    fields.insert(canon::APP, Value::Text(app_name.into()));
+    fields.insert(canon::PARENT, Value::Uuid(parent));
+
+    let place_id = userland::fiat(Some(id), canon::PLACE, fields);
+
+    link(parent, "contains", place_id);
+    link(place_id, "parent", parent);
+
+    place_id
 }
 
 fn create_directory(name: &str, parent: Option<Uuid>) -> Uuid {

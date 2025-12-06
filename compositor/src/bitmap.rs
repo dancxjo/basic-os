@@ -55,10 +55,9 @@ pub fn fallback_background() -> Bitmap {
     let width = 64;
     let height = 64;
     let mut pixels = Vec::with_capacity(width * height);
-    for y in 0..height {
-        for x in 0..width {
-            let shade = 0x10 + ((x ^ y) as u32 & 0x3F);
-            let color = 0x00050505 * shade;
+    for _y in 0..height {
+        for _x in 0..width {
+            let color = 0xFF000000; // Black
             pixels.push(color);
         }
     }
@@ -76,13 +75,17 @@ pub fn decode_bmp(data: &[u8]) -> Option<Bitmap> {
     let bpp = u16::from_le_bytes(data[28..30].try_into().ok()?);
     let compression = u32::from_le_bytes(data[30..34].try_into().ok()?);
 
-    if planes != 1 || bpp != 24 || compression != 0 {
+    if planes != 1 || (bpp != 24 && bpp != 32) || compression != 0 {
         return None;
     }
 
     let width_u = width.unsigned_abs() as usize;
     let height_u = height.unsigned_abs() as usize;
-    let stride = ((width_u * 3 + 3) / 4) * 4;
+    let stride = if bpp == 24 {
+        ((width_u * 3 + 3) / 4) * 4
+    } else {
+        width_u * 4
+    };
 
     if data_offset + stride.saturating_mul(height_u) > data.len() {
         return None;
@@ -99,14 +102,26 @@ pub fn decode_bmp(data: &[u8]) -> Option<Bitmap> {
         let src_row = if height > 0 { height_u - 1 - row } else { row };
         let src_start = data_offset + src_row * stride;
         for col in 0..width_u {
-            let idx = src_start + col * 3;
-            if idx + 3 > data.len() {
-                break;
+            if bpp == 24 {
+                let idx = src_start + col * 3;
+                if idx + 3 > data.len() {
+                    break;
+                }
+                let b = data[idx] as u32;
+                let g = data[idx + 1] as u32;
+                let r = data[idx + 2] as u32;
+                pixels[row * width_u + col] = 0xFF000000 | (r << 16) | (g << 8) | b;
+            } else {
+                let idx = src_start + col * 4;
+                if idx + 4 > data.len() {
+                    break;
+                }
+                let b = data[idx] as u32;
+                let g = data[idx + 1] as u32;
+                let r = data[idx + 2] as u32;
+                let a = data[idx + 3] as u32;
+                pixels[row * width_u + col] = (a << 24) | (r << 16) | (g << 8) | b;
             }
-            let b = data[idx] as u32;
-            let g = data[idx + 1] as u32;
-            let r = data[idx + 2] as u32;
-            pixels[row * width_u + col] = (r << 16) | (g << 8) | b;
         }
     }
 
