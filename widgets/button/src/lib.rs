@@ -183,9 +183,13 @@ impl WidgetAbi for ButtonWidget {
 
         // Draw icon
         let content_offset = if state.pressed { 1 } else { 0 };
-        let icon = state.icon_name.as_ref().and_then(|name| load_icon(name));
+        let icon = state.icon_name.as_ref().and_then(|name| {
+            userland::println!("ButtonWidget: Loading icon '{}'", name);
+            load_icon(name)
+        });
         
         if let Some(icon) = &icon {
+            userland::println!("ButtonWidget: Drawing icon, data len={}", icon.data.len());
             let x = if state.show_label {
                 ICON_PADDING
             } else {
@@ -200,6 +204,8 @@ impl WidgetAbi for ButtonWidget {
                 icon,
                 text_color,
             );
+        } else if state.icon_name.is_some() {
+            userland::println!("ButtonWidget: Icon load failed for {:?}", state.icon_name);
         }
 
         // Draw label if enabled
@@ -491,12 +497,14 @@ fn load_icon(name: &str) -> Option<IconPath> {
             if icon_name == name {
                 if let Some(Value::Bytes(bytes)) = thing.fields.get(&canon::BYTES) {
                     if let Ok(svg_str) = core::str::from_utf8(bytes) {
-                        // For Plataro icons, assume 24x24 default size
-                        return Some(IconPath {
-                            data: alloc::string::String::from(svg_str),
-                            width: 24,
-                            height: 24,
-                        });
+                        // Extract path data from SVG XML
+                        if let Some(path_data) = extract_svg_path(svg_str) {
+                            return Some(IconPath {
+                                data: path_data,
+                                width: 24,
+                                height: 24,
+                            });
+                        }
                     }
                 }
             }
@@ -516,6 +524,18 @@ fn load_icon(name: &str) -> Option<IconPath> {
         width,
         height,
     })
+}
+
+/// Extract the `d` attribute from an SVG path element
+fn extract_svg_path(svg: &str) -> Option<alloc::string::String> {
+    // Simple extraction: find d="..." attribute
+    if let Some(d_idx) = svg.find(" d=\"") {
+        let start = d_idx + 4;
+        if let Some(end) = svg[start..].find('"') {
+            return Some(alloc::string::String::from(&svg[start..start + end]));
+        }
+    }
+    None
 }
 
 

@@ -1060,6 +1060,8 @@ where
     fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, surface: &WindowSurface) {
         let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(layout);
 
+        println!("draw_close_button: btn_w={} btn_h={} icon_name={:?}", btn_w, btn_h, surface.close_button_state.icon_name);
+
         // Create temporary buffer
         let mut buffer = vec![0u8; (btn_w * btn_h * 4) as usize];
         let rect = userland::widget_abi::Rect {
@@ -1070,6 +1072,10 @@ where
         };
 
         ButtonWidget::draw(&surface.close_button_state, &mut buffer, rect);
+
+        // Check if any non-zero pixels (excluding background)
+        let non_bg_pixels = buffer.chunks(4).filter(|c| c[0] != 0xC0 || c[1] != 0xC0 || c[2] != 0xC0).count();
+        println!("draw_close_button: buffer non-background pixels={}", non_bg_pixels);
 
         // Convert to u32 pixels for Bitmap
         let pixels: Vec<u32> = buffer
