@@ -116,16 +116,24 @@ pub fn layout(
                 }
                 let x = container.x + (col as i32 * (item_width as i32 + gap));
                 let y = container.y + (row as i32 * (item_height as i32 + gap));
-                let w = if col == cols - 1 {
+                let mut w = if col == cols - 1 {
                     container.width - (item_width * (cols - 1)) - (total_gap_x as u32)
                 } else {
                     item_width
                 };
-                let h = if row == rows - 1 {
+                let mut h = if row == rows - 1 {
                     container.height - (item_height * (rows - 1)) - (total_gap_y as u32)
                 } else {
                     item_height
                 };
+
+                if let Some(max_w) = child.max_width {
+                    w = w.min(max_w);
+                }
+                if let Some(max_h) = child.max_height {
+                    h = h.min(max_h);
+                }
+
                 result.push((child.id, Rect::new(x, y, w, h)));
             }
         }
@@ -212,10 +220,10 @@ pub fn layout(
                     0
                 };
 
-                let item_main_size = basis + grow_share;
+                let mut item_main_size = basis + grow_share;
 
                 // Cross axis alignment
-                let item_cross_size = if align == AlignItems::Stretch {
+                let mut item_cross_size = if align == AlignItems::Stretch {
                     cross_size
                 } else {
                     if is_row {
@@ -224,6 +232,23 @@ pub fn layout(
                         child.min_width
                     }
                 };
+
+                // Apply max constraints
+                if is_row {
+                    if let Some(max_w) = child.max_width {
+                        item_main_size = item_main_size.min(max_w);
+                    }
+                    if let Some(max_h) = child.max_height {
+                        item_cross_size = item_cross_size.min(max_h);
+                    }
+                } else {
+                    if let Some(max_h) = child.max_height {
+                        item_main_size = item_main_size.min(max_h);
+                    }
+                    if let Some(max_w) = child.max_width {
+                        item_cross_size = item_cross_size.min(max_w);
+                    }
+                }
 
                 let cross_pos = match align {
                     AlignItems::Start | AlignItems::Stretch => 0,
