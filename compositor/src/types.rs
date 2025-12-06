@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::string::ToString;
+use userland::colors;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
@@ -44,6 +45,19 @@ impl Rgba {
 
     pub const fn opaque(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 0xff }
+    }
+
+    pub const fn from_u32(argb: u32) -> Self {
+        Self {
+            a: ((argb >> 24) & 0xFF) as u8,
+            r: ((argb >> 16) & 0xFF) as u8,
+            g: ((argb >> 8) & 0xFF) as u8,
+            b: (argb & 0xFF) as u8,
+        }
+    }
+
+    pub const fn with_alpha(self, a: u8) -> Self {
+        Self { a, ..self }
     }
 
     pub const fn to_u32(self) -> u32 {
@@ -115,10 +129,10 @@ pub const BTN_FACE: Rgba = Rgba::new(0xff, 0xE6, 0xED, 0xF7);
 pub const BTN_BORDER: Rgba = Rgba::new(0xff, 0x5A, 0x6A, 0x8A);
 pub const BTN_GLYPH: Rgba = Rgba::new(0xff, 0xB8, 0x51, 0x51);
 // Scrollbar colors
-pub const SCROLLBAR_TRACK_COLOR: Rgba = Rgba::new(0xff, 0xE2, 0xE6, 0xF0);
-pub const SCROLLBAR_THUMB_COLOR: Rgba = Rgba::new(0xff, 0x7C, 0x8B, 0xAB);
-pub const SCROLLBAR_THUMB_HILIGHT: Rgba = Rgba::new(0xff, 0xF5, 0xF7, 0xFB);
-pub const SCROLLBAR_THUMB_SHADOW: Rgba = Rgba::new(0xff, 0x4A, 0x54, 0x6A);
+pub const SCROLLBAR_TRACK_COLOR: Rgba = Rgba::from_u32(colors::SCROLLBAR_TRACK_COLOR);
+pub const SCROLLBAR_THUMB_COLOR: Rgba = Rgba::from_u32(colors::SCROLLBAR_THUMB_COLOR);
+pub const SCROLLBAR_THUMB_HILIGHT: Rgba = Rgba::from_u32(colors::SCROLLBAR_THUMB_HILIGHT);
+pub const SCROLLBAR_THUMB_SHADOW: Rgba = Rgba::from_u32(colors::SCROLLBAR_THUMB_SHADOW);
 
 pub const COLOR_TEXT: Rgba = THEME.title_text_active;
 pub const COLOR_CURSOR_PRIMARY: Rgba = Rgba::new(0xff, 0xff, 0xff, 0xff);

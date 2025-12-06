@@ -6,6 +6,9 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::cmp::{max, min};
 use thing_abi::ThingId;
+use userland::colors::{
+    SCROLLBAR_THUMB_COLOR, SCROLLBAR_THUMB_HILIGHT, SCROLLBAR_THUMB_SHADOW, SCROLLBAR_TRACK_COLOR,
+};
 use userland::{
     canon,
     graph::{self},
@@ -84,8 +87,7 @@ impl WidgetAbi for ScrollbarThumbWidget {
         let (thumb_y, thumb_height) = calculate_thumb_geometry(*metrics);
 
         // 3. Draw the track (background)
-        // SCROLLBAR_TRACK_COLOR: 0xffE2E6F0
-        let track_color = (0xE2, 0xE6, 0xF0, 0xFF); // B G R A
+        let track_color = argb_to_bgra(SCROLLBAR_TRACK_COLOR);
         fill_rect(
             fb,
             rect.width as usize,
@@ -97,13 +99,13 @@ impl WidgetAbi for ScrollbarThumbWidget {
         );
 
         // 4. Draw the thumb
-        // SCROLLBAR_THUMB_COLOR: 0xff7C8BAB
-        // Highlight: 0xffF5F7FB
         let thumb_color = if state.pressed {
-            (0xF5, 0xF7, 0xFB, 0xFF)
+            SCROLLBAR_THUMB_HILIGHT
         } else {
-            (0x7C, 0x8B, 0xAB, 0xFF)
+            SCROLLBAR_THUMB_COLOR
         };
+
+        let thumb_bgra = argb_to_bgra(thumb_color);
 
         fill_rect(
             fb,
@@ -112,8 +114,29 @@ impl WidgetAbi for ScrollbarThumbWidget {
             thumb_y,
             rect.width as i32,
             thumb_height,
-            thumb_color,
+            thumb_bgra,
         );
+
+        if thumb_height > 1 {
+            fill_rect(
+                fb,
+                rect.width as usize,
+                0,
+                thumb_y,
+                rect.width as i32,
+                1,
+                argb_to_bgra(SCROLLBAR_THUMB_HILIGHT),
+            );
+            fill_rect(
+                fb,
+                rect.width as usize,
+                0,
+                thumb_y + thumb_height - 1,
+                rect.width as i32,
+                1,
+                argb_to_bgra(SCROLLBAR_THUMB_SHADOW),
+            );
+        }
     }
 
     fn handle_event(state: &mut Self::State, event: WidgetEvent) {
@@ -199,6 +222,14 @@ fn calculate_thumb_geometry(metrics: Metrics) -> (i32, i32) {
 
 fn clamp(v: i32, min_val: i32, max_val: i32) -> i32 {
     max(min_val, min(v, max_val))
+}
+
+fn argb_to_bgra(color: u32) -> (u8, u8, u8, u8) {
+    let a = (color >> 24) as u8;
+    let r = (color >> 16) as u8;
+    let g = (color >> 8) as u8;
+    let b = color as u8;
+    (b, g, r, a)
 }
 
 fn fill_rect(

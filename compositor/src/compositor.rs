@@ -1381,15 +1381,21 @@ where
             if let Some(entry) = self.windows.get_mut(&win_id) {
                 entry.window.x = rect.x.max(0) as u64;
                 entry.window.y = rect.y.max(0) as u64;
-                entry.window.width = rect.width as u64;
-                entry.window.height = rect.height as u64;
+                entry.window.width = (rect.width as u64).max(MIN_WINDOW_WIDTH as u64);
+                entry.window.height = (rect.height as u64).max(MIN_WINDOW_HEIGHT as u64);
             }
 
             let mut props = BTreeMap::new();
             props.insert(canon::X, Value::U64(rect.x.max(0) as u64));
             props.insert(canon::Y, Value::U64(rect.y.max(0) as u64));
-            props.insert(canon::WIDTH, Value::U64(rect.width as u64));
-            props.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+            props.insert(
+                canon::WIDTH,
+                Value::U64((rect.width as u64).max(MIN_WINDOW_WIDTH as u64)),
+            );
+            props.insert(
+                canon::HEIGHT,
+                Value::U64((rect.height as u64).max(MIN_WINDOW_HEIGHT as u64)),
+            );
             self.update_window_props(win_id, props);
         }
     }
@@ -1804,14 +1810,6 @@ where
             ) {
                 return Self::cursor_kind_for_edges(&edges);
             }
-
-            if let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height) {
-                if self.cursor.y >= layout.title_y
-                    && self.cursor.y < layout.title_y + layout.title_h
-                {
-                    return CursorKind::Move;
-                }
-            }
         }
 
         CursorKind::Arrow
@@ -1942,7 +1940,10 @@ where
         }
     }
 
-    fn ingest_window(&mut self, window: Window) {
+    fn ingest_window(&mut self, mut window: Window) {
+        window.width = window.width.max(MIN_WINDOW_WIDTH as u64);
+        window.height = window.height.max(MIN_WINDOW_HEIGHT as u64);
+
         let window_id = window.id;
         let is_new = !self.windows.contains_key(&window_id);
         let prev_max_z = if is_new {

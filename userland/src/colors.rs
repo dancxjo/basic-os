@@ -1,0 +1,5 @@
+// Shared ARGB color constants for UI surfaces.
+pub const SCROLLBAR_TRACK_COLOR: u32 = 0xFFE2E6F0;
+pub const SCROLLBAR_THUMB_COLOR: u32 = 0xFF7C8BAB;
+pub const SCROLLBAR_THUMB_HILIGHT: u32 = 0xFFF5F7FB;
+pub const SCROLLBAR_THUMB_SHADOW: u32 = 0xFF4A546A;

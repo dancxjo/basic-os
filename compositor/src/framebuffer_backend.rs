@@ -1,6 +1,7 @@
 use crate::{
     clamp_i32, Bitmap, FrameInfo, FramebufferDevice, FramebufferGeometry, Rect, RendererBackend,
-    Rgba, Scene, SceneItem, CLEAR_COLOR, FONT_HEIGHT,
+    Rgba, Scene, SceneItem, CLEAR_COLOR, FONT_HEIGHT, SCROLLBAR_THUMB_COLOR,
+    SCROLLBAR_THUMB_HILIGHT, SCROLLBAR_THUMB_SHADOW, SCROLLBAR_TRACK_COLOR,
 };
 use alloc::vec;
 use alloc::vec::Vec;
@@ -18,6 +19,12 @@ pub struct BitmapFramebufferDevice {
     height: usize,
     pitch: usize,
     addr: *mut u32,
+}
+
+#[derive(Clone, Copy)]
+enum ClearMode {
+    Full,
+    Clip(Rect),
 }
 
 unsafe impl Send for BitmapFramebufferDevice {}
@@ -41,6 +48,88 @@ impl BitmapRenderer {
     fn clear(&mut self, color: Rgba) {
         self.storage.fill(color.to_u32());
     }
+
+    fn render_scene<'a>(
+        &'a mut self,
+        scene: &Scene,
+        root_clip: Rect,
+        clear_mode: ClearMode,
+    ) -> &'a [u32] {
+        let mut clip_stack: Vec<Option<Rect>> = Vec::new();
+        clip_stack.push(Some(root_clip));
+
+        for item in &scene.items {
+            match item {
+                SceneItem::Clear { color } => match clear_mode {
+                    ClearMode::Full => {
+                        self.clear(*color);
+                    }
+                    ClearMode::Clip(rect) => {
+                        raster_fill_rect(self, &rect, *color, Some(rect));
+                    }
+                },
+                SceneItem::FillRect { rect, color } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_fill_rect(self, rect, *color, clip);
+                }
+                SceneItem::HatchRect {
+                    rect,
+                    color,
+                    spacing,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_hatch_rect(self, rect, *color, *spacing, clip);
+                }
+                SceneItem::BlitImage {
+                    rect,
+                    image,
+                    repeat,
+                    offset,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_blit_image(self, rect, image, *repeat, *offset, clip);
+                }
+                SceneItem::DrawText {
+                    origin,
+                    text,
+                    color,
+                    max_width,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_text(self, *origin, text, *color, *max_width, clip);
+                }
+                SceneItem::DrawTextBlock {
+                    rect,
+                    text,
+                    color,
+                    scroll_offset,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip);
+                }
+                SceneItem::DrawCursor {
+                    origin,
+                    sprite,
+                    hotspot,
+                } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_cursor(self, *origin, sprite, *hotspot, clip);
+                }
+                SceneItem::ClipPush { rect } => {
+                    let parent_clip = clip_stack.last().copied().flatten();
+                    let new_clip = parent_clip.and_then(|base| intersect_rect(base, *rect));
+                    clip_stack.push(new_clip);
+                }
+                SceneItem::ClipPop => {
+                    if clip_stack.len() > 1 {
+                        clip_stack.pop();
+                    }
+                }
+            }
+        }
+
+        &self.storage
+    }
 }
 
 impl RendererBackend for BitmapRenderer {
@@ -50,145 +139,15 @@ impl RendererBackend for BitmapRenderer {
         Self: 'b;
     fn render<'a>(&'a mut self, scene: &Scene) -> Self::Output<'a> {
         self.clear(CLEAR_COLOR);
-        let mut clip_stack: Vec<Option<Rect>> = Vec::new();
-        clip_stack.push(Some(Rect::new(0, 0, self.width as u32, self.height as u32)));
-
-        for item in &scene.items {
-            match item {
-                SceneItem::Clear { color } => {
-                    self.clear(*color);
-                }
-                SceneItem::FillRect { rect, color } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_fill_rect(self, rect, *color, clip);
-                }
-                SceneItem::HatchRect {
-                    rect,
-                    color,
-                    spacing,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_hatch_rect(self, rect, *color, *spacing, clip);
-                }
-                SceneItem::BlitImage {
-                    rect,
-                    image,
-                    repeat,
-                    offset,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_blit_image(self, rect, image, *repeat, *offset, clip);
-                }
-                SceneItem::DrawText {
-                    origin,
-                    text,
-                    color,
-                    max_width,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_draw_text(self, *origin, text, *color, *max_width, clip);
-                }
-                SceneItem::DrawTextBlock {
-                    rect,
-                    text,
-                    color,
-                    scroll_offset,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip);
-                }
-                SceneItem::DrawCursor {
-                    origin,
-                    sprite,
-                    hotspot,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_draw_cursor(self, *origin, sprite, *hotspot, clip);
-                }
-                SceneItem::ClipPush { rect } => {
-                    let parent_clip = clip_stack.last().copied().flatten();
-                    let new_clip = parent_clip.and_then(|base| intersect_rect(base, *rect));
-                    clip_stack.push(new_clip);
-                }
-                SceneItem::ClipPop => {
-                    if clip_stack.len() > 1 {
-                        clip_stack.pop();
-                    }
-                }
-            }
-        }
-        &self.storage
+        self.render_scene(
+            scene,
+            Rect::new(0, 0, self.width as u32, self.height as u32),
+            ClearMode::Full,
+        )
     }
 
     fn render_partial<'a>(&'a mut self, scene: &Scene, dirty_rect: Rect) -> Self::Output<'a> {
-        let mut clip_stack: Vec<Option<Rect>> = Vec::new();
-        clip_stack.push(Some(dirty_rect));
-
-        for item in &scene.items {
-            match item {
-                SceneItem::Clear { color } => {
-                    raster_fill_rect(self, &dirty_rect, *color, Some(dirty_rect));
-                }
-                SceneItem::FillRect { rect, color } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_fill_rect(self, rect, *color, clip);
-                }
-                SceneItem::HatchRect {
-                    rect,
-                    color,
-                    spacing,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_hatch_rect(self, rect, *color, *spacing, clip);
-                }
-                SceneItem::BlitImage {
-                    rect,
-                    image,
-                    repeat,
-                    offset,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_blit_image(self, rect, image, *repeat, *offset, clip);
-                }
-                SceneItem::DrawText {
-                    origin,
-                    text,
-                    color,
-                    max_width,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_draw_text(self, *origin, text, *color, *max_width, clip);
-                }
-                SceneItem::DrawTextBlock {
-                    rect,
-                    text,
-                    color,
-                    scroll_offset,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip);
-                }
-                SceneItem::DrawCursor {
-                    origin,
-                    sprite,
-                    hotspot,
-                } => {
-                    let clip = clip_stack.last().copied().flatten();
-                    raster_draw_cursor(self, *origin, sprite, *hotspot, clip);
-                }
-                SceneItem::ClipPush { rect } => {
-                    let parent_clip = clip_stack.last().copied().flatten();
-                    let new_clip = parent_clip.and_then(|base| intersect_rect(base, *rect));
-                    clip_stack.push(new_clip);
-                }
-                SceneItem::ClipPop => {
-                    if clip_stack.len() > 1 {
-                        clip_stack.pop();
-                    }
-                }
-            }
-        }
-        &self.storage
+        self.render_scene(scene, dirty_rect, ClearMode::Clip(dirty_rect))
     }
 }
 
@@ -687,7 +646,7 @@ mod tests {
 
         let rect = Rect::new(1, 1, 3, 3);
         let clip = Some(Rect::new(1, 0, 1, 3));
-        let color = Rgba::new(0xFF, 0x12, 0x34, 0x56);
+        let color = SCROLLBAR_TRACK_COLOR;
 
         raster_fill_rect(&mut backend, &rect, color, clip);
 
@@ -703,7 +662,7 @@ mod tests {
         backend.storage.fill(0xFFFFFFFF);
 
         let rect = Rect::new(0, 0, 4, 4);
-        let color = Rgba::new(128, 255, 0, 0);
+        let color = SCROLLBAR_THUMB_COLOR.with_alpha(128);
         let clip = Some(Rect::new(1, 1, 2, 2));
 
         raster_fill_rect(&mut backend, &rect, color, clip);
@@ -744,7 +703,7 @@ mod tests {
         let mut backend = BitmapRenderer::new(16, 32);
         let rect = Rect::new(0, 0, 10, 32);
         let text = "\u{2588}\u{2588}";
-        let color = Rgba::new(0xFF, 0xFF, 0xFF, 0xFF);
+        let color = SCROLLBAR_THUMB_HILIGHT;
 
         raster_draw_text_block(&mut backend, &rect, text, color, FONT_HEIGHT as i32, None);
 
@@ -797,13 +756,14 @@ mod tests {
         let mut storage = vec![0u32; 4 * 4];
         let mut device = BitmapFramebufferDevice::new(4, 4, 4 * 4, storage.as_mut_ptr());
 
-        let frame = vec![0xFFFFFFFF; 4 * 4];
+        let shadow = SCROLLBAR_THUMB_SHADOW.to_u32();
+        let frame = vec![shadow; 4 * 4];
         let dirty = Rect::new(-1, -1, 3, 3);
 
         device.present_partial(&frame, dirty);
 
         let expected = vec![
-            0xFFFFFFFF, 0xFFFFFFFF, 0, 0, 0xFFFFFFFF, 0xFFFFFFFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            shadow, shadow, 0, 0, shadow, shadow, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         assert_eq!(storage, expected);
     }

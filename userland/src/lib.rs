@@ -6,6 +6,7 @@ extern crate alloc;
 
 pub mod app;
 pub mod apps_manifest;
+pub mod colors;
 pub mod drivers;
 pub mod errors;
 pub mod flex;
