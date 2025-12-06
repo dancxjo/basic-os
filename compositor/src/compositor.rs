@@ -1117,7 +1117,7 @@ where
                 hovered: false,
                 focused: false,
                 icon_name: Some("close".to_string()),
-                show_label: true,
+                show_label: false,
                 bind_node: None,
                 bind_index: None,
             };
@@ -2152,7 +2152,7 @@ where
                 hovered: false,
                 focused: false,
                 icon_name: Some("close".to_string()),
-                show_label: true,
+                show_label: false,
                 bind_node: None,
                 bind_index: None,
             };

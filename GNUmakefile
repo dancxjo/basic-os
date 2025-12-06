@@ -383,6 +383,7 @@ ifeq ($(KARCH),x86_64)
 	cp assets/plataro/apps/scalable/utilities-terminal.svg assets_build/icons/terminal.svg
 	cp assets/plataro/categories/scalable/preferences-system.svg assets_build/icons/settings.svg
 	cp assets/plataro/places/scalable/user-home.svg assets_build/icons/home.svg
+	cp assets/plataro/actions/scalable/window-close.svg assets_build/icons/close.svg
 	# Pack assets.tar - only adding the icons folder at the root
 	tar -C assets_build -cf assets.tar icons
 	cp -v assets.tar iso_root/boot/

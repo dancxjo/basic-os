@@ -265,7 +265,7 @@ impl GraphViewerApp {
                 _ => "file".to_string(), // Default fallback
             }
         };
-        fields.insert(canon::ICON, Value::Text(icon_name));
+        fields.insert(canon::ICON_NAME, Value::Text(icon_name));
 
         // Position: Use X/Y if available, else derive from ID hash for stability
         // Casting to U64 is correct for canon::X/Y based on ui_graph.rs
