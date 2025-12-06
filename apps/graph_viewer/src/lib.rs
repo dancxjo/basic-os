@@ -239,12 +239,33 @@ impl GraphViewerApp {
         fields.insert(canon::TEXT, Value::Text(label.clone()));
         fields.insert(canon::LABEL, Value::Text(label)); // Ensure widget manager sees it
 
-        // Icon
+        // Icon: Assign based on thing kind if not explicitly set
         let icon_sym = canon::canon(b'I', b'C', b'N');
-        if let Some(icon) = thing.fields.get(&icon_sym) {
-            fields.insert(icon_sym, icon.clone());
-             fields.insert(canon::ICON_NAME, icon.clone());
-        }
+        let icon_name = if let Some(icon) = thing.fields.get(&icon_sym).and_then(|v| v.as_text()) {
+            // Explicit icon set
+            icon.to_string()
+        } else {
+            // Derive from kind
+            match thing.kind {
+                k if k == canon::FILE => {
+                    // Check MIME type for more specific icons
+                    if let Some(Value::Text(mime)) = thing.fields.get(&canon::MIME) {
+                        if mime.starts_with("image/") {
+                            "file".to_string() // Could use image-specific icon
+                        } else {
+                            "file".to_string()
+                        }
+                    } else {
+                        "file".to_string()
+                    }
+                },
+                k if k == canon::DIRECTORY => "folder".to_string(),
+                k if k == canon::PLACE => "home".to_string(),
+                k if k == canon::APP => "terminal".to_string(), // Apps get terminal icon
+                _ => "file".to_string(), // Default fallback
+            }
+        };
+        fields.insert(canon::ICON, Value::Text(icon_name));
 
         // Position: Use X/Y if available, else derive from ID hash for stability
         // Casting to U64 is correct for canon::X/Y based on ui_graph.rs
