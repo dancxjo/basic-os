@@ -214,6 +214,7 @@ dependencies = [
  "serde_json",
  "spin 0.9.8",
  "svg-path-cst",
+ "terminal",
  "text_editor",
  "thing_abi",
  "thing_host",
@@ -1645,6 +1646,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "terminal"
+version = "0.1.0"
+dependencies = [
+ "userland",
 ]
 
 [[package]]

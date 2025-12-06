@@ -1297,7 +1297,7 @@ where
         }
         // Update the graph node instead of local state
         let mut fields = userland::map();
-        fields.insert(canon::INDEX, Value::I64(new_mode_idx as i64));
+        fields.insert(canon::MODE_INDEX, Value::I64(new_mode_idx as i64));
         userland::fiat(Some(self.current_mode_node), canon::CURRENT_MODE, fields);
     }
 
@@ -2223,6 +2223,12 @@ where
                         self.modes[target_mode].root_window = Some(window_id);
                     } else {
                         self.modes[target_mode].windows.push(window_id);
+                    }
+                    // Also set the mode's place_id if this is a place root
+                    if is_place_root {
+                        if let Some(place_id) = place_id {
+                            self.modes[target_mode].place_id = Some(place_id);
+                        }
                     }
                 }
             }

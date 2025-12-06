@@ -266,6 +266,7 @@ pub const PERSIST: Symbol = canon(b'P', b'S', b'T');
 pub const WIDGET_KIND_NOTIFICATION: Symbol = canon(b'W', b'N', b'T');
 pub const THING_WIDGET: Symbol = canon(b'T', b'H', b'W');
 pub const STYLE: Symbol = canon(b'S', b'T', b'Y');
+pub const DEBUG_LOG: Symbol = canon(b'D', b'B', b'G');
 
 pub fn from_str(s: &str) -> Option<Symbol> {
     const TBL: &[(Symbol, &str)] = &[

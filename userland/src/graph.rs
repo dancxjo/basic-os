@@ -534,8 +534,12 @@ impl Window {
         map.insert(canon::VISIBLE, Value::Bool(self.visible));
         map.insert(canon::ACTIVE, Value::Bool(self.active));
         map.insert(canon::IS_ROOT, Value::Bool(self.is_root));
+        map.insert(canon::IS_PLACE_ROOT, Value::Bool(self.is_place_root));
+        if let Some(place_id) = self.place_id {
+            map.insert(canon::PLACE, Value::Uuid(place_id));
+        }
         if let Some(idx) = self.mode_index {
-            map.insert(canon::MODE_INDEX, Value::U64(idx as u64));
+            map.insert(canon::MODE_INDEX, Value::I64(idx as i64));
         }
         if let Some(target) = self.target {
             map.insert(canon::TARGET, Value::Uuid(target));

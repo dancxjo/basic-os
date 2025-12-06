@@ -51,6 +51,23 @@ macro_rules! println {
     };
 }
 
+/// Macro to emit debug messages to the terminal app (via graph DEBUG_LOG)
+/// Use this sparingly as it creates graph things
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => {{
+        $crate::emit_debug_log(core::format_args!($($arg)*));
+    }};
+}
+
+/// Emit a debug log entry to the graph for the terminal app
+pub fn emit_debug_log(args: core::fmt::Arguments<'_>) {
+    let msg = alloc::format!("{}", args);
+    let mut fields = graph::map();
+    fields.insert(canon::TEXT, Value::Text(msg));
+    graph::fiat(None, canon::DEBUG_LOG, fields);
+}
+
 pub mod canon {
     pub use thing_abi::{canon, cc, from_char, from_u16, Symbol};
     pub const JOURNAL: Symbol = cc('J', 'N');
@@ -324,6 +341,7 @@ pub mod canon {
     pub const BOOT_ASSET: Symbol = canon(b'B', b'T', b'A');
 
     pub const THING_WIDGET: Symbol = canon(b'T', b'H', b'W');
+    pub const DEBUG_LOG: Symbol = canon(b'D', b'B', b'G');
 }
 
 pub mod prelude {

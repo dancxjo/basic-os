@@ -221,6 +221,10 @@ fn main() {
         "widget_host",
         userland::app::run_app::<widget_host::WidgetHost>,
     );
+    userland::sys::register_host_app(
+        "terminal",
+        userland::app::run_app::<terminal::Terminal>,
+    );
     userland::sys::register_host_app("rootfs", rootfs::app_main);
     userland::sys::register_host_app("compositor", || {
         println!("Compositor spawned (ignored)");
