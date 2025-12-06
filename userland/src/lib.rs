@@ -115,7 +115,10 @@ pub mod canon {
     pub const ACTIVATED: Symbol = canon(b'A', b'C', b'T');
     pub const Y: Symbol = canon(b'Y', b' ', b' ');
     pub const SCROLL_Y: Symbol = canon(b'S', b'C', b'Y');
+    pub const MAX_SCROLL: Symbol = canon(b'M', b'X', b'S');
     pub const CONTENT_HEIGHT: Symbol = canon(b'C', b'T', b'H');
+    pub const THUMB_OFFSET: Symbol = canon(b'T', b'O', b'F');
+    pub const THUMB_HEIGHT: Symbol = canon(b'T', b'H', b'T');
 
     pub const Z: Symbol = canon(b'Z', b'I', b'N');
     pub const WIDTH: Symbol = canon(b'W', b'D', b'T');

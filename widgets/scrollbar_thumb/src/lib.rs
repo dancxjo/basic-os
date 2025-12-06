@@ -24,6 +24,9 @@ struct Metrics {
     content_height: i32,
     scroll_y: i32,
     track_height: i32,
+    max_scroll: i32,
+    thumb_offset: i32,
+    thumb_height: i32,
 }
 
 pub struct State {
@@ -80,11 +83,32 @@ impl WidgetAbi for ScrollbarThumbWidget {
             if let Some(v) = thing.fields.get(&canon::SCROLL_Y).and_then(|v| v.as_i64()) {
                 metrics.scroll_y = v as i32;
             }
+            if let Some(v) = thing
+                .fields
+                .get(&canon::MAX_SCROLL)
+                .and_then(|v| v.as_i64())
+            {
+                metrics.max_scroll = v as i32;
+            }
+            if let Some(v) = thing
+                .fields
+                .get(&canon::THUMB_OFFSET)
+                .and_then(|v| v.as_i64())
+            {
+                metrics.thumb_offset = v as i32;
+            }
+            if let Some(v) = thing
+                .fields
+                .get(&canon::THUMB_HEIGHT)
+                .and_then(|v| v.as_i64())
+            {
+                metrics.thumb_height = v as i32;
+            }
         }
         metrics.track_height = rect.height as i32;
 
         // 2. Calculate thumb geometry
-        let (thumb_y, thumb_height) = calculate_thumb_geometry(*metrics);
+        let (thumb_y, thumb_height) = (metrics.thumb_offset, metrics.thumb_height);
 
         // 3. Draw the track (background)
         let track_color = argb_to_bgra(SCROLLBAR_TRACK_COLOR);
@@ -143,7 +167,7 @@ impl WidgetAbi for ScrollbarThumbWidget {
         match event {
             WidgetEvent::Input(InputEvent::MouseDown { y, .. }) => {
                 let metrics = state.metrics.borrow();
-                let (thumb_y, thumb_height) = calculate_thumb_geometry(*metrics);
+                let (thumb_y, thumb_height) = (metrics.thumb_offset, metrics.thumb_height);
 
                 if y >= thumb_y && y < thumb_y + thumb_height {
                     state.pressed = true;
@@ -160,18 +184,13 @@ impl WidgetAbi for ScrollbarThumbWidget {
                     let dy = y - state.drag_start_mouse_y;
 
                     let track_height = metrics.track_height;
-                    let content_height = metrics.content_height;
-                    let viewport_height = metrics.viewport_height;
+                    let max_scroll = metrics.max_scroll;
 
-                    let max_scroll = max(0, content_height - viewport_height);
                     if max_scroll <= 0 {
                         return;
                     }
 
-                    let ratio = track_height as f32 / max(1, content_height) as f32;
-                    let mut thumb_height = ((ratio * track_height as f32) + 0.5) as i32;
-                    thumb_height = clamp(thumb_height, min(32, track_height), track_height);
-
+                    let thumb_height = metrics.thumb_height;
                     let max_thumb_offset = track_height - thumb_height;
                     if max_thumb_offset <= 0 {
                         return;
@@ -189,35 +208,6 @@ impl WidgetAbi for ScrollbarThumbWidget {
             _ => {}
         }
     }
-}
-
-fn calculate_thumb_geometry(metrics: Metrics) -> (i32, i32) {
-    let viewport_height = metrics.viewport_height;
-    let content_height = metrics.content_height;
-    let track_height = metrics.track_height;
-    let scroll_y = metrics.scroll_y;
-
-    if content_height <= 0 || viewport_height <= 0 || track_height <= 0 {
-        return (0, 0);
-    }
-
-    let max_scroll = max(0, content_height - viewport_height);
-    let clamped_scroll = clamp(scroll_y, 0, max_scroll);
-
-    let ratio = track_height as f32 / max(1, content_height) as f32;
-    let mut thumb_height = ((ratio * track_height as f32) + 0.5) as i32;
-    thumb_height = clamp(thumb_height, min(32, track_height), track_height);
-
-    let max_thumb_offset = track_height - thumb_height;
-
-    let thumb_offset = if max_scroll > 0 {
-        let scroll_ratio = clamped_scroll as f32 / max_scroll as f32;
-        ((scroll_ratio * max_thumb_offset as f32) + 0.5) as i32
-    } else {
-        0
-    };
-
-    (thumb_offset, thumb_height)
 }
 
 fn clamp(v: i32, min_val: i32, max_val: i32) -> i32 {

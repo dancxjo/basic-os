@@ -496,6 +496,8 @@ where
 
         if metrics.content_height > metrics.viewport_height {
             let rect = metrics.scrollbar_rect();
+            let thumb_offset = metrics.scrollbar_thumb_offset.unwrap_or(0);
+            let thumb_height = metrics.scrollbar_thumb_rect.map(|r| r.height).unwrap_or(0);
 
             if let Some(id) = widget_id {
                 let mut updates = BTreeMap::new();
@@ -512,6 +514,9 @@ where
                     Value::I64(metrics.content_height as i64),
                 );
                 updates.insert(canon::SCROLL_Y, Value::I64(metrics.scroll_offset as i64));
+                updates.insert(canon::MAX_SCROLL, Value::I64(metrics.max_scroll as i64));
+                updates.insert(canon::THUMB_OFFSET, Value::I64(thumb_offset as i64));
+                updates.insert(canon::THUMB_HEIGHT, Value::I64(thumb_height as i64));
 
                 userland::graph::fiat(Some(id), canon::WIDGET, updates);
             } else {
@@ -537,6 +542,9 @@ where
                     Value::I64(metrics.content_height as i64),
                 );
                 fields.insert(canon::SCROLL_Y, Value::I64(metrics.scroll_offset as i64));
+                fields.insert(canon::MAX_SCROLL, Value::I64(metrics.max_scroll as i64));
+                fields.insert(canon::THUMB_OFFSET, Value::I64(thumb_offset as i64));
+                fields.insert(canon::THUMB_HEIGHT, Value::I64(thumb_height as i64));
 
                 let id = userland::graph::fiat(None, canon::WIDGET, fields);
 
