@@ -11,6 +11,7 @@ uuid = { version = "=1.10", default-features = false, features = [
     "serde",
 ] }
 parking_lot = "0.12"
+thingos_kernel_std = { path = "../crates/kernel_std", features = ["std"] }
 
 anyhow = "1.0"
 async-trait = "0.1"

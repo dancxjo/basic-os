@@ -1603,9 +1603,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thing_abi",
+ "thingos_kernel_std",
  "tokio",
  "uuid",
 ]
+
+[[package]]
+name = "thing_model"
+version = "0.1.0"
 
 [[package]]
 name = "thing_viewer"
@@ -1634,6 +1639,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "serde",
+ "thing_model",
  "uuid",
 ]
 

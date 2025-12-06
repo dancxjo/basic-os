@@ -51,6 +51,8 @@ impl LayoutInstantiator {
                 canon::FLEX_DIRECTION,
                 canon::FLEX_GROW,
                 canon::FLEX_SHRINK,
+                canon::cc('J', 'C'),
+                canon::cc('A', 'I'),
                 canon::BINDS_TO,
                 canon::TEXT,
                 canon::ICON_NAME,
@@ -135,6 +137,12 @@ impl LayoutInstantiator {
         }
         if let Some(v) = props.get(&canon::FLEX_SHRINK) {
             widget_props.insert(canon::cc('F', 'S'), v.clone());
+        }
+        if let Some(v) = props.get(&canon::cc('J', 'C')) {
+            widget_props.insert(canon::cc('J', 'C'), v.clone());
+        }
+        if let Some(v) = props.get(&canon::cc('A', 'I')) {
+            widget_props.insert(canon::cc('A', 'I'), v.clone());
         }
         if let Some(v) = props.get(&canon::ROLE) {
             widget_props.insert(canon::ROLE, v.clone());

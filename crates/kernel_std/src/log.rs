@@ -1,3 +1,6 @@
+#[cfg(feature = "std")]
+use thing_model::env::Log;
+
 pub fn info(msg: &str) {
     log::info!("{}", msg);
 }
@@ -41,4 +44,23 @@ macro_rules! kerror {
     ($($arg:tt)*) => {
         log::error!($($arg)*);
     };
+}
+
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StdLog;
+
+#[cfg(feature = "std")]
+impl Log for StdLog {
+    fn info(&self, msg: &str) {
+        info(msg);
+    }
+
+    fn warn(&self, msg: &str) {
+        warn(msg);
+    }
+
+    fn error(&self, msg: &str) {
+        error(msg);
+    }
 }

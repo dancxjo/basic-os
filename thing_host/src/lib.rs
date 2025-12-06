@@ -2,6 +2,7 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use thingos_kernel_std::prelude::{Clock, Log, StdEnv};
 
 use thing_abi::{
     AbiRequest, AbiResponse, FramebufferGeometry, GraphChange, GraphEdge, GraphFiatRequest,
@@ -13,6 +14,7 @@ mod symbols;
 pub use store::{init_graph_store, GraphBackend, GraphConfig, GraphStore};
 
 pub struct HostRuntime {
+    env: StdEnv,
     store: Arc<dyn GraphStore>,
     rt: tokio::runtime::Runtime,
     watchers: Mutex<HashMap<WatchId, WatchState>>,
@@ -41,20 +43,24 @@ struct WatchState {
 
 impl HostRuntime {
     pub fn new() -> Self {
+        let env = StdEnv::default();
         let config = GraphConfig::from_env();
         let rt = tokio::runtime::Runtime::new().unwrap();
         let (store, backend) = rt.block_on(init_graph_store(&config));
-        match backend {
-            GraphBackend::InMemory => {
-                println!("Graph backend: InMemory");
-            }
+        let backend_desc = match backend {
+            GraphBackend::InMemory => "InMemory".to_string(),
             #[cfg(feature = "neo4j")]
-            GraphBackend::Neo4j => {
-                println!("Graph backend: Neo4j ({})", config.neo4j.uri);
-            }
-        }
+            GraphBackend::Neo4j => format!("Neo4j ({})", config.neo4j.uri),
+        };
+
+        env.info(&format!(
+            "[{}us] Graph backend: {}",
+            env.now_monotonic(),
+            backend_desc
+        ));
 
         Self {
+            env,
             store,
             rt,
             watchers: Mutex::new(HashMap::new()),

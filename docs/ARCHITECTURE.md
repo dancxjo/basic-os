@@ -65,6 +65,14 @@ You can have:
 *   The exact same bundles running one-instance-per-process on bare metal for stronger isolation.
 *   Widgets all using `WidgetABI`, regardless of whether their isolates are separate processes or Wasm instances inside `widgetd`.
 
+## Environment Abstraction
+
+Core environment services are being pulled behind lightweight traits in `thing_model::env`:
+*   `Log` handles `info`, `warn`, and `error` messages.
+*   `Clock` reports a monotonic timestamp as a `u64` (std hosts currently use microseconds since the env was created).
+
+Std-backed helpers live in `thingos_kernel_std` (`StdLog`, `StdClock`, and `StdEnv` via the prelude) so host tools can swap `println!` and ad-hoc timers for structured hooks. `thing_host::HostRuntime` uses `StdEnv` to announce which graph backend is active as the first client of this abstraction.
+
 ## System Modes
 
 ThingOS supports distinct system modes that define the top-level UI and interaction model. Modes are managed by the Compositor and can be switched using global keybindings.

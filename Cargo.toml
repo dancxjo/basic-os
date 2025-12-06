@@ -4,6 +4,7 @@ members = [
     "thing_host",
     "kernel",
     "crates/kernel_std",
+    "crates/thing_model",
     "userland",
     "compositor",
     "apps/*",
