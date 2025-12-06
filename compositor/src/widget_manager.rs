@@ -341,7 +341,14 @@ impl WidgetManager {
                     child_x += btn_w + TOOLBAR_BUTTON_SPACING;
                 }
             }
-        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+        } else if widget.role == ROLE_CONTAINER_VERTICAL
+            || widget.role == "window_root"
+            || widget.role == ROLE_EDITOR_ROOT
+        {
+            if widget.role == ROLE_EDITOR_ROOT {
+                self.draw_surface_content(scene, window_id, x, y, w, h, windows);
+            }
+
             let children: Vec<Uuid> = self
                 .widgets
                 .values()
@@ -380,9 +387,6 @@ impl WidgetManager {
                 windows,
             );
             drawn_height = h;
-        } else if widget.role == ROLE_EDITOR_ROOT {
-            drawn_height = h;
-            self.draw_surface_content(scene, window_id, x, y, w, h, windows);
         } else if widget.role == "button" {
             drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
             self.draw_toolbar_button(scene, widget, x, y, w, drawn_height);
@@ -779,7 +783,10 @@ impl WidgetManager {
                 }
             }
             return Some(widget.id);
-        } else if widget.role == ROLE_CONTAINER_VERTICAL || widget.role == "window_root" {
+        } else if widget.role == ROLE_CONTAINER_VERTICAL
+            || widget.role == "window_root"
+            || widget.role == ROLE_EDITOR_ROOT
+        {
             let children: Vec<Uuid> = self
                 .widgets
                 .values()
