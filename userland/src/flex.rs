@@ -44,6 +44,47 @@ impl FromStr for FlexDirection {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlexWrap {
+    NoWrap,
+    Wrap,
+}
+
+impl FlexWrap {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoWrap => "nowrap",
+            Self::Wrap => "wrap",
+        }
+    }
+
+    pub fn to_value(self) -> Value {
+        Value::Text(String::from(self.as_str()))
+    }
+
+    pub fn from_value(value: &Value) -> Option<Self> {
+        value_as_str(value).and_then(|s| Self::from_str(s).ok())
+    }
+}
+
+impl Default for FlexWrap {
+    fn default() -> Self {
+        Self::NoWrap
+    }
+}
+
+impl FromStr for FlexWrap {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "nowrap" => Ok(Self::NoWrap),
+            "wrap" => Ok(Self::Wrap),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JustifyContent {
     Start,
     Center,

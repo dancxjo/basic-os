@@ -6,6 +6,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::string::ToString;
 use thing_abi::GraphThing;
+use userland::flex::{AlignItems, FlexDirection, FlexWrap, JustifyContent};
 use userland::prelude::*;
 use userland::{canon, graph, AppEvent, NodePattern, ThingFilter, Value};
 use uuid::Uuid;
@@ -72,10 +73,10 @@ impl App for GraphViewerApp {
         root_fields.insert(canon::VISIBLE, Value::Bool(true));
         root_fields.insert(canon::cc('R', 'L'), Value::Text("window_root".to_string()));
         // Use Row layout with Wrap for icons
-        root_fields.insert(canon::cc('F', 'D'), Value::I64(1)); // Row
-        root_fields.insert(canon::cc('F', 'W'), Value::I64(1)); // Wrap (assuming 1 is wrap)
-        root_fields.insert(canon::cc('J', 'C'), Value::I64(0)); // Start
-        root_fields.insert(canon::cc('A', 'I'), Value::I64(0)); // Start
+        root_fields.insert(canon::cc('F', 'D'), FlexDirection::Row.to_value());
+        root_fields.insert(canon::cc('F', 'W'), FlexWrap::Wrap.to_value());
+        root_fields.insert(canon::cc('J', 'C'), JustifyContent::Start.to_value());
+        root_fields.insert(canon::cc('A', 'I'), AlignItems::Start.to_value());
         root_fields.insert(canon::cc('G', 'P'), Value::I64(10)); // Gap
 
         graph::fiat(Some(root_widget), canon::WIDGET, root_fields);

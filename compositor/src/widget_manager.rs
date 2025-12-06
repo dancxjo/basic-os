@@ -8,7 +8,9 @@ use userland::ui_graph::Widget;
 use userland::{canon, graph, Thingable, Value};
 
 use crate::bitmap::{decode_bmp, Bitmap};
-use crate::layout::{self, AlignItems, FlexDirection, JustifyContent, LayoutItem, LayoutSpec};
+use crate::layout::{
+    self, AlignItems, FlexDirection, FlexWrap, JustifyContent, LayoutItem, LayoutSpec,
+};
 use crate::scene::{Scene, SceneItem};
 use crate::types::{
     Rect, Rgba, BORDER_THICKNESS, BTN_BORDER, BTN_FACE, BTN_GLYPH, COLOR_TEXT, FONT_HEIGHT,
@@ -108,21 +110,24 @@ impl WidgetManager {
         let (gap, spec) = if let Some(surface) = window_surface {
             let w = &surface.window;
             let gap = w.gap.unwrap_or(0);
-            let (direction, justify, align) = if let Some(dir) = w.flex_direction {
+            let (direction, wrap, justify, align) = if let Some(dir) = w.flex_direction {
                 (
                     dir,
+                    FlexWrap::NoWrap,
                     w.justify_content.unwrap_or_default(),
                     w.align_items.unwrap_or(AlignItems::Start),
                 )
             } else {
                 (
                     FlexDirection::Column,
+                    FlexWrap::NoWrap,
                     JustifyContent::Start,
                     AlignItems::Stretch,
                 )
             };
             let spec = LayoutSpec::Flex {
                 direction,
+                wrap,
                 justify,
                 align,
             };
@@ -132,6 +137,7 @@ impl WidgetManager {
                 0,
                 LayoutSpec::Flex {
                     direction: FlexDirection::Column,
+                    wrap: FlexWrap::NoWrap,
                     justify: JustifyContent::Start,
                     align: AlignItems::Stretch,
                 },
@@ -356,15 +362,17 @@ impl WidgetManager {
                 .map(|w| w.id)
                 .collect();
 
-            let (direction, justify, align) = if let Some(dir) = widget.flex_direction {
+            let (direction, wrap, justify, align) = if let Some(dir) = widget.flex_direction {
                 (
                     dir,
+                    widget.flex_wrap.unwrap_or_default(),
                     widget.justify_content.unwrap_or_default(),
                     widget.align_items.unwrap_or(AlignItems::Start),
                 )
             } else {
                 (
                     FlexDirection::Column,
+                    FlexWrap::NoWrap,
                     JustifyContent::Start,
                     AlignItems::Stretch,
                 )
@@ -372,6 +380,7 @@ impl WidgetManager {
 
             let spec = LayoutSpec::Flex {
                 direction,
+                wrap,
                 justify,
                 align,
             };

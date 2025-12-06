@@ -6,7 +6,7 @@
 //! `WIDGET` and `CURSOR` Things with the appropriate properties, then attach
 //! their own rendering logic on top.
 use crate::app::AppContext;
-use crate::flex::{AlignItems, FlexDirection, JustifyContent};
+use crate::flex::{AlignItems, FlexDirection, FlexWrap, JustifyContent};
 use crate::{canon, graph, Symbol, Thingable, Value};
 use alloc::string::String;
 use thing_abi::GraphThing;
@@ -48,6 +48,7 @@ pub struct Widget {
     pub x: Option<u64>,
     pub y: Option<u64>,
     pub flex_direction: Option<FlexDirection>,
+    pub flex_wrap: Option<FlexWrap>,
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<AlignItems>,
     /// Flex grow factor (default 0.0).
@@ -195,6 +196,13 @@ impl Widget {
         {
             self.flex_direction = Some(fd);
         }
+        if let Some(fw) = thing
+            .fields
+            .get(&canon::cc('F', 'W'))
+            .and_then(FlexWrap::from_value)
+        {
+            self.flex_wrap = Some(fw);
+        }
         if let Some(jc) = thing
             .fields
             .get(&canon::cc('J', 'C'))
@@ -303,6 +311,10 @@ impl Thingable for Widget {
             .fields
             .get(&canon::cc('F', 'D'))
             .and_then(FlexDirection::from_value);
+        let flex_wrap = thing
+            .fields
+            .get(&canon::cc('F', 'W'))
+            .and_then(FlexWrap::from_value);
         let justify_content = thing
             .fields
             .get(&canon::cc('J', 'C'))
@@ -361,6 +373,7 @@ impl Thingable for Widget {
             x,
             y,
             flex_direction,
+            flex_wrap,
             justify_content,
             align_items,
             flex_grow,
