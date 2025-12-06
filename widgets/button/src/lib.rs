@@ -7,52 +7,17 @@ use thing_abi::GraphPropsGetRequest;
 use userland::graph::get_props;
 use userland::graph::{set_props, GraphPropsRequest};
 
-use core::convert::TryInto;
 use userland::widget_abi::*;
 use userland::{canon, Symbol, Value};
 
+
+// Simple IconPath struct to hold SVG path data
 #[derive(Clone, Debug)]
-pub struct Icon {
-    data: &'static [u8],
-    width: i32,
-    height: i32,
-    data_offset: usize,
-    top_down: bool,
+struct IconPath {
+    data: alloc::string::String,
+    width: u32,
+    height: u32,
 }
-
-struct IconDef {
-    name: &'static str,
-    data: &'static [u8],
-}
-
-const ICON_DEFS: &[IconDef] = &[
-    IconDef {
-        name: "close",
-        data: ICON_CLOSE,
-    },
-    IconDef {
-        name: "settings",
-        data: ICON_SETTINGS,
-    },
-    IconDef {
-        name: "home",
-        data: ICON_HOME,
-    },
-    IconDef {
-        name: "arrow-back",
-        data: ICON_ARROW_BACK,
-    },
-    IconDef {
-        name: "menu",
-        data: ICON_MENU,
-    },
-];
-
-pub const ICON_CLOSE: &[u8] = include_bytes!("../icons/close.bmp");
-pub const ICON_SETTINGS: &[u8] = include_bytes!("../icons/settings.bmp");
-pub const ICON_HOME: &[u8] = include_bytes!("../icons/home.bmp");
-pub const ICON_ARROW_BACK: &[u8] = include_bytes!("../icons/arrow-back.bmp");
-pub const ICON_MENU: &[u8] = include_bytes!("../icons/menu.bmp");
 
 const ICON_PADDING: i32 = 4;
 const LABEL_SIDE_PADDING: i32 = 8;
@@ -70,7 +35,7 @@ pub struct State {
     pub pressed: bool,
     pub hovered: bool,
     pub focused: bool,
-    pub icon: Option<Icon>,
+    pub icon_name: Option<String>,
     pub show_label: bool,
     pub bind_node: Option<userland::uuid::Uuid>,
     pub bind_index: Option<i64>,
@@ -124,7 +89,11 @@ impl WidgetAbi for ButtonWidget {
             }
         }
 
-        let icon = load_icon(icon_name.as_str());
+        let icon_name = if icon_name.is_empty() {
+            None
+        } else {
+            Some(icon_name)
+        };
 
         State {
             label,
@@ -132,7 +101,7 @@ impl WidgetAbi for ButtonWidget {
             pressed: false,
             hovered: false,
             focused: false,
-            icon,
+            icon_name,
             show_label,
             bind_node,
             bind_index,
@@ -214,18 +183,22 @@ impl WidgetAbi for ButtonWidget {
 
         // Draw icon
         let content_offset = if state.pressed { 1 } else { 0 };
-        if let Some(icon) = &state.icon {
+        let icon = state.icon_name.as_ref().and_then(|name| load_icon(name));
+        
+        if let Some(icon) = &icon {
             let x = if state.show_label {
                 ICON_PADDING
             } else {
-                (rect.width as i32 - icon.width) / 2
+                (rect.width as i32 - icon.width as i32) / 2
             };
-            draw_bmp(
+            // Use text_color for icon to match label/context
+            draw_svg(
                 fb,
                 rect,
                 x + content_offset,
-                (rect.height as i32 - icon.height) / 2 + content_offset,
+                (rect.height as i32 - icon.height as i32) / 2 + content_offset,
                 icon,
+                text_color,
             );
         }
 
@@ -234,8 +207,8 @@ impl WidgetAbi for ButtonWidget {
             // Calculate text width for centering
             let text_width = measure_text_width(&state.label);
 
-            let mut x = if let Some(icon) = &state.icon {
-                ICON_PADDING + icon.width + ICON_PADDING
+            let mut x = if let Some(icon) = &icon {
+                ICON_PADDING + icon.width as i32 + ICON_PADDING
             } else {
                 (rect.width as i32 - text_width) / 2
             };
@@ -322,27 +295,29 @@ impl ButtonWidget {
             0
         };
 
-        let icon_width = state.icon.as_ref().map(|i| i.width).unwrap_or(0);
-        let icon_height = state.icon.as_ref().map(|i| i.height).unwrap_or(0);
+        let icon = state.icon_name.as_ref().and_then(|name| load_icon(name));
+
+        let icon_width = icon.as_ref().map(|i| i.width as i32).unwrap_or(0);
+        let icon_height = icon.as_ref().map(|i| i.height as i32).unwrap_or(0);
         let label_height = if state.show_label { TEXT_HEIGHT } else { 0 };
         let content_height = icon_height.max(label_height);
 
-        let width = if let Some(_) = state.icon {
+        let width = if icon.is_some() {
             if state.show_label {
                 ICON_PADDING + icon_width + ICON_PADDING + text_width + ICON_PADDING
             } else {
-                icon_width + ICON_PADDING * 2
+                icon_width + ICON_PADDING as i32 * 2
             }
         } else if state.show_label {
-            text_width + LABEL_SIDE_PADDING * 2
+            text_width + LABEL_SIDE_PADDING as i32 * 2
         } else {
-            MIN_BUTTON_WIDTH
+            MIN_BUTTON_WIDTH as i32
         };
 
-        let height_needed = content_height + ICON_PADDING * 2;
+        let height_needed = content_height + ICON_PADDING as i32 * 2;
         let height = base_height.max(height_needed.max(1) as u32);
 
-        (width.max(MIN_BUTTON_WIDTH) as u32, height)
+        (width.max(MIN_BUTTON_WIDTH as i32) as u32, height)
     }
 }
 
@@ -385,103 +360,164 @@ fn measure_text_width(text: &str) -> i32 {
         .sum()
 }
 
-fn draw_bmp(fb: &mut [u8], rect: Rect, x: i32, y: i32, icon: &Icon) {
-    for row in 0..icon.height {
-        for col in 0..icon.width {
-            let src_row = if icon.top_down {
-                row
-            } else {
-                icon.height - 1 - row
-            };
-            let src_idx =
-                icon.data_offset + (src_row as usize * icon.width as usize + col as usize) * 4;
 
-            if src_idx + 4 > icon.data.len() {
-                continue;
+fn draw_svg(fb: &mut [u8], rect: Rect, start_x: i32, start_y: i32, icon: &IconPath, color_val: u32) {
+    let path_str = &icon.data;
+
+    let cst = match svg_path_cst::svg_path_cst(path_str.as_bytes()) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut pen_x: f32 = 0.0;
+    let mut pen_y: f32 = 0.0;
+    let mut start_subpath_x: f32 = 0.0;
+    let mut start_subpath_y: f32 = 0.0;
+
+    for node in cst {
+        match node {
+            svg_path_cst::SVGPathCSTNode::Segment(segment) => {
+                let args = segment.args;
+                match segment.command {
+                    svg_path_cst::SVGPathCommand::MovetoUpper => {
+                         if args.len() >= 2 {
+                             pen_x = args[0] as f32;
+                             pen_y = args[1] as f32;
+                             start_subpath_x = pen_x;
+                             start_subpath_y = pen_y;
+                         }
+                    }
+                    svg_path_cst::SVGPathCommand::MovetoLower => {
+                         if args.len() >= 2 {
+                             pen_x += args[0] as f32;
+                             pen_y += args[1] as f32;
+                             start_subpath_x = pen_x;
+                             start_subpath_y = pen_y;
+                         }
+                    }
+                    svg_path_cst::SVGPathCommand::LinetoUpper => {
+                        let mut i = 0;
+                        while i + 1 < args.len() {
+                            let nx = args[i] as f32;
+                            let ny = args[i+1] as f32;
+                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + ny) as i32, color_val);
+                            pen_x = nx;
+                            pen_y = ny;
+                            i += 2;
+                        }
+                    }
+                     svg_path_cst::SVGPathCommand::LinetoLower => {
+                        let mut i = 0;
+                        while i + 1 < args.len() {
+                            let nx = pen_x + args[i] as f32;
+                            let ny = pen_y + args[i+1] as f32;
+                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + ny) as i32, color_val);
+                            pen_x = nx;
+                            pen_y = ny;
+                            i += 2;
+                        }
+                    }
+                    svg_path_cst::SVGPathCommand::HorizontalUpper => {
+                         for i in 0..args.len() {
+                            let nx = args[i] as f32;
+                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + pen_y) as i32, color_val);
+                            pen_x = nx;
+                        }
+                    }
+                     svg_path_cst::SVGPathCommand::VerticalUpper => {
+                         for i in 0..args.len() {
+                            let ny = args[i] as f32;
+                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + pen_x) as i32, (start_y as f32 + ny) as i32, color_val);
+                            pen_y = ny;
+                        }
+                    }
+                    svg_path_cst::SVGPathCommand::ClosepathUpper | svg_path_cst::SVGPathCommand::ClosepathLower => {
+                         draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + start_subpath_x) as i32, (start_y as f32 + start_subpath_y) as i32, color_val);
+                         pen_x = start_subpath_x;
+                         pen_y = start_subpath_y;
+                    }
+                     svg_path_cst::SVGPathCommand::ArcUpper => {
+                         let mut i = 0;
+                         while i + 6 < args.len() {
+                             let nx = args[i+5] as f32;
+                             let ny = args[i+6] as f32;
+                             draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + ny) as i32, color_val);
+                             pen_x = nx;
+                             pen_y = ny;
+                             i += 7;
+                         }
+
+                    }
+                    _ => { } 
+                }
             }
-
-            // BMP is BGRA usually
-            let b = icon.data[src_idx];
-            let g = icon.data[src_idx + 1];
-            let r = icon.data[src_idx + 2];
-            let a = icon.data[src_idx + 3];
-
-            if a == 0 {
-                continue;
-            } // Fully transparent
-
-            let dst_x = rect.x + x + col;
-            let dst_y = rect.y + y + row;
-
-            if dst_x < rect.x
-                || dst_x >= rect.x + rect.width as i32
-                || dst_y < rect.y
-                || dst_y >= rect.y + rect.height as i32
-            {
-                continue;
-            }
-
-            let dst_offset = (dst_y as usize * rect.width as usize + dst_x as usize) * 4;
-            if dst_offset + 4 <= fb.len() {
-                // Simple alpha blending
-                // dst = src * alpha + dst * (1 - alpha)
-                let inv_a = 255 - a;
-                let dst_r = fb[dst_offset];
-                let dst_g = fb[dst_offset + 1];
-                let dst_b = fb[dst_offset + 2];
-
-                fb[dst_offset] = ((r as u16 * a as u16 + dst_r as u16 * inv_a as u16) / 255) as u8;
-                fb[dst_offset + 1] =
-                    ((g as u16 * a as u16 + dst_g as u16 * inv_a as u16) / 255) as u8;
-                fb[dst_offset + 2] =
-                    ((b as u16 * a as u16 + dst_b as u16 * inv_a as u16) / 255) as u8;
-                fb[dst_offset + 3] = 255; // Opaque alpha for framebuffer
-            }
+            _ => { }
         }
     }
 }
 
-fn load_icon(name: &str) -> Option<Icon> {
-    let data = ICON_DEFS.iter().find_map(|def| {
-        if def.name == name {
-            Some(def.data)
-        } else {
-            None
+// Simple Bresenham Line
+fn draw_line_segment(fb: &mut [u8], rect: Rect, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) {
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    
+    let mut x = x0;
+    let mut y = y0;
+
+    loop {
+        draw_pixel(fb, rect, x, y, color);
+        if x == x1 && y == y1 { break; }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
         }
-    })?;
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
 
-    let (width, height, data_offset, top_down) = parse_bmp_metadata(data)?;
 
-    Some(Icon {
-        data,
+fn load_icon(name: &str) -> Option<IconPath> {
+    // Try to load from graph first
+    let things = userland::graph::find_by_kind("FIL");
+    for thing in things {
+        if let Some(Value::Text(icon_name)) = thing.fields.get(&canon::ICON_NAME) {
+            if icon_name == name {
+                if let Some(Value::Bytes(bytes)) = thing.fields.get(&canon::BYTES) {
+                    if let Ok(svg_str) = core::str::from_utf8(bytes) {
+                        // For Plataro icons, assume 24x24 default size
+                        return Some(IconPath {
+                            data: alloc::string::String::from(svg_str),
+                            width: 24,
+                            height: 24,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to hardcoded icons for essential UI elements
+    let (data, width, height) = match name {
+        "close" => ("M 18 6 L 6 18 M 6 6 L 18 18", 24, 24),
+        "menu" => ("M 3 12 L 21 12 M 3 6 L 21 6 M 3 18 L 21 18", 24, 24),
+        "arrow-back" => ("M 19 12 L 5 12 M 12 19 L 5 12 L 12 5", 24, 24),
+        _ => return None,
+    };
+
+    Some(IconPath {
+        data: alloc::string::String::from(data),
         width,
         height,
-        data_offset,
-        top_down,
     })
 }
 
-fn parse_bmp_metadata(bmp: &[u8]) -> Option<(i32, i32, usize, bool)> {
-    if bmp.len() < 54 {
-        return None;
-    }
-    let width = i32::from_le_bytes(bmp[18..22].try_into().ok()?);
-    let height = i32::from_le_bytes(bmp[22..26].try_into().ok()?);
-    let data_offset = u32::from_le_bytes(bmp[10..14].try_into().ok()?) as usize;
-
-    if width <= 0 || height == 0 || data_offset >= bmp.len() {
-        return None;
-    }
-
-    let bpp = u16::from_le_bytes(bmp[28..30].try_into().ok()?);
-    if bpp != 32 {
-        return None;
-    }
-
-    let top_down = height < 0;
-    let height_abs = height.abs();
-    Some((width, height_abs, data_offset, top_down))
-}
 
 include!("helpers.rs");
 

@@ -10,7 +10,6 @@ uuid = { version = "=1.10", default-features = false, features = [
   "v5",
   "serde",
 ] }
-unifont = { version = "1.1.0", default-features = false }
 thing_abi = { path = "../thing_abi" }
 thing_host = { path = "../thing_host", optional = true }
 demo_app = { path = "../apps/demo_app", optional = true }
@@ -25,10 +24,13 @@ graph_viewer = { path = "../apps/graph_viewer", optional = true }
 init = { path = "../apps/init", optional = true }
 widget_host = { path = "../widgets/host", optional = true }
 widget_button = { path = "../widgets/button" }
+svg-path-cst = "0.1"
 x86_64 = { version = "0.14.11", default-features = false, features = [
   "instructions",
 ], optional = true }
 spin = "0.9.8"
+fontdue = { version = "0.8", default-features = false }
+xmlparser = { version = "0.13", default-features = false }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 tiny_http = { version = "0.12", optional = true }

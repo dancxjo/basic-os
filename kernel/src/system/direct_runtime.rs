@@ -112,7 +112,7 @@ pub unsafe fn syscall_handler(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) 
             // SYS_LOG
             let ptr = rdi as *const u8;
             let len = rsi as usize;
-            let slice = core::slice::from_raw_parts(ptr, len);
+            let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
             if let Ok(s) = core::str::from_utf8(slice) {
                 log::info!("{}", s.trim());
             }
@@ -185,7 +185,7 @@ pub unsafe fn syscall_handler(rax: u64, rdi: u64, rsi: u64, rdx: u64, r10: u64) 
 
             let ptr = rdi as *const u8;
             let len = rsi as usize;
-            let slice = core::slice::from_raw_parts(ptr, len);
+            let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
             if let Ok(req) =
                 postcard::from_bytes::<crate::arch::x86_64::syscall::IrqBindRequest>(slice)
             {

@@ -27,7 +27,7 @@ pub static APPS: &[AppSpec] = &[
     AppSpec {
         name: "demo_app",
         bin_name: "demo_app",
-        autostart: true,
+        autostart: false,
         show_in_graph_viewer: true,
     },
     AppSpec {

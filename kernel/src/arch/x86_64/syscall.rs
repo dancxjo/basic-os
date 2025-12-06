@@ -79,6 +79,7 @@ const SYSCALL_SPAWN: u64 = 0x30;
 const SYSCALL_GET_SELF: u64 = 0x40;
 const SYSCALL_LOG: u64 = 0x99;
 
+
 fn get_self(buf_ptr: u64) -> u64 {
     let task_id = current_bundle();
     let Some(buf) = (unsafe { validate_user_slice_mut(buf_ptr, 16) }) else {

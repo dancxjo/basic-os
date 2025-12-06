@@ -6,7 +6,7 @@ use crate::{
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::{max, min};
-use unifont::get_glyph;
+use crate::fonts::font_manager;
 
 pub struct BitmapRenderer {
     width: usize,
@@ -405,23 +405,34 @@ fn raster_draw_text(
     if backend.width == 0 {
         return;
     }
-    let mut cursor_x = origin.0;
-    let mut cursor_y = origin.1;
-    let limit_x = max_width.map(|w| origin.0 + w as i32);
+    let fm = font_manager();
+    let size = FONT_HEIGHT as f32;
+    let metrics = fm.line_metrics(size);
+    let ascent = metrics.ascent;
+    let new_line_size = metrics.new_line_size;
+
+    let mut cursor_x = origin.0 as f32;
+    let mut baseline_y = origin.1 as f32 + ascent;
+    let limit_x = max_width.map(|w| origin.0 as f32 + w as f32);
+
     for ch in text.chars() {
         if ch == '\n' {
-            cursor_x = origin.0;
-            cursor_y = cursor_y.saturating_add(FONT_HEIGHT as i32);
+            cursor_x = origin.0 as f32;
+            baseline_y += new_line_size;
             continue;
         }
-        let Some(glyph) = get_glyph(ch) else { continue };
-        let gw = glyph.get_width() as i32;
+        let (metrics, bitmap) = fm.rasterize(ch, size);
+        let gw = metrics.advance_width;
         if let Some(limit) = limit_x {
             if cursor_x + gw > limit {
                 break;
             }
         }
-        raster_draw_glyph(backend, cursor_x, cursor_y, glyph, color.to_u32(), clip);
+        
+        let draw_x = (cursor_x + metrics.xmin as f32) as i32;
+        let draw_y = (baseline_y - (metrics.ymin as f32 + metrics.height as f32)) as i32;
+        
+        raster_draw_glyph(backend, draw_x, draw_y, &bitmap, metrics.width as i32, metrics.height as i32, color.to_u32(), clip);
         cursor_x += gw;
     }
 }
@@ -451,34 +462,50 @@ fn raster_draw_text_block(
     let content_width = rect.width as i32;
     let view_top = rect.y;
     let view_bottom = rect.y + rect.height as i32;
-    let mut cursor_x: i32 = 0;
-    let mut cursor_y: i32 = 0;
+
+    let fm = font_manager();
+    let size = FONT_HEIGHT as f32;
+    let line_metrics = fm.line_metrics(size);
+    let ascent = line_metrics.ascent;
+    let new_line_size = line_metrics.new_line_size;
+
+    let mut cursor_x: f32 = 0.0;
+    let mut current_y: f32 = 0.0; 
+
     for ch in text.chars() {
         if ch == '\n' {
-            cursor_x = 0;
-            cursor_y = cursor_y.saturating_add(FONT_HEIGHT as i32);
-            if rect.y + cursor_y - scroll_offset >= view_bottom {
+            cursor_x = 0.0;
+            current_y += new_line_size;
+            if rect.y + current_y as i32 - scroll_offset >= view_bottom {
                 break;
             }
             continue;
         }
-        let Some(glyph) = get_glyph(ch) else { continue };
-        let gw = glyph.get_width() as i32;
-        if cursor_x + gw > content_width {
-            cursor_x = 0;
-            cursor_y = cursor_y.saturating_add(FONT_HEIGHT as i32);
+        let (metrics, bitmap) = fm.rasterize(ch, size);
+        let gw = metrics.advance_width;
+
+        if cursor_x + gw > content_width as f32 {
+            cursor_x = 0.0;
+            current_y += new_line_size;
         }
-        let draw_y = rect.y + cursor_y - scroll_offset;
-        if draw_y >= view_bottom || draw_y >= clip_bounds.y + clip_bounds.height as i32 {
+
+        let baseline_y = rect.y as f32 + current_y + ascent - scroll_offset as f32;
+        let draw_y = (baseline_y - (metrics.ymin as f32 + metrics.height as f32)) as i32;
+        
+        if draw_y >= view_bottom {
             break;
         }
-        if draw_y + FONT_HEIGHT as i32 > view_top && draw_y + FONT_HEIGHT as i32 > clip_bounds.y {
-            let draw_x = rect.x + cursor_x;
-            raster_draw_glyph(
+        
+        // Only draw if visible
+        if draw_y + metrics.height as i32 > view_top && draw_y < view_bottom {
+             let draw_x = rect.x + (cursor_x + metrics.xmin as f32) as i32;
+             raster_draw_glyph(
                 backend,
                 draw_x,
                 draw_y,
-                glyph,
+                &bitmap,
+                metrics.width as i32,
+                metrics.height as i32,
                 color.to_u32(),
                 Some(clip_bounds),
             );
@@ -491,16 +518,17 @@ fn raster_draw_glyph(
     backend: &mut BitmapRenderer,
     x: i32,
     y: i32,
-    glyph: &unifont::Glyph,
+    bitmap: &[u8],
+    width: i32,
+    height: i32,
     color: u32,
     clip: Option<Rect>,
 ) {
-    if backend.width == 0 || backend.height == 0 {
+    if backend.width == 0 || backend.height == 0 || width == 0 || height == 0 {
         return;
     }
 
-    let glyph_width = glyph.get_width() as i32;
-    for row in 0..FONT_HEIGHT as i32 {
+    for row in 0..height {
         let dst_y = y + row;
         if dst_y < 0 {
             continue;
@@ -516,7 +544,7 @@ fn raster_draw_glyph(
                 break;
             }
         }
-        for col in 0..glyph_width {
+        for col in 0..width {
             let dst_x = x + col;
             if dst_x < 0 || dst_x >= backend.width as i32 {
                 continue;
@@ -526,9 +554,34 @@ fn raster_draw_glyph(
                     continue;
                 }
             }
-            if glyph.get_pixel(col as usize, row as usize) {
-                let idx = dst_y as usize * backend.width + dst_x as usize;
+            
+            let alpha = bitmap[(row * width + col) as usize];
+            if alpha == 0 {
+                continue;
+            }
+            
+            let idx = dst_y as usize * backend.width + dst_x as usize;
+            if alpha == 255 {
                 backend.storage[idx] = color;
+            } else {
+                // Blend
+                let bg = backend.storage[idx];
+                // Should blend color using alpha to produce source, then blend source over bg?
+                // Actually color has alpha too (usually 0xFF).
+                // Let's assume color is the source color (e.g. black text).
+                // The glyph alpha is the coverage.
+                // Final alpha = color.a * glyph_alpha.
+                // We are blending (color with coverage) over bg.
+                let fg_a = ((color >> 24) & 0xFF) as u32;
+                let final_a = (fg_a * alpha as u32) / 255;
+                if final_a == 0 { continue; }
+                
+                // Construct source pixel with modified alpha?
+                // userland::graphics::blend expects src and dst. 
+                // We should modify 'color' to have 'final_a'.
+                let src = (color & 0x00FFFFFF) | (final_a << 24);
+                
+                backend.storage[idx] = userland::graphics::blend(src, bg);
             }
         }
     }

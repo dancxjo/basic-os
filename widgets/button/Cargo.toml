@@ -7,6 +7,8 @@ edition = "2021"
 userland = { path = "../../userland" }
 thing_abi = { path = "../../thing_abi" }
 unifont = { version = "1.1.0", default-features = false }
+svg-path-cst = "0.1"
+embedded-graphics = "0.8"
 
 [features]
 default = []

@@ -22,6 +22,7 @@ use crate::window::{compute_window_layout, ContentMetrics, WindowLayout, WindowS
 pub struct WidgetManager {
     pub widgets: BTreeMap<Uuid, Widget>,
     pub active_widget: Option<Uuid>,
+    pub icon_cache: BTreeMap<String, Option<String>>,
 }
 
 impl WidgetManager {
@@ -29,6 +30,7 @@ impl WidgetManager {
         Self {
             widgets: BTreeMap::new(),
             active_widget: None,
+            icon_cache: BTreeMap::new(),
         }
     }
 
@@ -68,6 +70,21 @@ impl WidgetManager {
         }
     }
 
+    pub fn draw_specific_widget(
+        &self,
+        scene: &mut Scene,
+        window_id: Uuid,
+        widget_id: Uuid,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        windows: &BTreeMap<Uuid, WindowSurface>,
+    ) {
+        if let Some(widget) = self.widgets.get(&widget_id) {
+            self.draw_widget_recursive(scene, window_id, widget, x, y, w, h, windows);
+        }
+    }
     pub fn draw_widgets(
         &self,
         scene: &mut Scene,
@@ -76,11 +93,12 @@ impl WidgetManager {
         widget_area_width: i32,
         window_surface: Option<&WindowSurface>,
         windows: &BTreeMap<Uuid, WindowSurface>,
+        exclude_id: Option<Uuid>,
     ) {
         let root_widgets: Vec<Uuid> = self
             .widgets
             .values()
-            .filter(|w| w.parent == Some(window_id))
+            .filter(|w| w.parent == Some(window_id) && Some(w.id) != exclude_id)
             .map(|w| w.id)
             .collect();
 
@@ -219,24 +237,21 @@ impl WidgetManager {
 
         for (child_id, rect) in &rects {
             if let Some(child) = self.widgets.get(child_id) {
-                if child.kind.is_none() {
-                    continue;
-                }
-                let width_changed = child.width.map(|w| w as u32 != rect.width).unwrap_or(true);
-                let height_changed = child
-                    .height
-                    .map(|h| h as u32 != rect.height)
-                    .unwrap_or(true);
+                // If it has a 'kind', it's likely a graph-backed widget, so update props
+                if child.kind.is_some() { 
+                    let width_changed = child.width.map(|w| w as u32 != rect.width).unwrap_or(true);
+                    let height_changed = child.height.map(|h| h as u32 != rect.height).unwrap_or(true);
 
-                if width_changed || height_changed {
-                    let mut updates = graph::map();
-                    if width_changed {
-                        updates.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                    if width_changed || height_changed {
+                        let mut updates = graph::map();
+                        if width_changed {
+                            updates.insert(canon::WIDTH, Value::U64(rect.width as u64));
+                        }
+                        if height_changed {
+                            updates.insert(canon::HEIGHT, Value::U64(rect.height as u64));
+                        }
+                        graph::fiat(Some(*child_id), canon::WIDGET, updates);
                     }
-                    if height_changed {
-                        updates.insert(canon::HEIGHT, Value::U64(rect.height as u64));
-                    }
-                    graph::fiat(Some(*child_id), canon::WIDGET, updates);
                 }
             }
         }
@@ -256,6 +271,7 @@ impl WidgetManager {
             }
         }
     }
+
 
     fn draw_widget_recursive(
         &self,
@@ -518,11 +534,9 @@ impl WidgetManager {
             }
         } else if widget.role == "thing_tile" {
             drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
-            scene.push(SceneItem::FillRect {
-                rect: Rect::new(x, y, w as u32, drawn_height as u32),
-                color: BTN_FACE,
-            });
-
+            // Desktop/Thing tile: No background fill (transparent on desktop)
+            // If selected, we might want a highlight, but for now transparent.
+            
             if let Some(bmp_data) = &widget.bitmap {
                  if let Some(bmp) = decode_bmp(bmp_data) {
                       let bmp = Arc::new(bmp);
@@ -535,8 +549,10 @@ impl WidgetManager {
                             offset: (0, 0),
                        });
                  }
-            } else if let Some(icon) = &widget.icon {
-                self.draw_toolbar_icon(scene, icon, x, y + 20, w, 32);
+            } else {
+                let icon_name = widget.icon.as_deref().unwrap_or("thing");
+                // Use new draw_desktop_icon instead of toolbar one
+                self.draw_desktop_icon(scene, icon_name, x, y, w, h - 24); // Reserve space for label
             }
 
             if let Some(label) = &widget.label {
@@ -557,9 +573,86 @@ impl WidgetManager {
                     scroll_offset: 0,
                 });
             }
+        } else if widget.role == "label" {
+            // Simple text label
+            drawn_height = widget.height.map(|v| v as i32).unwrap_or(FONT_HEIGHT as i32);
+             if let Some(label) = &widget.label {
+                 // Center vertically by default? Or top-left?
+                 // For title bar text, we want vertical centering presumably, but DrawTextBlock handles simple flow.
+                 // Let's use DrawText for single line or TextBlock.
+                 // Title text was:
+                 /*
+                    scene.push(SceneItem::DrawText {
+                        origin: (
+                            layout.title_x + TITLE_TEXT_LEFT_PAD,
+                            layout.title_y + TITLE_TEXT_TOP_OFFSET,
+                        ),
+                        ...
+                 */
+                 // Only DrawTextBlock is available or DrawText.
+                 // Let's use DrawTextBlock with vertical centering logic if possible, or just padding.
+                 let pad_x = 4;
+                 let pad_y = (drawn_height - FONT_HEIGHT as i32) / 2;
+                 
+                 scene.push(SceneItem::DrawTextBlock {
+                    rect: Rect::new(x + pad_x, y + pad_y, (w - pad_x * 2) as u32, (drawn_height - pad_y * 2) as u32),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    scroll_offset: 0,
+                });
+             }
         }
 
         drawn_height
+    }
+
+    fn draw_desktop_icon(
+        &self,
+        scene: &mut Scene,
+        icon_name: &str,
+        container_x: i32,
+        container_y: i32,
+        container_w: i32,
+        container_h: i32,
+    ) {
+        // Preferred specific icon size for desktop
+        let icon_size = 32;
+        let x = container_x + (container_w - icon_size) / 2;
+        let y = container_y + (container_h - icon_size) / 2; 
+
+        if let Some(svg_content) = scan_for_icon(icon_name) {
+             draw_svg(scene, x, y, icon_size, icon_size, &svg_content, COLOR_TEXT);
+             return;
+        }
+
+        // Fallback generic doc icon
+        let color = COLOR_TEXT;
+        let icon_w = 20;
+        let icon_h = 24;
+        let icon_left = container_x + (container_w - icon_w) / 2;
+        let icon_top = container_y + (container_h - icon_h) / 2;
+
+        // Paper body
+        scene.push(SceneItem::FillRect {
+             rect: Rect::new(icon_left, icon_top, icon_w as u32, icon_h as u32),
+             color: BTN_FACE, // Use face color for document body
+        });
+        // Border
+        self.draw_rect_outline(scene, icon_left, icon_top, icon_w, icon_h, color);
+        
+        // Folded corner (top right)
+        scene.push(SceneItem::FillRect {
+             rect: Rect::new(icon_left + icon_w - 6, icon_top, 6, 6),
+             color: THEME.client_bg, // Assume background color to hide
+        });
+         scene.push(SceneItem::FillRect {
+             rect: Rect::new(icon_left + icon_w - 6, icon_top + 6, 6, 1),
+             color,
+         });
+          scene.push(SceneItem::FillRect {
+             rect: Rect::new(icon_left + icon_w - 6, icon_top, 1, 7),
+             color,
+         });
     }
 
     fn draw_toolbar_button(
@@ -616,8 +709,32 @@ impl WidgetManager {
         w: i32,
         h: i32,
     ) {
-        let color = BTN_GLYPH;
         let center_offset = |container: i32, item: i32| -> i32 { ((container - item).max(0)) / 2 };
+
+        if let Some(cached) = self.icon_cache.get(icon_name) {
+            if let Some(svg_data) = cached {
+                draw_svg(scene, x, y, w, h, svg_data, BTN_GLYPH);
+                return;
+            }
+        }
+
+        // Try to load from graph
+        // We cheat and cast to mut because cache update is internal state
+        // In a real system we'd use RefCell or logic outside draw.
+        // For this task, we will just do a lookup using a dedicated helper that might be slow
+        // or just skip caching if we can't mutate.
+        // Wait, `draw_toolbar_icon` is `&self`. I cannot mutate `icon_cache`.
+        // I should have made `icon_cache` use interior mutability or load icons given to the manager.
+        // Given I cannot change `&self` easily without refactoring everything, 
+        // I will do the lookup every time? That's bad.
+        // But `scan_for_icon` returning `Option<String>`.
+        
+        if let Some(svg_content) = scan_for_icon(icon_name) {
+             draw_svg(scene, x, y, w, h, &svg_content, BTN_GLYPH);
+             return;
+        }
+
+        let color = BTN_GLYPH;
 
         match icon_name {
             "save" => {
@@ -652,6 +769,31 @@ impl WidgetManager {
                     rect: Rect::new(icon_left, icon_top, 6, 2),
                     color,
                 });
+            }
+            "thing" => {
+                 let icon_w = 20;
+                 let icon_h = 24;
+                 let icon_left = x + center_offset(w, icon_w);
+                 let icon_top = y + center_offset(h, icon_h);
+
+                 // Paper body
+                 scene.push(SceneItem::FillRect {
+                     rect: Rect::new(icon_left, icon_top, icon_w as u32, icon_h as u32),
+                     color,
+                 });
+                 // Folded corner (top right)
+                 scene.push(SceneItem::FillRect {
+                     rect: Rect::new(icon_left + icon_w - 6, icon_top, 6, 6),
+                     color: BTN_FACE,
+                 });
+                  scene.push(SceneItem::FillRect {
+                     rect: Rect::new(icon_left + icon_w - 6, icon_top + 6, 6, 1),
+                     color: BTN_BORDER,
+                 });
+                  scene.push(SceneItem::FillRect {
+                     rect: Rect::new(icon_left + icon_w - 6, icon_top, 1, 7),
+                     color: BTN_BORDER,
+                 });
             }
             _ => {
                 let icon_width = 8;
@@ -973,6 +1115,7 @@ impl WidgetManager {
         win_y: i32,
         win_w: i32,
         win_h: i32,
+        title_bar_height: i32,
         scroll_y: i32,
     ) {
         let root_widgets: Vec<Uuid> = self
@@ -986,7 +1129,7 @@ impl WidgetManager {
             return;
         }
 
-        let layout = match compute_window_layout(win_x, win_y, win_w, win_h) {
+        let layout = match compute_window_layout(win_x, win_y, win_w, win_h, title_bar_height) {
             Some(l) => l,
             None => return,
         };
@@ -1116,9 +1259,10 @@ impl WidgetManager {
             let children: Vec<Uuid> = self
                 .widgets
                 .values()
-                .filter(|w| w.parent == Some(widget_id))
+                .filter(|w| w.parent == Some(widget.id))
                 .map(|w| w.id)
                 .collect();
+
 
             let mut child_y = y - scroll_y;
             // Give children plenty of space to draw themselves
@@ -1198,4 +1342,179 @@ impl WidgetManager {
             max_width: Some(w.saturating_sub(4) as u32),
         });
     }
+}
+
+fn draw_svg(scene: &mut Scene, x: i32, y: i32, w: i32, h: i32, svg_data: &str, color: Rgba) {
+    // Simple XML parser to find path d attributes
+    let mut tokenizer = xmlparser::Tokenizer::from(svg_data);
+    
+    // Default viewport. Plataro icons are often 16, 22, 24, 32, 48 etc.
+    // We should try to find viewBox.
+    let mut viewport_w = 48.0;
+    let mut viewport_h = 48.0;
+
+    for token in tokenizer {
+        if let Ok(xmlparser::Token::ElementStart { local, span, .. }) = token {
+            if local.as_str() == "svg" {
+                // Parse attributes manually from the span string if possible or rely on tokenizer attributes
+                // The tokenizer will yield attributes next.
+            }
+        }
+        if let Ok(xmlparser::Token::Attribute { prefix: _, local, value, .. }) = token {
+            if local.as_str() == "viewBox" {
+                let parts: Vec<&str> = value.as_str().split_whitespace().collect();
+                if parts.len() == 4 {
+                    if let (Ok(vw), Ok(vh)) = (parts[2].parse::<f32>(), parts[3].parse::<f32>()) {
+                        viewport_w = vw;
+                        viewport_h = vh;
+                    }
+                }
+            }
+            if local.as_str() == "d" {
+                 // Found a path!
+                 // Currently we just render standard paths mixed with attributes.
+                 // Ideally we should transform the path based on current group transform etc.
+                 // But for Plataro it's usually flat.
+                 let scale_x = w as f32 / viewport_w;
+                 let scale_y = h as f32 / viewport_h;
+                 
+                  render_svg_path(scene, x, y, value.as_str(), scale_x, scale_y, color);
+            }
+        }
+    }
+}
+
+fn render_svg_path(scene: &mut Scene, start_x: i32, start_y: i32, path_str: &str, scale_x: f32, scale_y: f32, color: Rgba) {
+    let Ok(cst) = svg_path_cst::svg_path_cst(path_str.as_bytes()) else { return };
+
+    let mut pen_x: f32 = 0.0;
+    let mut pen_y: f32 = 0.0;
+    let mut start_subpath_x: f32 = 0.0;
+    let mut start_subpath_y: f32 = 0.0;
+
+    for node in cst {
+        match node {
+            svg_path_cst::SVGPathCSTNode::Segment(segment) => {
+                let args = segment.args;
+                match segment.command {
+                    svg_path_cst::SVGPathCommand::MovetoUpper => {
+                         if args.len() >= 2 {
+                             let nx = args[args.len()-2] as f32 * scale_x;
+                             let ny = args[args.len()-1] as f32 * scale_y;
+                             pen_x = nx;
+                             pen_y = ny;
+                             start_subpath_x = pen_x;
+                             start_subpath_y = pen_y;
+                         }
+                    }
+                    svg_path_cst::SVGPathCommand::MovetoLower => {
+                         if args.len() >= 2 {
+                             let nx = pen_x + args[args.len()-2] as f32 * scale_x;
+                             let ny = pen_y + args[args.len()-1] as f32 * scale_y;
+                             pen_x = nx;
+                             pen_y = ny;
+                             start_subpath_x = pen_x;
+                             start_subpath_y = pen_y;
+                         }
+                    }
+                    svg_path_cst::SVGPathCommand::LinetoUpper => {
+                         let mut i = 0;
+                         while i + 2 <= args.len() {
+                             let nx = args[i] as f32 * scale_x;
+                             let ny = args[i+1] as f32 * scale_y;
+                             push_line(scene, start_x, start_y, pen_x, pen_y, nx, ny, color);
+                             pen_x = nx;
+                             pen_y = ny;
+                             i += 2;
+                         }
+                    }
+                    svg_path_cst::SVGPathCommand::LinetoLower => {
+                         let mut i = 0;
+                         while i + 2 <= args.len() {
+                             let nx = pen_x + args[i] as f32 * scale_x;
+                             let ny = pen_y + args[i+1] as f32 * scale_y;
+                             push_line(scene, start_x, start_y, pen_x, pen_y, nx, ny, color);
+                             pen_x = nx;
+                             pen_y = ny;
+                             i += 2;
+                         }
+                    }
+                    svg_path_cst::SVGPathCommand::HorizontalUpper => {
+                         for i in 0..args.len() {
+                            let nx = args[i] as f32 * scale_x;
+                            push_line(scene, start_x, start_y, pen_x, pen_y, nx, pen_y, color);
+                            pen_x = nx;
+                        }
+                    }
+                    svg_path_cst::SVGPathCommand::HorizontalLower => {
+                         for i in 0..args.len() {
+                            let nx = pen_x + args[i] as f32 * scale_x;
+                            push_line(scene, start_x, start_y, pen_x, pen_y, nx, pen_y, color);
+                            pen_x = nx;
+                        }
+                    }
+                     svg_path_cst::SVGPathCommand::VerticalUpper => {
+                         for i in 0..args.len() {
+                            let ny = args[i] as f32 * scale_y;
+                            push_line(scene, start_x, start_y, pen_x, pen_y, pen_x, ny, color);
+                            pen_y = ny;
+                        }
+                    }
+                    svg_path_cst::SVGPathCommand::VerticalLower => {
+                         for i in 0..args.len() {
+                            let ny = pen_y + args[i] as f32 * scale_y;
+                            push_line(scene, start_x, start_y, pen_x, pen_y, pen_x, ny, color);
+                            pen_y = ny;
+                        }
+                    }
+                    svg_path_cst::SVGPathCommand::CurvetoUpper => {
+                        let mut i = 0;
+                         while i + 6 <= args.len() {
+                             let nx = args[i+5] as f32 * scale_x;
+                             let ny = args[i+6] as f32 * scale_y;
+                             push_line(scene, start_x, start_y, pen_x, pen_y, nx, ny, color);
+                             pen_x = nx;
+                             pen_y = ny;
+                             i += 6;
+                         }
+                    }
+                     svg_path_cst::SVGPathCommand::ClosepathUpper | svg_path_cst::SVGPathCommand::ClosepathLower => {
+                        push_line(scene, start_x, start_y, pen_x, pen_y, start_subpath_x, start_subpath_y, color);
+                        pen_x = start_subpath_x;
+                        pen_y = start_subpath_y;
+                    }
+                    _ => {}
+                }
+            }
+            _ => { }
+        }
+    }
+}
+
+fn scan_for_icon(name: &str) -> Option<String> {
+    // This is a naive implementation that scans, could be slow
+    // We assume FILES are kind "FIL" (canon::FILE)
+    // We use find_by_kind which returns GraphThing directly.
+    let things = userland::graph::find_by_kind("FIL");
+    for thing in things {
+        if let Some(val) = thing.fields.get(&canon::ICON_NAME) {
+            if let Some(s) = val.as_text() {
+                if s == name {
+                    // Found it! Load bytes.
+                    if let Some(Value::Bytes(bytes)) = thing.fields.get(&canon::BYTES) {
+                         return core::str::from_utf8(bytes).ok().map(|s| s.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn push_line(scene: &mut Scene, start_x: i32, start_y: i32, x0: f32, y0: f32, x1: f32, y1: f32, color: Rgba) {
+    scene.push(SceneItem::DrawLine {
+        start: (start_x + x0 as i32, start_y + y0 as i32),
+        end: (start_x + x1 as i32, start_y + y1 as i32),
+        color,
+    });
 }

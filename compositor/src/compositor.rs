@@ -24,15 +24,15 @@ use crate::layout::{self, AlignItems, FlexDirection, JustifyContent, LayoutItem,
 use crate::mode::ModeSlot;
 use crate::scene::{Scene, SceneItem};
 use crate::types::{
-    clamp_i32, Rect, Rgba, Theme, AUTO_TILE_MARGIN, AUTO_TILE_MIN_WINDOWS, AUTO_TILE_TOP_OFFSET,
+    clamp_i32, Rect, Rgba, AUTO_TILE_MARGIN, AUTO_TILE_MIN_WINDOWS, AUTO_TILE_TOP_OFFSET,
     BORDER_3D_THICKNESS, BORDER_OUTER_THICKNESS, BORDER_THICKNESS, BTN_BORDER, BTN_FACE, BTN_GLYPH,
-    CLEAR_COLOR, COLOR_CURSOR_PRIMARY, COLOR_CURSOR_SHADOW, COLOR_TEXT, FONT_HEIGHT,
+    CLEAR_COLOR, CLOSE_BUTTON_SIZE, COLOR_CURSOR_PRIMARY, COLOR_CURSOR_SHADOW, COLOR_TEXT, FONT_HEIGHT,
     MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, RESIZE_CORNER_SIZE, RESIZE_MARGIN,
     ROLE_CONTAINER_VERTICAL, ROLE_EDITOR_ROOT, ROLE_TOOLBAR, ROLE_TOOLBAR_BUTTON, SCROLLBAR_GAP,
     SCROLLBAR_MIN_THUMB, SCROLLBAR_THUMB_COLOR, SCROLLBAR_THUMB_HILIGHT, SCROLLBAR_THUMB_SHADOW,
-    SCROLLBAR_TOTAL_RESERVE, SCROLLBAR_TRACK_COLOR, SCROLLBAR_WIDTH, SCROLL_STEP_LINE, THEME,
+    SCROLLBAR_TOTAL_RESERVE, SCROLLBAR_TRACK_COLOR, SCROLLBAR_WIDTH, SCROLL_STEP_LINE,
     TITLE_BAR_HEIGHT, TITLE_TEXT_LEFT_PAD, TITLE_TEXT_TOP_OFFSET, TOOLBAR_BUTTON_SIZE,
-    TOOLBAR_BUTTON_SPACING, TOOLBAR_HEIGHT,
+    TOOLBAR_BUTTON_SPACING, TOOLBAR_HEIGHT, Layout,
 };
 use crate::widget_manager::WidgetManager;
 use crate::window::{
@@ -50,31 +50,7 @@ fn next_uuid() -> Uuid {
 
 const COMPOSITOR_WIDGET: userland::Symbol = canon::canon(b'C', b'M', b'W');
 
-fn create_close_button() -> (Uuid, widget_button::State) {
-    let widget_id = next_uuid();
 
-    // Create Thing in graph
-    let mut props = BTreeMap::new();
-    props.insert(canon::KIND, Value::Symbol(COMPOSITOR_WIDGET));
-    props.insert(canon::TEXT, Value::Text("✕".to_string()));
-    props.insert(canon::TARGET, Value::Text("close_window".to_string()));
-
-    graph::fiat(Some(widget_id), COMPOSITOR_WIDGET, props);
-
-    let state = widget_button::State {
-        label: "✕".to_string(),
-        target: "close_window".to_string(),
-        pressed: false,
-        hovered: false,
-        focused: false,
-        icon: None,
-        show_label: true,
-        bind_node: None,
-        bind_index: None,
-    };
-
-    (widget_id, state)
-}
 
 pub struct FrameInfo {
     pub addr: u64,
@@ -121,6 +97,7 @@ pub struct Compositor<F, R> {
     watch_mode_defs: Option<WatchId>,
     watch_wallpaper: Option<WatchId>,
     watch_layer: Option<WatchId>,
+    watch_style: Option<WatchId>,
     current_mode_node: Uuid,
     fb_id: Option<Uuid>,
     fb_dirty: bool,
@@ -135,7 +112,7 @@ pub struct Compositor<F, R> {
     wallpapers: BTreeMap<Uuid, WallpaperState>,
     layers: BTreeMap<Uuid, LayerState>,
     saved_sky_geometry: BTreeMap<Uuid, Rect>,
-    theme: Theme,
+    layout: Layout,
     bitmaps: BTreeMap<String, Arc<Bitmap>>,
     drag_state: Option<DragState>,
     alt_down: bool,
@@ -152,13 +129,39 @@ where
     R: RendererBackend,
     F: for<'a> FramebufferDevice<R::Output<'a>>,
 {
+    pub fn ensure_default_style(&mut self) {
+        let pattern = NodePattern {
+            labels: vec![canon::STYLE],
+            ..Default::default()
+        };
+        let nodes = userland::graph::get_nodes(pattern);
+        if nodes.is_empty() {
+            let mut fields = BTreeMap::new();
+            fields.insert(canon::KIND, Value::Symbol(canon::STYLE));
+            fields.insert(canon::HEIGHT, Value::U64(32)); // title_bar_height
+            fields.insert(canon::WIDTH, Value::I64(6)); // border_width/resize_margin (simplifying to just one for now)
+            userland::fiat(None, canon::STYLE, fields);
+        }
+    }
+
+    fn ingest_style(&mut self, thing: &userland::GraphThing) {
+         if let Some(h) = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64()) {
+             self.layout.title_bar_height = h as usize;
+         }
+         // Can expand to colors and others later
+         self.content_dirty = true;
+         // Trigger comprehensive relayout
+         self.enforce_place_layout();
+         // self.update_scrollbars(); // Implicitly called in tick
+    }
+
     pub fn new(fb_device: F, renderer: R) -> Self {
         let geo = fb_device.geometry();
         let (width, height) = (geo.width as usize, geo.height as usize);
         let background = load_background();
         let mut bitmaps = BTreeMap::new();
         bitmaps.insert("clouds.bmp".to_string(), background);
-        let theme = THEME;
+        let layout = Layout::default();
         let cursor_sprites = build_cursor_sprites();
 
         let state_node = userland::simple_uuid(b"CompositorState");
@@ -178,11 +181,17 @@ where
             fields.insert(canon::KIND, Value::Symbol(canon::MODE));
             fields.insert(canon::MODE_INDEX, Value::I64(i as i64));
             fields.insert(canon::NAME, Value::Text(alloc::format!("Mode F{}", i + 1)));
+
+            // PRE-LINK F1 to "sky" place
+            if i == 0 {
+                let sky_place_id = userland::simple_uuid(b"sky");
+                fields.insert(canon::MODE_PLACE, Value::Uuid(sky_place_id));
+            }
+
             userland::fiat(Some(mode_node), canon::MODE, fields);
         }
 
         let mut modes = core::array::from_fn(|i| ModeSlot::new(i as u8));
-        modes[0].place_id = Some(userland::simple_uuid(b"sky"));
 
         let mut layers = BTreeMap::new();
         let mut wallpapers = BTreeMap::new();
@@ -228,6 +237,7 @@ where
             watch_mode_defs: None,
             watch_wallpaper: None,
             watch_layer: None,
+            watch_style: None,
             current_mode_node,
             fb_id: None,
             fb_dirty: false,
@@ -242,7 +252,7 @@ where
             wallpapers,
             layers,
             saved_sky_geometry: BTreeMap::new(),
-            theme,
+            layout,
             bitmaps,
             drag_state: None,
             alt_down: false,
@@ -307,6 +317,7 @@ where
 
     fn init_wallpapers(&mut self) {
         // Create a wallpaper node for each mode
+        // Create a wallpaper node for each mode
         for i in 0..12 {
             let mode_node = userland::simple_uuid(alloc::format!("ModeF{}", i + 1).as_bytes());
             let wallpaper_node =
@@ -316,6 +327,20 @@ where
             fields.insert(canon::KIND, Value::Symbol(canon::WALLPAPER));
             fields.insert(canon::MODE, Value::Uuid(mode_node));
             userland::fiat(Some(wallpaper_node), canon::WALLPAPER, fields);
+
+            // SPECIAL CASE: F1 Mode runs Graph Viewer by default
+            if i == 0 {
+                // We still create the wallpaper as a fallback/background, but we add the APP property
+                // to the Mode's Place (which is linked via ensure_mode_app logic, but here we set it on the place id)
+                // Actually, init_wallpapers doesn't touch the Place directly.
+                // The ModeF1 thing is created in new(), but the Place for it (sky) is set in new().
+                
+                // Let's set the 'app' property on the "sky" place which corresponds to Mode 0.
+                let sky_place_id = userland::simple_uuid(b"sky");
+                let mut app_fields = userland::map();
+                app_fields.insert(canon::APP, Value::Text("graph_viewer".into()));
+                userland::fiat(Some(sky_place_id), canon::PLACE, app_fields);
+            }
 
             // Create default layers for the wallpaper
             // Layer 0: Background color (Sky)
@@ -388,6 +413,9 @@ where
         let mut layer_pattern = NodePattern::default();
         layer_pattern.labels.push(canon::LAYER);
 
+        let mut style_pattern = NodePattern::default();
+        style_pattern.labels.push(canon::STYLE);
+
         let surface_watch = watch_manager.register_pattern(app_id, surface_pattern.clone());
         let window_watch = watch_manager.register_pattern(app_id, window_pattern.clone());
         let cursor_watch = watch_manager.register_pattern(app_id, cursor_pattern.clone());
@@ -396,12 +424,14 @@ where
         let keyboard_watch = watch_manager.register_pattern(app_id, keyboard_pattern);
         let widget_watch = watch_manager.register_pattern(app_id, widget_pattern.clone());
         let mode_watch = watch_manager.register_pattern(app_id, mode_pattern);
-        let mode_def_watch = watch_manager.register_pattern(app_id, mode_def_pattern);
+        let mode_def_watch = watch_manager.register_pattern(app_id, mode_def_pattern.clone());
         let wallpaper_watch = watch_manager.register_pattern(app_id, wallpaper_pattern.clone());
         let layer_watch = watch_manager.register_pattern(app_id, layer_pattern.clone());
+        let style_watch = watch_manager.register_pattern(app_id, style_pattern.clone());
 
         let mut comp = Self::new(fb_device, renderer);
         comp.init_wallpapers();
+        comp.ensure_default_style();
 
         comp.watch_surfaces = Some(surface_watch);
         comp.watch_windows = Some(window_watch);
@@ -414,6 +444,7 @@ where
         comp.watch_mode_defs = Some(mode_def_watch);
         comp.watch_wallpaper = Some(wallpaper_watch);
         comp.watch_layer = Some(layer_watch);
+        comp.watch_style = Some(style_watch);
 
         for thing in userland::graph::get_nodes(wallpaper_pattern.clone()) {
             comp.ingest_wallpaper(&thing);
@@ -421,6 +452,10 @@ where
 
         for thing in userland::graph::get_nodes(layer_pattern) {
             comp.ingest_layer(&thing);
+        }
+
+        for thing in userland::graph::get_nodes(style_pattern) {
+            comp.ingest_style(&thing);
         }
 
         for thing in userland::graph::get_nodes(window_pattern) {
@@ -442,6 +477,23 @@ where
             .next()
         {
             comp.ingest_cursor(&cursor_node);
+        }
+
+        for thing in userland::graph::get_nodes(mode_def_pattern) {
+             if let Some(Value::I64(idx)) = thing.fields.get(&canon::MODE_INDEX) {
+                let idx = (*idx).max(0).min(11) as usize;
+                if let Some(place_id) = thing
+                    .fields
+                    .get(&canon::MODE_PLACE)
+                    .and_then(|v| v.as_uuid())
+                {
+                    comp.modes[idx].place_id = Some(place_id);
+                    // If we are currently in this mode, update active_place
+                    if comp.active_mode == idx {
+                         comp.active_place = Some(place_id);
+                    }
+                }
+            }
         }
 
         comp
@@ -602,6 +654,7 @@ where
                         s.window.y as i32,
                         s.window.width as i32,
                         s.window.height as i32,
+                        self.layout.title_bar_height as i32,
                     ) {
                         Some(ContentMetrics::new(s, &layout))
                     } else {
@@ -651,7 +704,7 @@ where
 
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
-            color: self.theme.client_bg,
+            color: self.layout.client_bg,
         });
 
         if let Some(bmp) = &surface.bitmap {
@@ -694,6 +747,7 @@ where
                 layout.client_w,
                 self.windows.get(&surface.window.id),
                 &self.windows,
+                None,
             );
         }
 
@@ -845,6 +899,7 @@ where
             surface.window.y as i32,
             surface.window.width as i32,
             surface.window.height as i32,
+            self.layout.title_bar_height as i32,
         )?;
         let metrics = ContentMetrics::new(surface, &layout);
         Some((layout, metrics))
@@ -1053,9 +1108,21 @@ where
         };
 
         let window = load_thing::<Window>(window_id).unwrap_or_else(|| default_window(window_id));
-        let entry = self.windows.entry(window_id).or_insert_with(|| {
-            let (btn_id, btn_state) = create_close_button();
-            WindowSurface {
+        if !self.windows.contains_key(&window_id) {
+            let (title_bar_id, close_btn_id) = self.ensure_window_chrome(window_id, &window.title);
+            let btn_state = widget_button::State {
+                label: "".to_string(),
+                target: "close_window".to_string(),
+                pressed: false,
+                hovered: false,
+                focused: false,
+                icon_name: Some("close".to_string()),
+                show_label: true,
+                bind_node: None,
+                bind_index: None,
+            };
+
+            let surf = WindowSurface {
                 window: window.clone(),
                 surface_id: None,
                 text: String::new(),
@@ -1063,12 +1130,16 @@ where
                 scroll_y: 0,
                 scrollbar_widget_id: None,
                 caret: Caret::default(),
-                close_button_id: btn_id,
+                title_bar_id: Some(title_bar_id),
+                close_button_id: close_btn_id,
                 close_button_state: btn_state,
                 close_button_bitmap: None,
                 repeat: false,
-            }
-        });
+            };
+            self.windows.insert(window_id, surf);
+        }
+
+        let entry = self.windows.get_mut(&window_id).unwrap();
         if let Some(tile_mode) = window.tile_mode {
             entry.repeat = tile_mode;
         } else if let Some(tile_mode) = thing.fields.get(&canon::TILE_MODE).and_then(|v| v.as_bool()) {
@@ -1203,7 +1274,7 @@ where
             return;
         };
 
-        if let Some(layout) = compute_window_layout(win_x, win_y, win_w, win_h) {
+        if let Some(layout) = compute_window_layout(win_x, win_y, win_w, win_h, self.layout.title_bar_height as i32) {
             let close_rect = close_button_rect(&layout);
             if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
                 println!("Close button clicked for window {}", window_id);
@@ -1461,11 +1532,50 @@ where
         }
     }
 
+    fn dispatch_action(&mut self, action: &str, window_id: Option<Uuid>) {
+        if action == "ACTION.CLOSE_WINDOW" {
+            if let Some(id) = window_id {
+                 // Logic from on_close_button_up
+                let mut props = BTreeMap::new();
+                props.insert(canon::VISIBLE, Value::Bool(false));
+                self.update_window_props(id, props);
+            }
+        }
+    }
+
     fn end_widget_interaction(&mut self) {
         if let Some(widget_id) = self.widget_manager.active_widget {
             let mut updates = graph::map();
             updates.insert(canon::MOUSE_DOWN, Value::Bool(false));
             graph::fiat(Some(widget_id), canon::WIDGET, updates);
+
+            // Check for valid click (release inside widget)
+            if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
+                 if let Some(surface) = self.windows.get(&win_id) {
+                     let w = surface.window.width as i32;
+                     let h = surface.window.height as i32;
+                     if let Some(layout) = compute_window_layout(win_x, win_y, w, h, self.layout.title_bar_height as i32) {
+                         let metrics = ContentMetrics::new(surface, &layout);
+                         if let Some(hit_id) = self.widget_manager.hit_test_widgets(
+                            win_id,
+                            &layout,
+                            &metrics,
+                            self.cursor.x,
+                            self.cursor.y
+                         ) {
+                             if hit_id == widget_id {
+                                 // Valid Click!
+                                 if let Some(widget) = self.widget_manager.widgets.get(&widget_id).cloned() {
+                                     if let Some(action) = widget.action {
+                                         self.dispatch_action(&action, Some(win_id));
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                 }
+            }
+
             self.widget_manager.active_widget = None;
         }
     }
@@ -1480,21 +1590,11 @@ where
                 };
                 (surface.window.width as i32, surface.window.height as i32)
             };
-            let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height) else {
+            let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height, self.layout.title_bar_height as i32) else {
                 return;
             };
 
-            let close_rect = close_button_rect(&layout);
-            if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
-                if let Some(surface) = self.windows.get_mut(&win_id) {
-                    surface.close_button_state.pressed = true;
-                }
-                self.drag_state = Some(DragState {
-                    window_id: win_id,
-                    kind: DragKind::CloseButton,
-                });
-                return;
-            }
+
 
             let metrics = {
                 let Some(surface) = self.windows.get(&win_id) else {
@@ -1985,6 +2085,48 @@ where
         }
     }
 
+    fn ensure_window_chrome(&mut self, window_id: Uuid, title: &str) -> (Uuid, Uuid) {
+        let title_bar_id = userland::simple_uuid(alloc::format!("TitleBar:{}", window_id).as_bytes());
+        let title_text_id = userland::simple_uuid(alloc::format!("TitleText:{}", window_id).as_bytes());
+        let close_btn_id = userland::simple_uuid(alloc::format!("CloseBtn:{}", window_id).as_bytes());
+
+        // 1. Title Bar Container
+        let mut fields = userland::map();
+        fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+        // Use container.vertical but force row direction to fake a horizontal container
+        fields.insert(canon::ROLE, Value::Text("container.vertical".into())); 
+        fields.insert(canon::cc('F', 'D'), Value::Text("row".into())); // FlexDirection::Row
+        fields.insert(canon::cc('A', 'I'), Value::Text("center".into())); // AlignItems::Center
+        fields.insert(canon::PARENT, Value::Uuid(window_id));
+        fields.insert(canon::HEIGHT, Value::U64(self.layout.title_bar_height as u64));
+        fields.insert(canon::WIDTH, Value::Text("100%".into()));
+        fields.insert(canon::GAP, Value::I64(4));
+        userland::fiat(Some(title_bar_id), canon::WIDGET, fields);
+
+        // 2. Title Text Label
+        let mut fields = userland::map();
+        fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+        fields.insert(canon::ROLE, Value::Text("label".into()));
+        fields.insert(canon::PARENT, Value::Uuid(title_bar_id));
+        fields.insert(canon::LABEL, Value::Text(title.into()));
+        fields.insert(canon::cc('F', 'G'), Value::I64(1)); 
+        userland::fiat(Some(title_text_id), canon::WIDGET, fields);
+
+        // 3. Close Button
+        let mut fields = userland::map();
+        fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
+        fields.insert(canon::ROLE, Value::Text("button".into()));
+        fields.insert(canon::PARENT, Value::Uuid(title_bar_id));
+        fields.insert(canon::LABEL, Value::Text("".into()));
+        fields.insert(canon::ICON_NAME, Value::Text("close".into()));
+        fields.insert(canon::ACTION, Value::Text("ACTION.CLOSE_WINDOW".into()));
+        fields.insert(canon::WIDTH, Value::U64(CLOSE_BUTTON_SIZE as u64));
+        fields.insert(canon::HEIGHT, Value::U64(CLOSE_BUTTON_SIZE as u64));
+        userland::fiat(Some(close_btn_id), canon::WIDGET, fields);
+
+        (title_bar_id, close_btn_id)
+    }
+
     fn ingest_window(&mut self, mut window: Window) {
         window.width = window.width.max(MIN_WINDOW_WIDTH as u64);
         window.height = window.height.max(MIN_WINDOW_HEIGHT as u64);
@@ -1997,10 +2139,24 @@ where
             None
         };
 
+        // Create/Update Chrome Widgets
+        let (title_bar_id, close_btn_id) = self.ensure_window_chrome(window_id, &window.title);
+
         if let Some(entry) = self.windows.get_mut(&window_id) {
             entry.window = window;
         } else {
-            let (btn_id, btn_state) = create_close_button();
+            let btn_state = widget_button::State {
+                label: "".to_string(),
+                target: "close_window".to_string(),
+                pressed: false,
+                hovered: false,
+                focused: false,
+                icon_name: Some("close".to_string()),
+                show_label: true,
+                bind_node: None,
+                bind_index: None,
+            };
+
             self.windows.insert(
                 window_id,
                 WindowSurface {
@@ -2011,7 +2167,8 @@ where
                     scroll_y: 0,
                     scrollbar_widget_id: None,
                     caret: Caret::default(),
-                    close_button_id: btn_id,
+                    title_bar_id: Some(title_bar_id),
+                    close_button_id: close_btn_id,
                     close_button_state: btn_state,
                     close_button_bitmap: None,
                     repeat: false,
@@ -2228,6 +2385,7 @@ where
             client_y,
             client_w,
             client_h,
+            self.layout.title_bar_height as i32,
             surface.scroll_y,
         );
     }
@@ -2275,7 +2433,7 @@ where
 
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
-            color: self.theme.client_bg,
+            color: self.layout.client_bg,
         });
 
         if let Some(bmp) = &surface.bitmap {
@@ -2318,13 +2476,14 @@ where
                 layout.client_w,
                 self.windows.get(&surface.window.id),
                 &self.windows,
+                None,
             );
         }
 
         if !surface.window.active {
             scene.push(SceneItem::FillRect {
                 rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
-                color: self.theme.inactive_veil,
+                color: self.layout.inactive_veil,
             });
         }
 
@@ -2349,19 +2508,19 @@ where
         let is_active = surface.window.active || self.active_window == Some(surface.window.id);
 
         let title_color = if is_active {
-            self.theme.title_active
+            self.layout.title_active
         } else {
-            self.theme.title_inactive
+            self.layout.title_inactive
         };
         let title_text = if is_active {
-            self.theme.title_text_active
+            self.layout.title_text_active
         } else {
-            self.theme.title_text_inactive
+            self.layout.title_text_inactive
         };
         let frame_fill = if is_active {
-            self.theme.title_active
+            self.layout.title_active
         } else {
-            self.theme.title_inactive
+            self.layout.title_inactive
         };
 
         // --- Shadow ---
@@ -2393,7 +2552,7 @@ where
             color: Rgba::new(0x08, 0, 0, 0),
         });
 
-        let Some(layout) = compute_window_layout(x as i32, y as i32, w as i32, h as i32) else {
+        let Some(layout) = compute_window_layout(x as i32, y as i32, w as i32, h as i32, self.layout.title_bar_height as i32) else {
             return;
         };
         let x0 = x as i32;
@@ -2416,7 +2575,7 @@ where
         // 1. Outer Border
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x0, y0, w as u32, h as u32),
-            color: self.theme.frame_outer,
+            color: self.layout.frame_outer,
         });
 
         // 2. Bevel lines to make the frame pop
@@ -2427,7 +2586,7 @@ where
                 inner_w as u32,
                 BORDER_3D_THICKNESS as u32,
             ),
-            color: self.theme.frame_hilight,
+            color: self.layout.frame_hilight,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -2436,7 +2595,7 @@ where
                 BORDER_3D_THICKNESS as u32,
                 inner_h as u32,
             ),
-            color: self.theme.frame_hilight,
+            color: self.layout.frame_hilight,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -2445,7 +2604,7 @@ where
                 BORDER_3D_THICKNESS as u32,
                 inner_h as u32,
             ),
-            color: self.theme.frame_shadow,
+            color: self.layout.frame_shadow,
         });
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
@@ -2454,7 +2613,7 @@ where
                 inner_w as u32,
                 BORDER_3D_THICKNESS as u32,
             ),
-            color: self.theme.frame_shadow,
+            color: self.layout.frame_shadow,
         });
 
         // 3. Inner Frame (Background / focus ring)
@@ -2463,7 +2622,7 @@ where
             color: frame_fill,
         });
 
-        // 4. Titlebar
+        // 4. Titlebar Background (Mechanical fallback)
         scene.push(SceneItem::FillRect {
             rect: Rect::new(
                 layout.title_x,
@@ -2482,57 +2641,46 @@ where
                 layout.title_w as u32,
                 1,
             ),
-            color: self.theme.frame_shadow,
+            color: self.layout.frame_shadow,
         });
 
-        // 6. Control Buttons
-        self.draw_close_button(scene, &layout, surface);
+        // 5. Semantic TitleBar Widget
+        if let Some(title_bar_id) = surface.title_bar_id {
+            self.widget_manager.draw_specific_widget(
+                scene,
+                surface.window.id,
+                title_bar_id,
+                layout.title_x,
+                layout.title_y,
+                layout.title_w,
+                layout.title_h,
+                &self.windows,
+            );
+        }
 
-        // 5. Title Text
-        let title_max_w = (layout.title_w - TITLE_TEXT_LEFT_PAD - 4).max(0) as u32;
-
-        scene.push(SceneItem::DrawText {
-            origin: (
-                layout.title_x + TITLE_TEXT_LEFT_PAD,
-                layout.title_y + TITLE_TEXT_TOP_OFFSET,
-            ),
-            text: surface.window.title.clone(),
-            color: title_text,
-            max_width: Some(title_max_w),
-        });
-
-        // 7. Client Area
+        // 6. Client Area
         let client_y = layout.client_y + 1;
         let client_h = (layout.client_h - 1).max(0);
         let client_rect = Rect::new(
             layout.client_x,
             client_y,
-            layout.client_w.max(0) as u32,
+            layout.client_w as u32,
             client_h as u32,
         );
-        scene.push(SceneItem::FillRect {
-            rect: client_rect,
-            color: self.theme.client_bg,
-        });
+
+        // --- Content / Widgets ---
 
         let metrics = ContentMetrics::new(surface, &layout);
-        let widget_area_width = if metrics.content_rect.width > 0 {
-            metrics.content_rect.width as i32
-        } else {
-            layout.client_w
-        };
+        let widget_area_width = layout.client_w; // simplified?
 
-        // Check for widgets
         let has_widgets = self
             .widget_manager
             .widgets
             .values()
             .any(|w| w.parent == Some(surface.window.id));
+
         if has_widgets {
-            // Adjust layout for widgets (remove the +1 offset used for legacy border?)
-            // The legacy code adds +1 to client_y.
-            // My draw_widgets uses layout.client_y directly.
-            // I should probably stick to layout.client_y for widgets.
+            // Exclude title bar from client area drawing
             self.widget_manager.draw_widgets(
                 scene,
                 surface.window.id,
@@ -2540,6 +2688,7 @@ where
                 widget_area_width,
                 self.windows.get(&surface.window.id),
                 &self.windows,
+                surface.title_bar_id,
             );
         } else {
             let content_rect = metrics.content_rect;

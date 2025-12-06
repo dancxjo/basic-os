@@ -155,6 +155,22 @@ fn init_memory_and_heap() -> (OffsetPageTable<'static>, BootFrameAllocator) {
 fn init_graph_and_syscalls() {
     bootstrap_step!("graph", {
         crate::graph::init();
+
+        // Inject boot assets
+        if let Some(assets) = crate::bootloader::get_module("assets.tar") {
+             log::info!("Found assets.tar, injecting into graph...");
+             let mut fields = alloc::collections::BTreeMap::new();
+             fields.insert(crate::graph::canon::BYTES, crate::graph::Value::Bytes(alloc::vec::Vec::from(assets)));
+             fields.insert(crate::graph::canon::NAME, crate::graph::Value::Text(alloc::string::String::from("assets.tar")));
+             
+             let req = crate::graph::GraphFiatRequest {
+                 id: None,
+                 kind: crate::graph::canon::BOOT_ASSET,
+                 labels: alloc::vec![],
+                 fields,
+             };
+             crate::graph::api::fiat(req);
+        }
     });
 
     bootstrap_step!("syscalls", {

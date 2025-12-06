@@ -228,18 +228,18 @@ fn load_elf_inner<'a>(
         let start_page = Page::containing_address(vaddr);
         let mut end_page = Page::containing_address(end_vaddr - 1u64);
 
-        if mem_size > 1000000 {
-            info!("DEBUG: Skipping large segment for testing");
-            continue;
-        }
+        // if mem_size > 1000000 {
+        //     info!("DEBUG: Skipping large segment for testing");
+        //     continue;
+        // }
 
         let desired_flags = elf_flags_to_pt_flags(ph);
 
         info!(
-            "DEBUG: Mapping {} pages for segment (vaddr={:?}, size={})",
-            (end_page - start_page) + 1,
+            "Mapping large segment: vaddr={:?}, mem_size={}, pages={}",
             vaddr,
-            mem_size
+            mem_size,
+            (end_page - start_page) + 1
         );
 
         for page in Page::range_inclusive(start_page, end_page) {

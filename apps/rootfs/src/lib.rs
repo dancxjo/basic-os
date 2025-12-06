@@ -72,6 +72,21 @@ pub fn init() {
         NOTO_SANS_SYMBOLS_2,
     );
 
+    // Load assets from boot module via graph
+    let boot_assets = userland::find_by_kind("boot.asset");
+    let mut found_assets = false;
+    for asset in boot_assets {
+        if let Some(userland::Value::Bytes(assets_tar)) = asset.fields.get(&canon::BYTES) {
+             userland::println!("Found assets.tar via graph, size: {}", assets_tar.len());
+             load_assets_from_tar(&assets_tar, icons_id);
+             found_assets = true;
+             break;
+        }
+    }
+    if !found_assets {
+        userland::println!("assets.tar not found in graph!");
+    }
+
     // Populate /bin
     for app in userland::apps_manifest::APPS {
         create_app_file(app, bin_id);
@@ -162,56 +177,6 @@ fn create_device(name: &str, parent: Uuid) {
     link(dev_id, "parent", parent);
 }
 
-fn create_icon_file(name: &str, parent: Uuid, color: u32) {
-    let mut fields = userland::map();
-    fields.insert(canon::NAME, Value::Text(name.into()));
-    fields.insert(canon::KIND, Value::Symbol(canon::FILE));
-    fields.insert(canon::PARENT, Value::Uuid(parent));
-    fields.insert(canon::MIME, Value::Text("image/raw-argb".into()));
-
-    // Generate 32x32 icon data
-    let width = 32;
-    let height = 32;
-    let mut data = vec![0u8; width * height * 4];
-    for i in 0..width * height {
-        data[i * 4] = (color >> 16) as u8; // B
-        data[i * 4 + 1] = (color >> 8) as u8; // G
-        data[i * 4 + 2] = color as u8; // R
-        data[i * 4 + 3] = (color >> 24) as u8; // A
-    }
-
-    // Add a simple pattern (border)
-    for x in 0..width {
-        let offset = (x * 4) as usize;
-        data[offset] = 0;
-        data[offset + 1] = 0;
-        data[offset + 2] = 0; // Top
-        let offset = ((height - 1) * width + x) as usize * 4;
-        data[offset] = 0;
-        data[offset + 1] = 0;
-        data[offset + 2] = 0; // Bottom
-    }
-    for y in 0..height {
-        let offset = (y * width) as usize * 4;
-        data[offset] = 0;
-        data[offset + 1] = 0;
-        data[offset + 2] = 0; // Left
-        let offset = (y * width + width - 1) as usize * 4;
-        data[offset] = 0;
-        data[offset + 1] = 0;
-        data[offset + 2] = 0; // Right
-    }
-
-    fields.insert(canon::BYTES, Value::Bytes(data));
-    fields.insert(canon::WIDTH, Value::U64(width as u64));
-    fields.insert(canon::HEIGHT, Value::U64(height as u64));
-
-    let file_id = userland::fiat(None, canon::FILE, fields);
-
-    link(parent, "contains", file_id);
-    link(file_id, "parent", parent);
-}
-
 fn create_font_file(name: &str, parent: Uuid, mime: &str, data: &[u8]) {
     let mut fields = userland::map();
     fields.insert(canon::NAME, Value::Text(name.into()));
@@ -224,6 +189,72 @@ fn create_font_file(name: &str, parent: Uuid, mime: &str, data: &[u8]) {
     let file_id = userland::fiat(None, canon::FILE, fields);
     link(parent, "contains", file_id);
     link(file_id, "parent", parent);
+}
+
+fn load_assets_from_tar(tar_data: &[u8], icons_dir_id: Uuid) {
+    let mut offset = 0;
+    while offset + 512 <= tar_data.len() {
+        let header = &tar_data[offset..offset + 512];
+        
+        // Check if ends
+        if header.iter().all(|&b| b == 0) {
+            break; 
+        }
+
+        let name_bytes = &header[0..100];
+        let name_str = core::str::from_utf8(name_bytes)
+            .unwrap_or("")
+            .trim_matches('\0');
+
+        let size_str = core::str::from_utf8(&header[124..136])
+            .unwrap_or("")
+            .trim_matches('\0')
+            .trim();
+        let size = u64::from_str_radix(size_str, 8).unwrap_or(0);
+        let type_flag = header[156];
+
+        let content_start = offset + 512;
+        let content_end = content_start + size as usize;
+
+        if type_flag == b'0' || type_flag == 0 {
+            // Normal file
+            if content_end > tar_data.len() {
+               break; // Truncated
+            }
+            let data = &tar_data[content_start..content_end];
+            
+            if name_str.starts_with("icons/") && name_str.ends_with(".svg") {
+                let file_name = name_str.strip_prefix("icons/").unwrap();
+                // Strip extension for resource name if desired, or keep it.
+                // Keeping it logic simple for now. 
+                // The widget_icon system expects names like "home", "settings" etc.
+                // The file names are "home.svg", so we strip .svg
+                let resource_name = file_name.trim_end_matches(".svg");
+                create_asset_file(resource_name, icons_dir_id, "image/svg+xml", data);
+            }
+        }
+
+        // Move to next block, aligned to 512
+        offset = (content_end + 511) & !511;
+    }
+}
+
+fn create_asset_file(name: &str, parent: Uuid, mime: &str, data: &[u8]) {
+    let mut fields = userland::map();
+    fields.insert(canon::NAME, Value::Text(name.into()));
+    fields.insert(canon::KIND, Value::Symbol(canon::FILE));
+    fields.insert(canon::PARENT, Value::Uuid(parent));
+    fields.insert(canon::MIME, Value::Text(mime.into()));
+    fields.insert(canon::BYTES, Value::Bytes(data.to_vec()));
+    
+    // Also insert ICON_NAME so lookups by icon name work directly if we query files
+    fields.insert(canon::ICON_NAME, Value::Text(name.into()));
+
+    let file_id = userland::fiat(None, canon::FILE, fields);
+    link(parent, "contains", file_id);
+    link(file_id, "parent", parent);
+    
+    userland::println!("Created asset: {} ({})", name, mime);
 }
 
 fn link(from: Uuid, pred: &str, to: Uuid) {

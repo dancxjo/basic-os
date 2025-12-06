@@ -143,20 +143,25 @@ pub extern "C" fn start_user_task() {
     info!("start_user_task called. CR3={:#x}", cr3);
 
     info!("start_user_task reached, calling next_user_module...");
+    crate::serial_println!("DEBUG: pre-next_user_module");
     let mut module = next_user_module().unwrap_or_else(|| {
         info!("No remaining user modules to start; halting task.");
         loop {}
     });
+    crate::serial_println!("DEBUG: post-next_user_module, name={}", module.name);
 
+    crate::serial_println!("DEBUG: checking validity");
     while get_module(module.name).map(|s| s.len()).unwrap_or(0) == 0 {
         info!(
             "DEBUG: launcher path returned empty module {}; skipping and falling back to next module",
             module.name
         );
+        crate::serial_println!("DEBUG: pre-next_user_module (loop)");
         module = next_user_module().unwrap_or_else(|| {
             info!("No remaining user modules to start; halting task.");
             loop {}
         });
+        crate::serial_println!("DEBUG: post-next_user_module (loop), name={}", module.name);
     }
     info!("next_user_module returned {:?}", module.name);
 
@@ -271,9 +276,13 @@ pub extern "C" fn start_user_task() {
 }
 
 fn next_user_module() -> Option<UserModule> {
+    crate::serial_println!("DEBUG: next_user_module start");
     let guard = USER_MODULES.lock();
+    crate::serial_println!("DEBUG: next_user_module locked");
     let list = guard.as_ref()?;
+    crate::serial_println!("DEBUG: next_user_module list len={}", list.len());
     let idx = NEXT_USER_MODULE.fetch_add(1, Ordering::AcqRel);
+    crate::serial_println!("DEBUG: next_user_module idx={}", idx);
     match list.get(idx).cloned() {
         Some(module) => Some(module),
         None => {

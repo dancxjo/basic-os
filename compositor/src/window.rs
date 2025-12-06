@@ -9,7 +9,7 @@ use crate::types::{
     CLOSE_BUTTON_SIZE, FONT_HEIGHT, RESIZE_CORNER_SIZE, RESIZE_MARGIN, SCROLLBAR_GAP,
     SCROLLBAR_MIN_THUMB, SCROLLBAR_TOTAL_RESERVE, SCROLLBAR_WIDTH, TITLE_BAR_HEIGHT,
 };
-use unifont::get_glyph;
+use crate::fonts::font_manager;
 use userland::Window;
 
 #[derive(Clone, Debug, Default)]
@@ -30,6 +30,7 @@ pub struct WindowSurface {
     pub scroll_y: i32,
     pub scrollbar_widget_id: Option<Uuid>,
     pub caret: Caret,
+    pub title_bar_id: Option<Uuid>,
     pub close_button_id: Uuid,
     pub close_button_state: ButtonState,
     pub close_button_bitmap: Option<Arc<Bitmap>>,
@@ -64,18 +65,19 @@ pub fn compute_window_layout(
     win_y: i32,
     win_w: i32,
     win_h: i32,
+    title_bar_height: i32,
 ) -> Option<WindowLayout> {
-    let border = BORDER_THICKNESS;
-    let inner_w = win_w - border * 2;
-    let inner_h = win_h - border * 2;
-    if inner_w <= 0 || inner_h <= TITLE_BAR_HEIGHT as i32 {
+    let inner_w = win_w - (2 * RESIZE_MARGIN);
+    let inner_h = win_h - (2 * RESIZE_MARGIN);
+
+    if inner_w <= 0 || inner_h <= title_bar_height {
         return None;
     }
 
-    let title_x = win_x + border;
-    let title_y = win_y + border;
+    let title_x = win_x + RESIZE_MARGIN;
+    let title_y = win_y + RESIZE_MARGIN;
     let title_w = inner_w;
-    let title_h = TITLE_BAR_HEIGHT as i32;
+    let title_h = title_bar_height;
 
     let client_x = title_x;
     let client_y = title_y + title_h;
@@ -233,23 +235,29 @@ pub fn measure_text_height(text: &str, width: i32) -> i32 {
     if text.is_empty() || width <= 0 {
         return 0;
     }
-    let mut cursor_x = 0;
-    let mut cursor_y = FONT_HEIGHT as i32;
+    let fm = font_manager();
+    let size = FONT_HEIGHT as f32;
+    let metrics = fm.line_metrics(size);
+    let new_line_size = metrics.new_line_size;
+    
+    let mut cursor_x: f32 = 0.0;
+    let mut cursor_y: f32 = new_line_size;
+    
     for ch in text.chars() {
         if ch == '\n' {
-            cursor_x = 0;
-            cursor_y += FONT_HEIGHT as i32;
+            cursor_x = 0.0;
+            cursor_y += new_line_size;
             continue;
         }
-        let Some(glyph) = get_glyph(ch) else { continue };
-        let gw = glyph.get_width() as i32;
-        if cursor_x + gw > width {
-            cursor_x = 0;
-            cursor_y += FONT_HEIGHT as i32;
+        let (metrics, _) = fm.rasterize(ch, size);
+        let gw = metrics.advance_width;
+        if cursor_x + gw > width as f32 {
+            cursor_x = 0.0;
+            cursor_y += new_line_size;
         }
         cursor_x += gw;
     }
-    cursor_y
+    cursor_y as i32
 }
 
 pub fn point_in_rect(x: i32, y: i32, rect: (i32, i32, i32, i32)) -> bool {

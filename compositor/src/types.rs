@@ -65,8 +65,12 @@ impl Rgba {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Theme {
+#[derive(Clone, Copy, Debug)]
+pub struct Layout {
+    pub title_bar_height: usize,
+    pub border_width: i32,
+    pub title_text_left_pad: i32,
+    pub title_text_top_offset: i32,
     pub frame_outer: Rgba,
     pub frame_light: Rgba,
     pub frame_hilight: Rgba,
@@ -79,7 +83,33 @@ pub struct Theme {
     pub inactive_veil: Rgba,
 }
 
-pub const THEME: Theme = Theme {
+impl Default for Layout {
+    fn default() -> Self {
+        Self {
+            title_bar_height: 32,
+            border_width: BORDER_THICKNESS,
+            title_text_left_pad: 8,
+            title_text_top_offset: 8,
+            frame_outer: Rgba::new(0xff, 0x5A, 0x6A, 0x8A),
+            frame_light: Rgba::new(0xff, 0xE6, 0xED, 0xF7),
+            frame_hilight: Rgba::new(0xff, 0xFF, 0xFF, 0xFF),
+            frame_shadow: Rgba::new(0xff, 0x9A, 0xA7, 0xC5),
+            title_active: Rgba::new(0xff, 0x6C, 0x9A, 0xFF),
+            title_inactive: Rgba::new(0xff, 0xE3, 0xEA, 0xF8),
+            title_text_active: Rgba::new(0xff, 0x10, 0x1F, 0x3F),
+            title_text_inactive: Rgba::new(0xff, 0x6A, 0x74, 0x8A),
+            client_bg: Rgba::new(0xff, 0xFD, 0xFB, 0xF7),
+            inactive_veil: Rgba::new(0x80, 0x00, 0x00, 0x00),
+        }
+    }
+}
+
+// Keep THEME for now to avoid breaking everything immediately, but we will phase it out.
+pub const THEME: Layout = Layout {
+    title_bar_height: 32,
+    border_width: BORDER_THICKNESS,
+    title_text_left_pad: 8,
+    title_text_top_offset: 8,
     frame_outer: Rgba::new(0xff, 0x5A, 0x6A, 0x8A),
     frame_light: Rgba::new(0xff, 0xE6, 0xED, 0xF7),
     frame_hilight: Rgba::new(0xff, 0xFF, 0xFF, 0xFF),
@@ -92,7 +122,7 @@ pub const THEME: Theme = Theme {
     inactive_veil: Rgba::new(0x80, 0x00, 0x00, 0x00),
 };
 
-pub const FONT_HEIGHT: usize = 16;
+pub const FONT_HEIGHT: usize = 20;
 pub const TITLE_BAR_HEIGHT: usize = 32;
 pub const BORDER_OUTER_THICKNESS: i32 = 1;
 pub const BORDER_3D_THICKNESS: i32 = 1;
@@ -116,7 +146,7 @@ pub const SCROLLBAR_MIN_THUMB: i32 = 32;
 pub const SCROLL_STEP_LINE: i32 = FONT_HEIGHT as i32;
 pub const SCROLLBAR_TOTAL_RESERVE: i32 = SCROLLBAR_WIDTH + SCROLLBAR_GAP;
 pub const AUTO_TILE_MARGIN: i32 = 8;
-pub const AUTO_TILE_MIN_WINDOWS: usize = 3;
+pub const AUTO_TILE_MIN_WINDOWS: usize = 10;
 pub const AUTO_TILE_TOP_OFFSET: i32 = 48;
 
 pub const ROLE_TOOLBAR: &str = "container.toolbar";

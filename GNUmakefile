@@ -370,6 +370,23 @@ ifeq ($(KARCH),x86_64)
 	cp -v limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
 	cp -v limine/BOOTX64.EFI iso_root/EFI/BOOT/
 	cp -v limine/BOOTIA32.EFI iso_root/EFI/BOOT/
+	
+	# Create assets module
+	mkdir -p assets/plataro
+	curl -L https://github.com/tsujan/Plataro/archive/refs/heads/master.tar.gz -o assets/plataro.tar.gz
+	tar -xf assets/plataro.tar.gz -C assets/plataro --strip-components=1
+	# Create a clean assets directory for the tarball
+	rm -rf assets_build
+	mkdir -p assets_build/icons
+	cp assets/plataro/places/scalable/folder-blue.svg assets_build/icons/folder.svg
+	cp assets/plataro/mimetypes/scalable/text-x-generic.svg assets_build/icons/file.svg
+	cp assets/plataro/apps/scalable/utilities-terminal.svg assets_build/icons/terminal.svg
+	cp assets/plataro/categories/scalable/preferences-system.svg assets_build/icons/settings.svg
+	cp assets/plataro/places/scalable/user-home.svg assets_build/icons/home.svg
+	# Pack assets.tar - only adding the icons folder at the root
+	tar -C assets_build -cf assets.tar icons
+	cp -v assets.tar iso_root/boot/
+
 	xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot boot/limine/limine-uefi-cd.bin \
