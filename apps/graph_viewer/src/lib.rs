@@ -17,7 +17,6 @@ pub struct GraphViewerApp {
     root_widget: Uuid,
     widgets: BTreeMap<Uuid, Uuid>, // Thing ID -> Widget ID
     contents: BTreeSet<Uuid>,
-    watch_id: Option<userland::watch::WatchId>,
     counter: u64,
 }
 
@@ -95,21 +94,20 @@ impl App for GraphViewerApp {
 
         graph::fiat(Some(root_widget), canon::WIDGET, root_fields);
 
-        let mut app = GraphViewerApp {
+        let app = GraphViewerApp {
             window: window.clone(),
             place_id,
             root_widget,
             widgets: BTreeMap::new(),
             contents: BTreeSet::new(),
-            watch_id: None,
             counter: 0,
         };
 
         // Watch everything
-        app.watch_id = Some(ctx.watch_graph(ThingFilter {
+        ctx.watch_graph(ThingFilter {
             kind: None,
             id: None,
-        }));
+        });
 
         app
     }
@@ -146,7 +144,11 @@ impl App for GraphViewerApp {
                     .and_then(|v| v.as_bool())
                 {
                     if is_down {
-                        if self.widgets.values().any(|&w| w == thing.id) {
+                        if self
+                            .widgets
+                            .values()
+                            .any(|&widget_id| widget_id == thing.id)
+                        {
                             self.handle_widget_click(thing.id);
 
                             let mut updates = graph::map();
@@ -265,6 +267,9 @@ impl GraphViewerApp {
         graph::fiat(Some(widget_id), canon::WIDGET, fields);
     }
 
+    /// Handles a click on a widget.
+    /// `widget_id` is the ID of the widget node in the graph.
+    /// We look up the underlying `thing_id` (the content being displayed) via the `self.widgets` map.
     fn handle_widget_click(&mut self, widget_id: Uuid) {
         let thing_id = self
             .widgets
