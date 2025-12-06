@@ -4,23 +4,19 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::convert::TryInto;
 use thing_abi::GraphPropsGetRequest;
 use userland::graph::{get_props, map, set_props, GraphPropsRequest};
 use userland::widget_abi::*;
 use userland::{canon, Symbol, Value};
 
-const ICON_HOME: &[u8] = include_bytes!("../../button/icons/home.bmp");
-const ICON_MENU: &[u8] = include_bytes!("../../button/icons/menu.bmp");
-const ICON_SETTINGS: &[u8] = include_bytes!("../../button/icons/settings.bmp");
-const ICON_CLOSE: &[u8] = include_bytes!("../../button/icons/close.bmp");
-
 pub struct ListboxDefaultWidget;
 
 pub struct ItemState {
     label: String,
+    #[allow(dead_code)]
     value: String,
-    icon_bmp: Option<&'static [u8]>,
+    #[allow(dead_code)]
+    icon_name: Option<String>,
 }
 
 pub struct State {
@@ -28,6 +24,7 @@ pub struct State {
     selected_index: i32,
     focused_index: i32,
     has_focus: bool,
+    #[allow(dead_code)]
     control_node: userland::uuid::Uuid,
     value_node: Option<userland::uuid::Uuid>,
 }
@@ -75,20 +72,13 @@ impl WidgetAbi for ListboxDefaultWidget {
                         _ => String::from(""),
                     };
                     let icon_name = match item_thing.fields.get(&canon::ICON_NAME) {
-                        Some(Value::Text(t)) => t.clone(),
-                        _ => String::new(),
-                    };
-                    let icon_bmp = match icon_name.as_str() {
-                        "home" => Some(ICON_HOME),
-                        "menu" => Some(ICON_MENU),
-                        "settings" => Some(ICON_SETTINGS),
-                        "close" => Some(ICON_CLOSE),
+                        Some(Value::Text(t)) => Some(t.clone()),
                         _ => None,
                     };
                     items.push(ItemState {
                         label,
                         value,
-                        icon_bmp,
+                        icon_name,
                     });
                 }
             }
@@ -137,11 +127,12 @@ impl WidgetAbi for ListboxDefaultWidget {
                 draw_rect_outline(fb, item_rect, 0xFF_FF_FF_00);
             }
 
-            let mut text_x = item_rect.x + 4;
-            if let Some(bmp) = item.icon_bmp {
-                draw_bmp(fb, item_rect, 4, (item_height as i32 - 32) / 2, bmp);
-                text_x += 36;
-            }
+            // Reserve space for icon if present (compositor handles icon rendering)
+            let text_x = if item.icon_name.is_some() {
+                item_rect.x + 32  // Leave space for 24px icon + padding
+            } else {
+                item_rect.x + 4
+            };
 
             draw_text(
                 fb,
@@ -295,78 +286,6 @@ fn draw_char(fb: &mut [u8], rect: Rect, x: i32, y: i32, c: char, color: u32) {
                         fb[offset + 3] = (color >> 24) as u8;
                     }
                 }
-            }
-        }
-    }
-}
-
-fn draw_bmp(fb: &mut [u8], rect: Rect, x: i32, y: i32, bmp: &[u8]) {
-    if bmp.len() < 54 {
-        return;
-    }
-    let width = i32::from_le_bytes(bmp[18..22].try_into().unwrap_or([0; 4]));
-    let height = i32::from_le_bytes(bmp[22..26].try_into().unwrap_or([0; 4]));
-    let data_offset = u32::from_le_bytes(bmp[10..14].try_into().unwrap_or([0; 4])) as usize;
-
-    if width <= 0 || height == 0 || data_offset >= bmp.len() {
-        return;
-    }
-
-    let is_top_down = height < 0;
-    let height = height.abs();
-
-    // Assuming 32bpp for now as per my conversion
-    // But I should check bit count at offset 28
-    let bpp = u16::from_le_bytes(bmp[28..30].try_into().unwrap_or([0; 2]));
-    if bpp != 32 {
-        return;
-    } // Only support 32bpp for these icons
-
-    for row in 0..height {
-        for col in 0..width {
-            let src_row = if is_top_down { row } else { height - 1 - row };
-            let src_idx = data_offset + (src_row as usize * width as usize + col as usize) * 4;
-
-            if src_idx + 4 > bmp.len() {
-                continue;
-            }
-
-            // BMP is BGRA usually
-            let b = bmp[src_idx];
-            let g = bmp[src_idx + 1];
-            let r = bmp[src_idx + 2];
-            let a = bmp[src_idx + 3];
-
-            if a == 0 {
-                continue;
-            } // Fully transparent
-
-            let dst_x = rect.x + x + col;
-            let dst_y = rect.y + y + row;
-
-            if dst_x < rect.x
-                || dst_x >= rect.x + rect.width as i32
-                || dst_y < rect.y
-                || dst_y >= rect.y + rect.height as i32
-            {
-                continue;
-            }
-
-            let dst_offset = (dst_y as usize * rect.width as usize + dst_x as usize) * 4;
-            if dst_offset + 4 <= fb.len() {
-                // Simple alpha blending
-                // dst = src * alpha + dst * (1 - alpha)
-                let inv_a = 255 - a;
-                let dst_r = fb[dst_offset];
-                let dst_g = fb[dst_offset + 1];
-                let dst_b = fb[dst_offset + 2];
-
-                fb[dst_offset] = ((r as u16 * a as u16 + dst_r as u16 * inv_a as u16) / 255) as u8;
-                fb[dst_offset + 1] =
-                    ((g as u16 * a as u16 + dst_g as u16 * inv_a as u16) / 255) as u8;
-                fb[dst_offset + 2] =
-                    ((b as u16 * a as u16 + dst_b as u16 * inv_a as u16) / 255) as u8;
-                fb[dst_offset + 3] = 255; // Opaque alpha for framebuffer
             }
         }
     }
