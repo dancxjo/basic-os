@@ -103,14 +103,26 @@ impl App for GraphViewerApp {
     fn on_event(&mut self, _ctx: &mut AppContext<'_>, ev: AppEvent) {
         match ev {
             AppEvent::Thing { thing, .. } => {
+                let mut parent_match = false;
                 if let Some(Value::Uuid(parent)) = thing.fields.get(&canon::PARENT) {
                     if Some(*parent) == self.place_id {
-                        self.contents.insert(thing.id);
-                        self.update_widget(thing.id, &thing);
+                        parent_match = true;
                     }
                 }
 
-                if self.contents.contains(&thing.id) {
+                if parent_match {
+                    self.contents.insert(thing.id);
+                    self.update_widget(thing.id, &thing);
+                } else if self.contents.contains(&thing.id) {
+                    // If we are tracking it, but parent doesn't match...
+                    if let Some(Value::Uuid(parent)) = thing.fields.get(&canon::PARENT) {
+                        // If it has a parent and it's not us, it moved.
+                        if Some(*parent) != self.place_id {
+                            self.remove_widget(thing.id);
+                            return;
+                        }
+                    }
+                    // If PARENT is missing, we assume it might be kept via edge, so we update.
                     self.update_widget(thing.id, &thing);
                 }
 
@@ -133,6 +145,8 @@ impl App for GraphViewerApp {
             AppEvent::Edge { edge, .. } => {
                 if let Some(place_id) = self.place_id {
                     if edge.src == place_id && edge.pred == "contains" {
+                        // TODO: Handle edge deletion if ABI supports it.
+                        // For now we only handle addition.
                         self.contents.insert(edge.dst);
                         if let Some(thing) = userland::graph::get_thing(edge.dst) {
                             self.update_widget(edge.dst, &thing);
@@ -181,6 +195,15 @@ impl GraphViewerApp {
                 self.contents.insert(thing.id);
                 self.update_widget(thing.id, &thing);
             }
+        }
+    }
+
+    fn remove_widget(&mut self, thing_id: Uuid) {
+        self.contents.remove(&thing_id);
+        if let Some(widget_id) = self.widgets.remove(&thing_id) {
+            let mut fields = graph::map();
+            fields.insert(canon::VISIBLE, Value::Bool(false));
+            graph::fiat(Some(widget_id), canon::WIDGET, fields);
         }
     }
 
