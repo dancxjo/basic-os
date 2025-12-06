@@ -15,7 +15,7 @@ use crate::types::{
     ROLE_CONTAINER_VERTICAL, ROLE_EDITOR_ROOT, ROLE_TOOLBAR, ROLE_TOOLBAR_BUTTON, THEME,
     TITLE_BAR_HEIGHT, TOOLBAR_BUTTON_SIZE, TOOLBAR_BUTTON_SPACING, TOOLBAR_HEIGHT,
 };
-use crate::window::{ContentMetrics, WindowLayout, WindowSurface};
+use crate::window::{compute_window_layout, ContentMetrics, WindowLayout, WindowSurface};
 
 pub struct WidgetManager {
     pub widgets: BTreeMap<Uuid, Widget>,
@@ -863,10 +863,10 @@ impl WidgetManager {
         &self,
         scene: &mut Scene,
         window_id: Uuid,
-        client_x: i32,
-        client_y: i32,
-        client_w: i32,
-        client_h: i32,
+        win_x: i32,
+        win_y: i32,
+        win_w: i32,
+        win_h: i32,
         scroll_y: i32,
     ) {
         let root_widgets: Vec<Uuid> = self
@@ -880,10 +880,15 @@ impl WidgetManager {
             return;
         }
 
-        let mut y_offset = client_y + TITLE_BAR_HEIGHT as i32;
-        let x_offset = client_x + BORDER_THICKNESS;
-        let width = client_w - BORDER_THICKNESS * 2;
-        let mut remaining_h = client_h - TITLE_BAR_HEIGHT as i32 - BORDER_THICKNESS;
+        let layout = match compute_window_layout(win_x, win_y, win_w, win_h) {
+            Some(l) => l,
+            None => return,
+        };
+
+        let mut y_offset = layout.client_y;
+        let x_offset = layout.client_x;
+        let width = layout.client_w;
+        let mut remaining_h = layout.client_h;
 
         let mut relative_widgets = Vec::new();
         let mut overlay_widgets = Vec::new();
@@ -922,8 +927,8 @@ impl WidgetManager {
                         scene,
                         window_id,
                         widget_id,
-                        client_x + wx as i32,
-                        client_y + wy as i32,
+                        win_x + wx as i32,
+                        win_y + wy as i32,
                         ww as i32,
                         wh as i32,
                         scroll_y,
@@ -1079,5 +1084,12 @@ impl WidgetManager {
                 spacing: 4,
             });
         }
+
+        scene.push(SceneItem::DrawText {
+            origin: (x + 2, y + 2),
+            text: widget.role.clone(),
+            color,
+            max_width: Some(w.saturating_sub(4) as u32),
+        });
     }
 }
