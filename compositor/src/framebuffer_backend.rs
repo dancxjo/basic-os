@@ -115,6 +115,10 @@ impl BitmapRenderer {
                     let clip = clip_stack.last().copied().flatten();
                     raster_draw_cursor(self, *origin, sprite, *hotspot, clip);
                 }
+                SceneItem::DrawLine { start, end, color } => {
+                    let clip = clip_stack.last().copied().flatten();
+                    raster_draw_line(self, *start, *end, *color, clip);
+                }
                 SceneItem::ClipPush { rect } => {
                     let parent_clip = clip_stack.last().copied().flatten();
                     let new_clip = parent_clip.and_then(|base| intersect_rect(base, *rect));
@@ -600,6 +604,68 @@ fn raster_draw_cursor(
                 0xFF000000 | (r << 16) | (g << 8) | b
             };
             *dst = out;
+        }
+    }
+}
+
+fn raster_draw_line(
+    backend: &mut BitmapRenderer,
+    start: (i32, i32),
+    end: (i32, i32),
+    color: Rgba,
+    clip: Option<Rect>,
+) {
+    if backend.width == 0 || backend.height == 0 {
+        return;
+    }
+
+    let x0 = start.0;
+    let y0 = start.1;
+    let x1 = end.0;
+    let y1 = end.1;
+
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    let mut x = x0;
+    let mut y = y0;
+
+    let color_u32 = color.to_u32();
+
+    loop {
+        if x >= 0 && x < backend.width as i32 && y >= 0 && y < backend.height as i32 {
+            let mut visible = true;
+            if let Some(c) = clip {
+                if x < c.x || x >= c.x + c.width as i32 || y < c.y || y >= c.y + c.height as i32 {
+                    visible = false;
+                }
+            }
+
+            if visible {
+                let idx = y as usize * backend.width + x as usize;
+                if color.a == 0xFF {
+                    backend.storage[idx] = color_u32;
+                } else {
+                    let bg = backend.storage[idx];
+                    backend.storage[idx] = userland::graphics::blend(color_u32, bg);
+                }
+            }
+        }
+
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
         }
     }
 }

@@ -77,6 +77,7 @@ impl App for DemoApp {
             flex_direction: Some(FlexDirection::Column),
             justify_content: Some(JustifyContent::Start),
             align_items: Some(AlignItems::Stretch),
+            tile_mode: None,
         };
         let window = ctx.create_window_with(window_fields);
 

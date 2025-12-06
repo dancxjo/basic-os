@@ -396,6 +396,35 @@ impl WidgetManager {
                 windows,
             );
             drawn_height = h;
+        } else if widget.role == "canvas" {
+            // Absolute positioning container
+            let children: Vec<Uuid> = self
+                .widgets
+                .values()
+                .filter(|w| w.parent == Some(widget.id))
+                .map(|w| w.id)
+                .collect();
+
+            for child_id in children {
+                if let Some(child) = self.widgets.get(&child_id) {
+                    let cx = x + child.x.unwrap_or(0) as i32;
+                    let cy = y + child.y.unwrap_or(0) as i32;
+                    let cw = child.width.unwrap_or(32) as i32;
+                    let ch = child.height.unwrap_or(32) as i32;
+                    
+                    self.draw_widget_recursive(
+                        scene,
+                        window_id,
+                        child,
+                        cx,
+                        cy,
+                        cw,
+                        ch,
+                        windows,
+                    );
+                }
+            }
+            drawn_height = h;
         } else if widget.role == "button" {
             drawn_height = widget.height.map(|v| v as i32).unwrap_or(30);
             self.draw_toolbar_button(scene, widget, x, y, w, drawn_height);
@@ -450,15 +479,69 @@ impl WidgetManager {
                 color: BTN_FACE,
             });
             self.draw_rect_outline(scene, x, y, w, drawn_height, BTN_BORDER);
+        } else if widget.role == "connector" {
+            // Connector widget: draws a line from (x, y) to (target_x, target_y) relative to parent?
+            // Actually, let's assume valid start/end coordinates are provided in props or calculated.
+            // For now, let's look for 'x1', 'y1', 'x2', 'y2' pattern or just assume x,y is start.
+            // But wait, widgets have x,y.
+            // Let's assume the connector widget has 'target_x' and 'target_y' relative to its parent,
+            // or maybe absolute?
+            // "The items should be icons connected with labeled curves for the edges."
+            // Simple line implementation first.
+            let x2 = widget.width.unwrap_or(0) as i32 + x; // Hack: usage of width/height as delta?
+            let y2 = widget.height.unwrap_or(0) as i32 + y;
+
+            // Better: use explicit extra fields if we had them in Widget struct.
+            // Since we don't custom fields in Widget struct easily, we might need to rely on thing.
+            // But `Widget` struct is what we have here.
+            // Let's check if we can add fields to `Widget` in `ui_graph.rs`?
+            // For now, let's use the `width` and `height` as the delta to the endpoint from (x,y).
+            // So start=(x,y), end=(x+width, y+height).
+            // And draw a line.
+
+            scene.push(SceneItem::DrawLine {
+                start: (x, y),
+                end: (x2, y2),
+                color: COLOR_TEXT,
+            });
+
+            // Draw label at midpoint
+            if let Some(label) = &widget.label {
+                 let mid_x = (x + x2) / 2;
+                 let mid_y = (y + y2) / 2;
+                 scene.push(SceneItem::DrawText {
+                    origin: (mid_x, mid_y),
+                    text: label.clone(),
+                    color: COLOR_TEXT,
+                    max_width: None,
+                });
+            }
         } else if widget.role == "thing_tile" {
             drawn_height = widget.height.map(|v| v as i32).unwrap_or(100);
             scene.push(SceneItem::FillRect {
                 rect: Rect::new(x, y, w as u32, drawn_height as u32),
                 color: BTN_FACE,
             });
+
+            if let Some(bmp_data) = &widget.bitmap {
+                 if let Some(bmp) = decode_bmp(bmp_data) {
+                      let bmp = Arc::new(bmp);
+                       let ix = x + (w - bmp.width as i32) / 2;
+                       let iy = y + 10;
+                       scene.push(SceneItem::BlitImage {
+                            rect: Rect::new(ix, iy, bmp.width as u32, bmp.height as u32),
+                            image: bmp,
+                            repeat: false,
+                            offset: (0, 0),
+                       });
+                 }
+            } else if let Some(icon) = &widget.icon {
+                self.draw_toolbar_icon(scene, icon, x, y + 20, w, 32);
+            }
+
             if let Some(label) = &widget.label {
                 scene.push(SceneItem::DrawTextBlock {
-                    rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
+                    rect: Rect::new(x + 4, y + drawn_height - 30, (w - 8) as u32, 24),
                     text: label.clone(),
                     color: COLOR_TEXT,
                     scroll_offset: 0,
@@ -629,7 +712,7 @@ impl WidgetManager {
             scene.push(SceneItem::BlitImage {
                 rect: Rect::new(x, y, w as u32, h as u32),
                 image: bmp.clone(),
-                repeat: false,
+                repeat: surface.repeat,
                 offset: (0, 0),
             });
         } else if !surface.text.is_empty() {
@@ -795,6 +878,7 @@ impl WidgetManager {
         } else if widget.role == ROLE_CONTAINER_VERTICAL
             || widget.role == "window_root"
             || widget.role == ROLE_EDITOR_ROOT
+            || widget.role == "canvas"
         {
             let children: Vec<Uuid> = self
                 .widgets
@@ -808,14 +892,27 @@ impl WidgetManager {
 
             for child_id in children {
                 if let Some(child) = self.widgets.get(&child_id) {
-                    let child_h = self.get_widget_height(child, w, remaining_h);
+                    // Start of modified logic for canvas/absolute positioning handling within hit test
+                     let (cx, cy, cw, ch) = if widget.role == "canvas" {
+                        (x + child.x.unwrap_or(0) as i32,
+                         y + child.y.unwrap_or(0) as i32,
+                         child.width.unwrap_or(32) as i32,
+                         child.height.unwrap_or(32) as i32)
+                    } else {
+                         let child_h = self.get_widget_height(child, w, remaining_h);
+                         (x, child_y, w, child_h)
+                    };
+                    
                     if let Some(hit) =
-                        self.hit_test_widget_recursive(child, x, child_y, w, child_h, mx, my)
+                        self.hit_test_widget_recursive(child, cx, cy, cw, ch, mx, my)
                     {
                         return Some(hit);
                     }
-                    child_y += child_h;
-                    remaining_h -= child_h;
+                    
+                    if widget.role != "canvas" {
+                        child_y += ch;
+                        remaining_h -= ch;
+                    }
                 }
             }
             return Some(widget.id);

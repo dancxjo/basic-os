@@ -123,6 +123,7 @@ impl<'a> AppContext<'a> {
             flex_direction: None,
             justify_content: None,
             align_items: None,
+            tile_mode: None,
         };
         self.create_window_with(window_fields)
     }
@@ -193,22 +194,34 @@ impl<'a> AppContext<'a> {
     }
 
     pub fn flush(&mut self, tick: u64) {
-        for (window, text) in self.state.buffers.iter() {
-            if let Some(pixmap) = self.state.window_pixmaps.get(window) {
+        // Collect all window IDs that have either text buffer or bitmap updates
+        let mut updates: Vec<Uuid> = self.state.buffers.keys().cloned().collect();
+        for k in self.state.bitmaps.keys() {
+            if !updates.contains(k) {
+                updates.push(*k);
+            }
+        }
+        
+        for window in updates {
+            if let Some(pixmap) = self.state.window_pixmaps.get(&window) {
                 let mut payload = graph::map();
-                payload.insert(canon::SRC, Value::Uuid(*window));
+                payload.insert(canon::SRC, Value::Uuid(window));
                 payload.insert(canon::TARGET, Value::Uuid(*pixmap));
                 payload.insert(canon::REVISION, Value::U64(tick));
-                payload.insert(canon::TEXT, Value::Bytes(text.as_bytes().to_vec()));
+                
+                if let Some(text) = self.state.buffers.get(&window) {
+                     payload.insert(canon::TEXT, Value::Bytes(text.as_bytes().to_vec()));
+                }
+                
                 payload.insert(canon::DIRTY, Value::Bool(true));
                 payload.insert(canon::VISIBLE, Value::Bool(true));
 
-                if let Some(bmp) = self.state.bitmaps.remove(window) {
+                if let Some(bmp) = self.state.bitmaps.remove(&window) {
                     payload.insert(canon::BITMAP, Value::Bytes(bmp));
                 }
 
                 graph::fiat(Some(*pixmap), canon::SURFACE, payload);
-                graph::that(*window, "HAS_SURFACE", *pixmap, 0);
+                graph::that(window, "HAS_SURFACE", *pixmap, 0);
             }
         }
         self.state.buffers.clear();

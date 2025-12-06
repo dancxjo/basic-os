@@ -42,6 +42,11 @@ pub enum SceneItem {
         sprite: Arc<Bitmap>,
         hotspot: (i32, i32),
     },
+    DrawLine {
+        start: (i32, i32),
+        end: (i32, i32),
+        color: Rgba,
+    },
     ClipPush {
         rect: Rect,
     },

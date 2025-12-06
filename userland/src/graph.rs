@@ -406,6 +406,7 @@ pub struct Window {
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<AlignItems>,
+    pub tile_mode: Option<bool>,
 }
 
 impl Thingable for Window {
@@ -494,6 +495,7 @@ impl Thingable for Window {
             .fields
             .get(&canon::cc('A', 'I'))
             .and_then(AlignItems::from_value);
+        let tile_mode = thing.fields.get(&canon::TILE_MODE).and_then(|v| v.as_bool());
 
         Some(Self {
             id: thing.id,
@@ -515,6 +517,7 @@ impl Thingable for Window {
             flex_direction,
             justify_content,
             align_items,
+            tile_mode,
         })
     }
 }
@@ -551,6 +554,9 @@ impl Window {
         }
         if let Some(align) = &self.align_items {
             map.insert(canon::cc('A', 'I'), align.to_value());
+        }
+        if let Some(tm) = self.tile_mode {
+            map.insert(canon::TILE_MODE, Value::Bool(tm));
         }
         map
     }

@@ -656,9 +656,9 @@ where
 
         if let Some(bmp) = &surface.bitmap {
             scene.push(SceneItem::BlitImage {
-                rect: Rect::new(x as i32, y as i32, bmp.width as u32, bmp.height as u32),
+                rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
                 image: bmp.clone(),
-                repeat: true,
+                repeat: surface.repeat,
                 offset: (0, 0),
             });
         } else if !surface.text.is_empty() {
@@ -1066,8 +1066,15 @@ where
                 close_button_id: btn_id,
                 close_button_state: btn_state,
                 close_button_bitmap: None,
+                repeat: false,
             }
         });
+        if let Some(tile_mode) = window.tile_mode {
+            entry.repeat = tile_mode;
+        } else if let Some(tile_mode) = thing.fields.get(&canon::TILE_MODE).and_then(|v| v.as_bool()) {
+            entry.repeat = tile_mode;
+        }
+
         entry.window = window;
         entry.surface_id = Some(surface.id);
         entry.text = surface.text;
@@ -2007,6 +2014,7 @@ where
                     close_button_id: btn_id,
                     close_button_state: btn_state,
                     close_button_bitmap: None,
+                    repeat: false,
                 },
             );
         }
@@ -2244,8 +2252,16 @@ where
         fb_width: usize,
         fb_height: usize,
     ) {
-        let w = surface.window.width as usize;
-        let h = surface.window.height as usize;
+        let w = if surface.window.is_root {
+            fb_width
+        } else {
+            surface.window.width as usize
+        };
+        let h = if surface.window.is_root {
+            fb_height
+        } else {
+            surface.window.height as usize
+        };
         if w == 0 || h == 0 {
             return;
         }
@@ -2266,7 +2282,7 @@ where
             scene.push(SceneItem::BlitImage {
                 rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
                 image: bmp.clone(),
-                repeat: false,
+                repeat: surface.repeat,
                 offset: (0, 0),
             });
         } else if !surface.text.is_empty() {
@@ -2698,6 +2714,7 @@ fn default_window(id: Uuid) -> Window {
         flex_direction: None,
         justify_content: None,
         align_items: None,
+        tile_mode: None,
     }
 }
 

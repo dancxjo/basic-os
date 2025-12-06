@@ -33,6 +33,7 @@ pub struct WindowSurface {
     pub close_button_id: Uuid,
     pub close_button_state: ButtonState,
     pub close_button_bitmap: Option<Arc<Bitmap>>,
+    pub repeat: bool,
 }
 
 pub struct WindowLayout {
@@ -211,11 +212,15 @@ pub fn measure_surface_content_height(surface: &WindowSurface, width: i32) -> i3
     if width <= 0 {
         return 0;
     }
-    let bitmap_height = surface
-        .bitmap
-        .as_ref()
-        .map(|bmp| bmp.height as i32)
-        .unwrap_or(0);
+    let bitmap_height = if surface.repeat {
+        1
+    } else {
+        surface
+            .bitmap
+            .as_ref()
+            .map(|bmp| bmp.height as i32)
+            .unwrap_or(0)
+    };
     let text_height = if surface.text.is_empty() {
         0
     } else {

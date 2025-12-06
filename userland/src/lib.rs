@@ -195,9 +195,9 @@ pub mod canon {
     pub const CAPACITY: Symbol = canon(b'C', b'A', b'P');
 
     // Capability symbols for granting permissions
-    pub const CAN_READ: Symbol = canon(b'C', b'R', b'D');
     pub const CAN_WRITE: Symbol = canon(b'C', b'W', b'R');
     pub const CAN_LINK: Symbol = canon(b'C', b'L', b'K');
+
     pub const CAN_HANDLE_IRQ: Symbol = canon(b'C', b'I', b'Q');
     pub const CAN_DMA: Symbol = canon(b'C', b'D', b'M');
     pub const CAN_MMIO: Symbol = canon(b'C', b'M', b'M');
