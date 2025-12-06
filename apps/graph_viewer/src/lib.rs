@@ -38,13 +38,27 @@ impl App for GraphViewerApp {
             None => (None, None),
         };
 
+        let title = if let Some(pid) = place_id {
+            let place_label = userland::graph::get_thing(pid)
+                .and_then(|place| {
+                    place
+                        .fields
+                        .get(&canon::NAME)
+                        .and_then(|v| v.as_text().map(|s| s.to_string()))
+                })
+                .unwrap_or_else(|| "/".to_string());
+            format!("Sky: {}", place_label)
+        } else {
+            "Graph Viewer".to_string()
+        };
+
         if place_id.is_none() {
             place_id = Some(userland::simple_uuid(b"/"));
         }
 
         let mut window_fields = userland::graph::Window {
             id: Uuid::nil(),
-            title: "Graph Viewer".to_string(),
+            title,
             x: 0,
             y: 0,
             width,
