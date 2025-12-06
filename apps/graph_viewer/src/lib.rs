@@ -26,23 +26,16 @@ impl App for GraphViewerApp {
         let height = 768;
 
         // Check for launch intent
-        let intents = userland::graph::find_by_kind("LNC");
-        let mut place_id = None;
-        let mut mode_index = None;
-
-        for intent in intents {
-            if let Some(app) = intent.fields.get(&canon::APP).and_then(|v| v.as_text()) {
-                if app == "graph_viewer" {
-                    place_id = intent.fields.get(&canon::PLACE).and_then(|v| v.as_uuid());
-                    mode_index = intent
-                        .fields
-                        .get(&canon::MODE_INDEX)
-                        .and_then(|v| v.as_i64())
-                        .map(|v| v as u8);
-                    break;
-                }
+        let (mut place_id, mode_index) = match GraphViewerApp::discover_launch_intent() {
+            Some((place, mode, intent_id)) => {
+                // Consume intent
+                let mut updates = graph::map();
+                updates.insert(canon::VISIBLE, Value::Bool(false));
+                graph::fiat(Some(intent_id), canon::LAUNCH_INTENT, updates);
+                (Some(place), mode)
             }
-        }
+            None => (None, None),
+        };
 
         if place_id.is_none() {
             place_id = Some(userland::simple_uuid(b"/"));
@@ -149,24 +142,34 @@ impl App for GraphViewerApp {
         }
     }
 
-    fn tick(&mut self, _ctx: &mut AppContext<'_>, _tick: u64) {
-        if self.place_id.is_none() {
-            let mut pattern = NodePattern::default();
-            pattern.labels.push(canon::LAUNCH_INTENT);
-            let intents = userland::graph::get_nodes(pattern);
-
-            for intent in intents {
-                if let Some(Value::Uuid(place)) = intent.fields.get(&canon::PLACE) {
-                    self.place_id = Some(*place);
-                    self.refresh_contents();
-                    break;
-                }
-            }
-        }
-    }
+    fn tick(&mut self, _ctx: &mut AppContext<'_>, _tick: u64) {}
 }
 
 impl GraphViewerApp {
+    fn discover_launch_intent() -> Option<(Uuid, Option<u8>, Uuid)> {
+        let mut pattern = NodePattern::default();
+        pattern.labels.push(canon::LAUNCH_INTENT);
+        let intents = userland::graph::get_nodes(pattern);
+
+        for intent in intents {
+            if let Some(app) = intent.fields.get(&canon::APP).and_then(|v| v.as_text()) {
+                if app == "graph_viewer" {
+                    let place_id = intent.fields.get(&canon::PLACE).and_then(|v| v.as_uuid());
+                    let mode_index = intent
+                        .fields
+                        .get(&canon::MODE_INDEX)
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as u8);
+
+                    if let Some(place) = place_id {
+                        return Some((place, mode_index, intent.id));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     fn refresh_contents(&mut self) {
         if let Some(place_id) = self.place_id {
             let mut pattern = NodePattern::default();
