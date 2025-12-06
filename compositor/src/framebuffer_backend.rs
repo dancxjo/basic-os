@@ -94,18 +94,20 @@ impl BitmapRenderer {
                     text,
                     color,
                     max_width,
+                    is_mono,
                 } => {
                     let clip = clip_stack.last().copied().flatten();
-                    raster_draw_text(self, *origin, text, *color, *max_width, clip);
+                    raster_draw_text(self, *origin, text, *color, *max_width, clip, *is_mono);
                 }
                 SceneItem::DrawTextBlock {
                     rect,
                     text,
                     color,
                     scroll_offset,
+                    is_mono,
                 } => {
                     let clip = clip_stack.last().copied().flatten();
-                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip);
+                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip, *is_mono);
                 }
                 SceneItem::DrawCursor {
                     origin,
@@ -401,13 +403,14 @@ fn raster_draw_text(
     color: Rgba,
     max_width: Option<u32>,
     clip: Option<Rect>,
+    is_mono: bool,
 ) {
     if backend.width == 0 {
         return;
     }
     let fm = font_manager();
     let size = FONT_HEIGHT as f32;
-    let metrics = fm.line_metrics(size);
+    let metrics = if is_mono { fm.mono_line_metrics(size) } else { fm.line_metrics(size) };
     let ascent = metrics.ascent;
     let new_line_size = metrics.new_line_size;
 
@@ -415,14 +418,23 @@ fn raster_draw_text(
     let mut baseline_y = origin.1 as f32 + ascent;
     let limit_x = max_width.map(|w| origin.0 as f32 + w as f32);
 
+    if is_mono {
+        // println!("raster_draw_text mono: text='{}' origin={:?} size={}", text, origin, size);
+    }
+
     for ch in text.chars() {
         if ch == '\n' {
             cursor_x = origin.0 as f32;
             baseline_y += new_line_size;
             continue;
         }
-        let (metrics, bitmap) = fm.rasterize(ch, size);
+        let (metrics, bitmap) = if is_mono { fm.rasterize_mono(ch, size) } else { fm.rasterize(ch, size) };
         let gw = metrics.advance_width;
+        
+        if is_mono && bitmap.is_empty() && ch != ' ' {
+             // println!("raster_draw_text mono: empty bitmap for '{}'", ch);
+        }
+
         if let Some(limit) = limit_x {
             if cursor_x + gw > limit {
                 break;
@@ -444,6 +456,7 @@ fn raster_draw_text_block(
     color: Rgba,
     scroll_offset: i32,
     clip: Option<Rect>,
+    is_mono: bool,
 ) {
     if backend.width == 0 {
         return;
@@ -465,12 +478,16 @@ fn raster_draw_text_block(
 
     let fm = font_manager();
     let size = FONT_HEIGHT as f32;
-    let line_metrics = fm.line_metrics(size);
+    let line_metrics = if is_mono { fm.mono_line_metrics(size) } else { fm.line_metrics(size) };
     let ascent = line_metrics.ascent;
     let new_line_size = line_metrics.new_line_size;
 
     let mut cursor_x: f32 = 0.0;
     let mut current_y: f32 = 0.0; 
+
+    if is_mono {
+        // println!("raster_draw_text_block mono: text len={} rect={:?}", text.len(), rect);
+    }
 
     for ch in text.chars() {
         if ch == '\n' {
@@ -481,7 +498,7 @@ fn raster_draw_text_block(
             }
             continue;
         }
-        let (metrics, bitmap) = fm.rasterize(ch, size);
+        let (metrics, bitmap) = if is_mono { fm.rasterize_mono(ch, size) } else { fm.rasterize(ch, size) };
         let gw = metrics.advance_width;
 
         if cursor_x + gw > content_width as f32 {

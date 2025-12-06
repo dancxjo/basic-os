@@ -13,6 +13,10 @@ const FONT_ITEMS: &[(&str, &str)] = &[
         "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf",
         "NotoSansSymbols2-Regular.ttf",
     ),
+    (
+        "https://github.com/source-foundry/Hack/raw/master/build/ttf/Hack-Regular.ttf",
+        "Hack-Regular.ttf",
+    ),
 ];
 
 fn main() {

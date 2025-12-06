@@ -8,6 +8,8 @@ use std::process::Command;
 const NOTO_SANS_URL: &str = "https://github.com/notofonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf";
 const NOTO_SANS_SYMBOLS_URL: &str = "https://github.com/notofonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansSymbols/NotoSansSymbols-Regular.ttf";
 const NOTO_SANS_SYMBOLS2_URL: &str = "https://github.com/notofonts/noto-fonts/raw/refs/heads/main/hinted/ttf/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf";
+const HACK_REGULAR_URL: &str =
+    "https://github.com/source-foundry/Hack/raw/master/build/ttf/Hack-Regular.ttf";
 
 fn main() {
     let target = env::var("TARGET").expect("TARGET not set");
@@ -24,6 +26,7 @@ fn main() {
         ("NotoSans-Regular.ttf", NOTO_SANS_URL),
         ("NotoSansSymbols-Regular.ttf", NOTO_SANS_SYMBOLS_URL),
         ("NotoSansSymbols2-Regular.ttf", NOTO_SANS_SYMBOLS2_URL),
+        ("Hack-Regular.ttf", HACK_REGULAR_URL),
     ];
 
     for (filename, url) in fonts {
@@ -36,10 +39,31 @@ fn main() {
     // Generate fonts.rs to include them
     let fonts_rs = out_dir.join("fonts_includes.rs");
     let mut f = File::create(&fonts_rs).expect("Failed to create fonts_includes.rs");
-    
-    writeln!(f, "pub const NOTO_SANS: &[u8] = include_bytes!({:?});", out_dir.join("NotoSans-Regular.ttf")).unwrap();
-    writeln!(f, "pub const NOTO_SANS_SYMBOLS: &[u8] = include_bytes!({:?});", out_dir.join("NotoSansSymbols-Regular.ttf")).unwrap();
-    writeln!(f, "pub const NOTO_SANS_SYMBOLS2: &[u8] = include_bytes!({:?});", out_dir.join("NotoSansSymbols2-Regular.ttf")).unwrap();
+
+    writeln!(
+        f,
+        "pub const NOTO_SANS: &[u8] = include_bytes!({:?});",
+        out_dir.join("NotoSans-Regular.ttf")
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "pub const NOTO_SANS_SYMBOLS: &[u8] = include_bytes!({:?});",
+        out_dir.join("NotoSansSymbols-Regular.ttf")
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "pub const NOTO_SANS_SYMBOLS2: &[u8] = include_bytes!({:?});",
+        out_dir.join("NotoSansSymbols2-Regular.ttf")
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "pub const HACK_REGULAR: &[u8] = include_bytes!({:?});",
+        out_dir.join("Hack-Regular.ttf")
+    )
+    .unwrap();
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rustc-env=OUT_DIR={}", out_dir.display());

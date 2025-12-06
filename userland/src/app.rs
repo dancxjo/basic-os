@@ -70,11 +70,19 @@ impl WindowHandle {
     }
 }
 
+#[derive(Default)]
+struct WindowProps {
+    is_mono: bool,
+    text_color: Option<u32>,
+    bg_color: Option<u32>,
+}
+
 pub struct AppState {
     compositor: Uuid,
     buffers: BTreeMap<Uuid, String>,
     bitmaps: BTreeMap<Uuid, Vec<u8>>,
     window_pixmaps: BTreeMap<Uuid, Uuid>,
+    window_props: BTreeMap<Uuid, WindowProps>,
     window_counter: u64,
     app_id: usize,
 }
@@ -86,6 +94,7 @@ impl AppState {
             buffers: BTreeMap::new(),
             bitmaps: BTreeMap::new(),
             window_pixmaps: BTreeMap::new(),
+            window_props: BTreeMap::new(),
             window_counter: 0,
             app_id,
         }
@@ -189,6 +198,18 @@ impl<'a> AppContext<'a> {
         update_thing(win.window, window.clone());
     }
 
+    pub fn set_font_mono(&mut self, win: &WindowHandle, is_mono: bool) {
+        self.state.window_props.entry(win.window).or_default().is_mono = is_mono;
+    }
+
+    pub fn set_text_color(&mut self, win: &WindowHandle, color: u32) {
+        self.state.window_props.entry(win.window).or_default().text_color = Some(color);
+    }
+
+    pub fn set_bg_color(&mut self, win: &WindowHandle, color: u32) {
+        self.state.window_props.entry(win.window).or_default().bg_color = Some(color);
+    }
+
     pub fn begin_tick(&mut self) {
         self.state.buffers.clear();
     }
@@ -197,6 +218,11 @@ impl<'a> AppContext<'a> {
         // Collect all window IDs that have either text buffer or bitmap updates
         let mut updates: Vec<Uuid> = self.state.buffers.keys().cloned().collect();
         for k in self.state.bitmaps.keys() {
+            if !updates.contains(k) {
+                updates.push(*k);
+            }
+        }
+        for k in self.state.window_props.keys() {
             if !updates.contains(k) {
                 updates.push(*k);
             }
@@ -213,6 +239,16 @@ impl<'a> AppContext<'a> {
                      payload.insert(canon::TEXT, Value::Bytes(text.as_bytes().to_vec()));
                 }
                 
+                if let Some(props) = self.state.window_props.get(&window) {
+                    payload.insert(canon::IS_MONO, Value::Bool(props.is_mono));
+                    if let Some(c) = props.text_color {
+                        payload.insert(canon::TEXT_COLOR, Value::U64(c as u64));
+                    }
+                    if let Some(c) = props.bg_color {
+                        payload.insert(canon::BG_COLOR, Value::U64(c as u64));
+                    }
+                }
+
                 payload.insert(canon::DIRTY, Value::Bool(true));
                 payload.insert(canon::VISIBLE, Value::Bool(true));
 

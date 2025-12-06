@@ -98,6 +98,9 @@ pub mod canon {
     pub const STATUS: Symbol = canon(b'S', b'T', b'A');
     pub const SCANCODE: Symbol = canon(b'S', b'C', b'N');
     pub const KEY: Symbol = canon(b'K', b'E', b'Y');
+    pub const IS_MONO: Symbol = canon(b'M', b'O', b'N');
+    pub const TEXT_COLOR: Symbol = canon(b'T', b'X', b'C');
+    pub const BG_COLOR: Symbol = canon(b'B', b'G', b'C');
     pub const DX: Symbol = canon(b'D', b'X', b' ');
     pub const DY: Symbol = canon(b'D', b'Y', b' ');
     pub const BUTTONS: Symbol = canon(b'B', b'T', b'N');

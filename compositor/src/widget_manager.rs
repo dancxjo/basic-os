@@ -449,7 +449,7 @@ impl WidgetManager {
                     rect: Rect::new(x + 4, y + 4, (w - 8) as u32, (drawn_height - 8) as u32),
                     text: label.clone(),
                     color: COLOR_TEXT,
-                    scroll_offset: 0,
+                    scroll_offset: 0, is_mono: false,
                 });
             }
         } else if widget.role == "listbox_default" || widget.role == "primary_list" {
@@ -529,7 +529,7 @@ impl WidgetManager {
                     origin: (mid_x, mid_y),
                     text: label.clone(),
                     color: COLOR_TEXT,
-                    max_width: None,
+                    max_width: None, is_mono: false,
                 });
             }
         } else if widget.role == "thing_tile" {
@@ -560,7 +560,7 @@ impl WidgetManager {
                     rect: Rect::new(x + 4, y + drawn_height - 30, (w - 8) as u32, 24),
                     text: label.clone(),
                     color: COLOR_TEXT,
-                    scroll_offset: 0,
+                    scroll_offset: 0, is_mono: false,
                 });
             }
         } else if widget.role == "list_item" {
@@ -570,7 +570,7 @@ impl WidgetManager {
                     rect: Rect::new(x + 4, y + 2, (w - 8) as u32, (drawn_height - 4) as u32),
                     text: label.clone(),
                     color: COLOR_TEXT,
-                    scroll_offset: 0,
+                    scroll_offset: 0, is_mono: false,
                 });
             }
         } else if widget.role == "label" {
@@ -598,7 +598,7 @@ impl WidgetManager {
                     rect: Rect::new(x + pad_x, y + pad_y, (w - pad_x * 2) as u32, (drawn_height - pad_y * 2) as u32),
                     text: label.clone(),
                     color: COLOR_TEXT,
-                    scroll_offset: 0,
+                    scroll_offset: 0, is_mono: false,
                 });
              }
         }
@@ -806,7 +806,7 @@ impl WidgetManager {
                     origin: (icon_left, icon_top),
                     text: fallback_char.to_string(),
                     color,
-                    max_width: Some(w.max(0) as u32),
+                    max_width: Some(w.max(0) as u32), is_mono: false,
                 });
             }
         }
@@ -862,7 +862,7 @@ impl WidgetManager {
                 rect: Rect::new(x, y, w as u32, h as u32),
                 text: surface.text.clone(),
                 color: COLOR_TEXT,
-                scroll_offset: surface.scroll_y,
+                scroll_offset: surface.scroll_y, is_mono: false,
             });
 
             let is_active = surface.window.active; // || self.active_window == Some(window_id); // Need active window info
@@ -1339,7 +1339,7 @@ impl WidgetManager {
             origin: (x + 2, y + 2),
             text: widget.role.clone(),
             color,
-            max_width: Some(w.saturating_sub(4) as u32),
+            max_width: Some(w.saturating_sub(4) as u32), is_mono: false,
         });
     }
 }

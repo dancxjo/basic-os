@@ -30,12 +30,14 @@ pub enum SceneItem {
         text: String,
         color: Rgba,
         max_width: Option<u32>,
+        is_mono: bool,
     },
     DrawTextBlock {
         rect: Rect,
         text: String,
         color: Rgba,
         scroll_offset: i32,
+        is_mono: bool,
     },
     DrawCursor {
         origin: (i32, i32),

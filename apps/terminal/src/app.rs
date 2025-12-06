@@ -45,6 +45,11 @@ impl App for Terminal {
         
         let window = ctx.create_window_with(window_fields);
 
+        // Set styling
+        ctx.set_font_mono(&window, true);
+        ctx.set_bg_color(&window, 0xFF202020);
+        ctx.set_text_color(&window, 0xFF4DB8FF);
+
         // Subscribe to DEBUG_LOG things
         let watch_id = ctx.watch_graph(ThingFilter {
             kind: Some(canon::DEBUG_LOG),

@@ -7,6 +7,7 @@ include!(concat!(env!("OUT_DIR"), "/fonts_includes.rs"));
 
 pub struct FontManager {
     fonts: Vec<Font>,
+    mono_font: Font,
 }
 
 static mut MANAGER: Option<FontManager> = None;
@@ -25,9 +26,10 @@ impl FontManager {
         let fonts = alloc::vec![
             Font::from_bytes(NOTO_SANS, settings.clone()).unwrap(),
             Font::from_bytes(NOTO_SANS_SYMBOLS, settings.clone()).unwrap(),
-            Font::from_bytes(NOTO_SANS_SYMBOLS2, settings).unwrap(),
+            Font::from_bytes(NOTO_SANS_SYMBOLS2, settings.clone()).unwrap(),
         ];
-        Self { fonts }
+        let mono_font = Font::from_bytes(HACK_REGULAR, settings).unwrap();
+        Self { fonts, mono_font }
     }
 
     pub fn rasterize(&self, c: char, size: f32) -> (Metrics, Vec<u8>) {
@@ -40,6 +42,14 @@ impl FontManager {
         self.fonts[0].rasterize(c, size)
     }
 
+    pub fn rasterize_mono(&self, c: char, size: f32) -> (Metrics, Vec<u8>) {
+        let (metrics, bitmap) = self.mono_font.rasterize(c, size);
+        if bitmap.is_empty() && !c.is_whitespace() {
+             return self.fonts[0].rasterize(c, size);
+        }
+        (metrics, bitmap)
+    }
+
     pub fn line_metrics(&self, size: f32) -> fontdue::LineMetrics {
         self.fonts[0].horizontal_line_metrics(size).unwrap_or_else(|| {
              // Fallback if missing? Should not happen for Noto Sans
@@ -50,5 +60,15 @@ impl FontManager {
                  new_line_size: size,
              }
         })
+    }
+
+    pub fn mono_line_metrics(&self, size: f32) -> fontdue::LineMetrics {
+        // Force fallback metrics for Hack font to ensure consistent rendering
+        fontdue::LineMetrics {
+            ascent: size * 0.8,
+            descent: size * -0.2,
+            line_gap: 0.0,
+            new_line_size: size,
+        }
     }
 }

@@ -35,6 +35,9 @@ pub struct WindowSurface {
     pub close_button_state: ButtonState,
     pub close_button_bitmap: Option<Arc<Bitmap>>,
     pub repeat: bool,
+    pub is_mono: bool,
+    pub text_color: Option<u32>,
+    pub bg_color: Option<u32>,
 }
 
 pub struct WindowLayout {
@@ -226,18 +229,18 @@ pub fn measure_surface_content_height(surface: &WindowSurface, width: i32) -> i3
     let text_height = if surface.text.is_empty() {
         0
     } else {
-        measure_text_height(&surface.text, width)
+        measure_text_height(&surface.text, width, surface.is_mono)
     };
     text_height.max(bitmap_height)
 }
 
-pub fn measure_text_height(text: &str, width: i32) -> i32 {
+pub fn measure_text_height(text: &str, width: i32, is_mono: bool) -> i32 {
     if text.is_empty() || width <= 0 {
         return 0;
     }
     let fm = font_manager();
     let size = FONT_HEIGHT as f32;
-    let metrics = fm.line_metrics(size);
+    let metrics = if is_mono { fm.mono_line_metrics(size) } else { fm.line_metrics(size) };
     let new_line_size = metrics.new_line_size;
     
     let mut cursor_x: f32 = 0.0;
@@ -249,7 +252,7 @@ pub fn measure_text_height(text: &str, width: i32) -> i32 {
             cursor_y += new_line_size;
             continue;
         }
-        let (metrics, _) = fm.rasterize(ch, size);
+        let (metrics, _) = if is_mono { fm.rasterize_mono(ch, size) } else { fm.rasterize(ch, size) };
         let gw = metrics.advance_width;
         if cursor_x + gw > width as f32 {
             cursor_x = 0.0;

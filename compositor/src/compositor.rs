@@ -702,9 +702,10 @@ where
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
         });
 
+        let bg_color = surface.bg_color.map(Rgba::from_u32).unwrap_or(self.layout.client_bg);
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
-            color: self.layout.client_bg,
+            color: bg_color,
         });
 
         if let Some(bmp) = &surface.bitmap {
@@ -715,11 +716,13 @@ where
                 offset: (0, 0),
             });
         } else if !surface.text.is_empty() {
+            let text_color = surface.text_color.map(Rgba::from_u32).unwrap_or(COLOR_TEXT);
             scene.push(SceneItem::DrawTextBlock {
                 rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
                 text: surface.text.clone(),
-                color: COLOR_TEXT,
+                color: text_color,
                 scroll_offset: surface.scroll_y,
+                is_mono: surface.is_mono,
             });
         }
 
@@ -1141,6 +1144,9 @@ where
                 close_button_state: btn_state,
                 close_button_bitmap: None,
                 repeat: false,
+                is_mono: false,
+                text_color: None,
+                bg_color: None,
             };
             self.windows.insert(window_id, surf);
         }
@@ -1155,6 +1161,10 @@ where
         entry.window = window;
         entry.surface_id = Some(surface.id);
         entry.text = surface.text;
+
+        entry.is_mono = thing.fields.get(&canon::IS_MONO).and_then(|v| v.as_bool()).unwrap_or(false);
+        entry.text_color = thing.fields.get(&canon::TEXT_COLOR).and_then(|v| v.as_u64()).map(|v| v as u32);
+        entry.bg_color = thing.fields.get(&canon::BG_COLOR).and_then(|v| v.as_u64()).map(|v| v as u32);
 
         if let Some(bytes) = surface.bitmap {
             if let Some(bmp) = decode_bmp(&bytes) {
@@ -2178,6 +2188,9 @@ where
                     close_button_state: btn_state,
                     close_button_bitmap: None,
                     repeat: false,
+                    is_mono: false,
+                    text_color: None,
+                    bg_color: None,
                 },
             );
         }
@@ -2382,6 +2395,7 @@ where
             text: label,
             color: border_color,
             scroll_offset: 0,
+            is_mono: false,
         });
 
         // Draw Widgets
@@ -2461,6 +2475,7 @@ where
                 text: surface.text.clone(),
                 color: COLOR_TEXT,
                 scroll_offset: surface.scroll_y,
+                is_mono: surface.is_mono,
             });
         }
 
@@ -2714,11 +2729,21 @@ where
                         offset: (0, 0),
                     });
                 } else if !surface.text.is_empty() {
+                    let text_color = surface.text_color.map(Rgba::from_u32).unwrap_or(COLOR_TEXT);
+                    
+                    if let Some(bg_color) = surface.bg_color {
+                         scene.push(SceneItem::FillRect {
+                            rect: content_rect,
+                            color: Rgba::from_u32(bg_color),
+                        });
+                    }
+
                     scene.push(SceneItem::DrawTextBlock {
                         rect: content_rect,
                         text: surface.text.clone(),
-                        color: COLOR_TEXT,
+                        color: text_color,
                         scroll_offset: surface.scroll_y,
+                        is_mono: surface.is_mono,
                     });
 
                     // Draw caret
