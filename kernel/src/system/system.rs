@@ -158,18 +158,24 @@ fn init_graph_and_syscalls() {
 
         // Inject boot assets
         if let Some(assets) = crate::bootloader::get_module("assets.tar") {
-             log::info!("Found assets.tar, injecting into graph...");
-             let mut fields = alloc::collections::BTreeMap::new();
-             fields.insert(crate::graph::canon::BYTES, crate::graph::Value::Bytes(alloc::vec::Vec::from(assets)));
-             fields.insert(crate::graph::canon::NAME, crate::graph::Value::Text(alloc::string::String::from("assets.tar")));
-             
-             let req = crate::graph::GraphFiatRequest {
-                 id: None,
-                 kind: crate::graph::canon::BOOT_ASSET,
-                 labels: alloc::vec![],
-                 fields,
-             };
-             crate::graph::api::fiat(req);
+            log::info!("Found assets.tar, injecting into graph...");
+            let mut fields = alloc::collections::BTreeMap::new();
+            fields.insert(
+                crate::graph::canon::BYTES,
+                crate::graph::Value::Bytes(alloc::vec::Vec::from(assets)),
+            );
+            fields.insert(
+                crate::graph::canon::NAME,
+                crate::graph::Value::Text(alloc::string::String::from("assets.tar")),
+            );
+
+            let req = crate::graph::GraphFiatRequest {
+                id: None,
+                kind: crate::graph::canon::BOOT_ASSET,
+                labels: alloc::vec![],
+                fields,
+            };
+            crate::graph::api::fiat(req);
         }
     });
 
@@ -333,5 +339,6 @@ fn run_system() -> ! {
     not(feature = "standalone_compositor")
 ))]
 fn run_system() -> ! {
-    panic!("No run mode selected (kernel_multitask or standalone_compositor)");
+    // panic!("No run mode selected (kernel_multitask or standalone_compositor)");
+    run_single_user_module("init", "Init System");
 }

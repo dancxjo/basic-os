@@ -90,7 +90,15 @@ extern "x86-interrupt" fn double_fault_handler(
     crate::trace::trace_event(crate::trace::TraceKind::DoubleFault, 0, 0);
     crate::klog_raw!("\nEXCEPTION: DOUBLE FAULT\r\n");
     crate::trace::dump_trace();
-    error!("Double fault! Frame: {:?}", stack_frame);
+    error!("Double fault! Frame: {:#?}", stack_frame);
+    error!("Error Code: {:#x}", _error_code);
+
+    let cr2 = x86_64::registers::control::Cr2::read();
+    error!("CR2: {:#x}", cr2);
+
+    let cr3 = x86_64::registers::control::Cr3::read().0;
+    error!("CR3: {:#x}", cr3.start_address().as_u64());
+
     loop {}
 }
 

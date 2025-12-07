@@ -4,6 +4,9 @@ use crate::arch::x86_64::gdt::set_kernel_stack;
 use crate::arch::x86_64::stack::{KERNEL_STACK_PAGES, KERNEL_STACK_TOP, KERNEL_STACK_VIRT_BASE};
 use crate::bootloader::get_hhdm_offset;
 use crate::mm::allocator::{HEAP_SIZE, HEAP_START};
+use crate::mm::layout::{
+    KERNEL_STACK_REGION_BASE, MAX_TASKS_TO_MAP, USER_CODE_BASE, USER_STACK_SIZE, USER_STACK_TOP,
+};
 use crate::mm::mirror_region::mirror_kernel_region;
 use crate::task::context::{FullContext, IretFrame, TaskMode, prepare_context};
 use crate::task::elf::{ET_DYN, Elf, PF_W, PF_X, PT_LOAD, ProgramHeader};
@@ -106,16 +109,16 @@ pub fn create_user_page_table(
     // );
 
     // Mirror task stacks (scheduler uses a different region)
-    const TASK_STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
-    const MAX_TASKS_TO_MAP: u64 = 64;
+    // const TASK_STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
+    // const MAX_TASKS_TO_MAP: u64 = 64;
     let task_stack_size = Task::stack_size(); // Keep mirrored size in sync with scheduler stacks.
     // info!("Mirroring task stack region...");
     // mirror_kernel_region(
     //     &mut offset_page_table,
     //     active_mapper,
     //     frame_allocator,
-    //     (VirtAddr::new(TASK_STACK_REGION_BASE)
-    //         ..VirtAddr::new(TASK_STACK_REGION_BASE + MAX_TASKS_TO_MAP * task_stack_size))
+    //     (VirtAddr::new(KERNEL_STACK_REGION_BASE)
+    //         ..VirtAddr::new(KERNEL_STACK_REGION_BASE + MAX_TASKS_TO_MAP * task_stack_size))
     //         .into(),
     // );
 
@@ -182,9 +185,9 @@ fn load_elf_inner<'a>(
     // info!("DEBUG: load_elf start. data len: {}", data.len());
     let elf = Elf::parse(data).map_err(|_| "Failed to parse ELF")?;
     // info!("DEBUG: ELF parsed successfully");
-    let load_base = VirtAddr::new(0x0000_4000_0000_0000);
-    let user_stack_size = 16 * 4096;
-    let user_stack_top = VirtAddr::new(0x0000_7000_0000_0000);
+    let load_base = VirtAddr::new(USER_CODE_BASE);
+    let user_stack_size = USER_STACK_SIZE;
+    let user_stack_top = VirtAddr::new(USER_STACK_TOP);
     let user_stack_start = user_stack_top - user_stack_size as u64;
 
     // Map user stack

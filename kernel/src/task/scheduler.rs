@@ -33,6 +33,7 @@ use spin::Mutex;
 use x86_64::structures::paging::{FrameAllocator, Mapper, PhysFrame, Size4KiB, Translate};
 use x86_64::{PhysAddr, registers::control::Cr3};
 
+use crate::mm::layout::KERNEL_STACK_REGION_BASE;
 use crate::task::context::{FullContext, TaskMode, prepare_context};
 
 /// Represents a schedulable task with its execution context and stack.
@@ -97,8 +98,8 @@ impl Task {
     }
 
     pub fn stack_base_for_task(index: usize) -> u64 {
-        const STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
-        STACK_REGION_BASE + index as u64 * Self::STACK_SIZE
+        // const STACK_REGION_BASE: u64 = 0xffff_8800_1000_0000;
+        KERNEL_STACK_REGION_BASE + index as u64 * Self::STACK_SIZE
     }
 
     pub const fn stack_size() -> u64 {

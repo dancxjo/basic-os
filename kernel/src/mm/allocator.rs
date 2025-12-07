@@ -22,10 +22,12 @@ use crate::mm::pools::{MemoryRole, POOL_MANAGER, init_pools};
 #[cfg(not(feature = "debug_heap_bump"))]
 use linked_list_allocator::LockedHeap;
 
+use crate::mm::layout::{KERNEL_HEAP_SIZE, KERNEL_HEAP_START};
+
 // Constants for heap placement
 
-pub const HEAP_START: u64 = 0xFFFF_A000_0000_0000;
-pub const HEAP_SIZE: usize = 32 * 1024 * 1024;
+pub const HEAP_START: u64 = KERNEL_HEAP_START;
+pub const HEAP_SIZE: usize = KERNEL_HEAP_SIZE;
 
 const SANITY_FORBIDDEN_RANGE: Range<u64> = 0x0010_0000..0x0100_0000;
 const SANITY_DUMP_COUNT: usize = 8;

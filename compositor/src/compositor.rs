@@ -24,15 +24,15 @@ use crate::layout::{self, AlignItems, FlexDirection, JustifyContent, LayoutItem,
 use crate::mode::ModeSlot;
 use crate::scene::{Scene, SceneItem};
 use crate::types::{
-    clamp_i32, Rect, Rgba, AUTO_TILE_MARGIN, AUTO_TILE_MIN_WINDOWS, AUTO_TILE_TOP_OFFSET,
+    clamp_i32, Layout, Rect, Rgba, AUTO_TILE_MARGIN, AUTO_TILE_MIN_WINDOWS, AUTO_TILE_TOP_OFFSET,
     BORDER_3D_THICKNESS, BORDER_OUTER_THICKNESS, BORDER_THICKNESS, BTN_BORDER, BTN_FACE, BTN_GLYPH,
-    CLEAR_COLOR, CLOSE_BUTTON_SIZE, COLOR_CURSOR_PRIMARY, COLOR_CURSOR_SHADOW, COLOR_TEXT, FONT_HEIGHT,
-    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, RESIZE_CORNER_SIZE, RESIZE_MARGIN,
+    CLEAR_COLOR, CLOSE_BUTTON_SIZE, COLOR_CURSOR_PRIMARY, COLOR_CURSOR_SHADOW, COLOR_TEXT,
+    FONT_HEIGHT, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, RESIZE_CORNER_SIZE, RESIZE_MARGIN,
     ROLE_CONTAINER_VERTICAL, ROLE_EDITOR_ROOT, ROLE_TOOLBAR, ROLE_TOOLBAR_BUTTON, SCROLLBAR_GAP,
     SCROLLBAR_MIN_THUMB, SCROLLBAR_THUMB_COLOR, SCROLLBAR_THUMB_HILIGHT, SCROLLBAR_THUMB_SHADOW,
     SCROLLBAR_TOTAL_RESERVE, SCROLLBAR_TRACK_COLOR, SCROLLBAR_WIDTH, SCROLL_STEP_LINE,
     TITLE_BAR_HEIGHT, TITLE_TEXT_LEFT_PAD, TITLE_TEXT_TOP_OFFSET, TOOLBAR_BUTTON_SIZE,
-    TOOLBAR_BUTTON_SPACING, TOOLBAR_HEIGHT, Layout,
+    TOOLBAR_BUTTON_SPACING, TOOLBAR_HEIGHT,
 };
 use crate::widget_manager::WidgetManager;
 use crate::window::{
@@ -49,8 +49,6 @@ fn next_uuid() -> Uuid {
 }
 
 const COMPOSITOR_WIDGET: userland::Symbol = canon::canon(b'C', b'M', b'W');
-
-
 
 pub struct FrameInfo {
     pub addr: u64,
@@ -145,14 +143,14 @@ where
     }
 
     fn ingest_style(&mut self, thing: &userland::GraphThing) {
-         if let Some(h) = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64()) {
-             self.layout.title_bar_height = h as usize;
-         }
-         // Can expand to colors and others later
-         self.content_dirty = true;
-         // Trigger comprehensive relayout
-         self.enforce_place_layout();
-         // self.update_scrollbars(); // Implicitly called in tick
+        if let Some(h) = thing.fields.get(&canon::HEIGHT).and_then(|v| v.as_u64()) {
+            self.layout.title_bar_height = h as usize;
+        }
+        // Can expand to colors and others later
+        self.content_dirty = true;
+        // Trigger comprehensive relayout
+        self.enforce_place_layout();
+        // self.update_scrollbars(); // Implicitly called in tick
     }
 
     pub fn new(fb_device: F, renderer: R) -> Self {
@@ -334,7 +332,7 @@ where
                 // to the Mode's Place (which is linked via ensure_mode_app logic, but here we set it on the place id)
                 // Actually, init_wallpapers doesn't touch the Place directly.
                 // The ModeF1 thing is created in new(), but the Place for it (sky) is set in new().
-                
+
                 // Let's set the 'app' property on the "sky" place which corresponds to Mode 0.
                 let sky_place_id = userland::simple_uuid(b"sky");
                 let mut app_fields = userland::map();
@@ -480,7 +478,7 @@ where
         }
 
         for thing in userland::graph::get_nodes(mode_def_pattern) {
-             if let Some(Value::I64(idx)) = thing.fields.get(&canon::MODE_INDEX) {
+            if let Some(Value::I64(idx)) = thing.fields.get(&canon::MODE_INDEX) {
                 let idx = (*idx).max(0).min(11) as usize;
                 if let Some(place_id) = thing
                     .fields
@@ -490,7 +488,7 @@ where
                     comp.modes[idx].place_id = Some(place_id);
                     // If we are currently in this mode, update active_place
                     if comp.active_mode == idx {
-                         comp.active_place = Some(place_id);
+                        comp.active_place = Some(place_id);
                     }
                 }
             }
@@ -702,7 +700,10 @@ where
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
         });
 
-        let bg_color = surface.bg_color.map(Rgba::from_u32).unwrap_or(self.layout.client_bg);
+        let bg_color = surface
+            .bg_color
+            .map(Rgba::from_u32)
+            .unwrap_or(self.layout.client_bg);
         scene.push(SceneItem::FillRect {
             rect: Rect::new(x as i32, y as i32, w as u32, h as u32),
             color: bg_color,
@@ -1063,7 +1064,10 @@ where
     fn draw_close_button(&self, scene: &mut Scene, layout: &WindowLayout, surface: &WindowSurface) {
         let (btn_x, btn_y, btn_w, btn_h) = close_button_rect(layout);
 
-        println!("draw_close_button: btn_w={} btn_h={} icon_name={:?}", btn_w, btn_h, surface.close_button_state.icon_name);
+        println!(
+            "draw_close_button: btn_w={} btn_h={} icon_name={:?}",
+            btn_w, btn_h, surface.close_button_state.icon_name
+        );
 
         // Create temporary buffer
         let mut buffer = vec![0u8; (btn_w * btn_h * 4) as usize];
@@ -1077,8 +1081,14 @@ where
         ButtonWidget::draw(&surface.close_button_state, &mut buffer, rect);
 
         // Check if any non-zero pixels (excluding background)
-        let non_bg_pixels = buffer.chunks(4).filter(|c| c[0] != 0xC0 || c[1] != 0xC0 || c[2] != 0xC0).count();
-        println!("draw_close_button: buffer non-background pixels={}", non_bg_pixels);
+        let non_bg_pixels = buffer
+            .chunks(4)
+            .filter(|c| c[0] != 0xC0 || c[1] != 0xC0 || c[2] != 0xC0)
+            .count();
+        println!(
+            "draw_close_button: buffer non-background pixels={}",
+            non_bg_pixels
+        );
 
         // Convert to u32 pixels for Bitmap
         let pixels: Vec<u32> = buffer
@@ -1126,6 +1136,7 @@ where
                 hovered: false,
                 focused: false,
                 icon_name: Some("close".to_string()),
+                icon: widget_button::load_icon("close"),
                 show_label: false,
                 bind_node: None,
                 bind_index: None,
@@ -1154,7 +1165,11 @@ where
         let entry = self.windows.get_mut(&window_id).unwrap();
         if let Some(tile_mode) = window.tile_mode {
             entry.repeat = tile_mode;
-        } else if let Some(tile_mode) = thing.fields.get(&canon::TILE_MODE).and_then(|v| v.as_bool()) {
+        } else if let Some(tile_mode) = thing
+            .fields
+            .get(&canon::TILE_MODE)
+            .and_then(|v| v.as_bool())
+        {
             entry.repeat = tile_mode;
         }
 
@@ -1162,9 +1177,21 @@ where
         entry.surface_id = Some(surface.id);
         entry.text = surface.text;
 
-        entry.is_mono = thing.fields.get(&canon::IS_MONO).and_then(|v| v.as_bool()).unwrap_or(false);
-        entry.text_color = thing.fields.get(&canon::TEXT_COLOR).and_then(|v| v.as_u64()).map(|v| v as u32);
-        entry.bg_color = thing.fields.get(&canon::BG_COLOR).and_then(|v| v.as_u64()).map(|v| v as u32);
+        entry.is_mono = thing
+            .fields
+            .get(&canon::IS_MONO)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        entry.text_color = thing
+            .fields
+            .get(&canon::TEXT_COLOR)
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+        entry.bg_color = thing
+            .fields
+            .get(&canon::BG_COLOR)
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
 
         if let Some(bytes) = surface.bitmap {
             if let Some(bmp) = decode_bmp(&bytes) {
@@ -1290,7 +1317,13 @@ where
             return;
         };
 
-        if let Some(layout) = compute_window_layout(win_x, win_y, win_w, win_h, self.layout.title_bar_height as i32) {
+        if let Some(layout) = compute_window_layout(
+            win_x,
+            win_y,
+            win_w,
+            win_h,
+            self.layout.title_bar_height as i32,
+        ) {
             let close_rect = close_button_rect(&layout);
             if point_in_rect(self.cursor.x, self.cursor.y, close_rect) {
                 println!("Close button clicked for window {}", window_id);
@@ -1551,7 +1584,7 @@ where
     fn dispatch_action(&mut self, action: &str, window_id: Option<Uuid>) {
         if action == "ACTION.CLOSE_WINDOW" {
             if let Some(id) = window_id {
-                 // Logic from on_close_button_up
+                // Logic from on_close_button_up
                 let mut props = BTreeMap::new();
                 props.insert(canon::VISIBLE, Value::Bool(false));
                 self.update_window_props(id, props);
@@ -1566,30 +1599,39 @@ where
             graph::fiat(Some(widget_id), canon::WIDGET, updates);
 
             // Check for valid click (release inside widget)
-            if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y) {
-                 if let Some(surface) = self.windows.get(&win_id) {
-                     let w = surface.window.width as i32;
-                     let h = surface.window.height as i32;
-                     if let Some(layout) = compute_window_layout(win_x, win_y, w, h, self.layout.title_bar_height as i32) {
-                         let metrics = ContentMetrics::new(surface, &layout);
-                         if let Some(hit_id) = self.widget_manager.hit_test_widgets(
+            if let Some((win_id, win_x, win_y)) = self.find_window_at(self.cursor.x, self.cursor.y)
+            {
+                if let Some(surface) = self.windows.get(&win_id) {
+                    let w = surface.window.width as i32;
+                    let h = surface.window.height as i32;
+                    if let Some(layout) = compute_window_layout(
+                        win_x,
+                        win_y,
+                        w,
+                        h,
+                        self.layout.title_bar_height as i32,
+                    ) {
+                        let metrics = ContentMetrics::new(surface, &layout);
+                        if let Some(hit_id) = self.widget_manager.hit_test_widgets(
                             win_id,
                             &layout,
                             &metrics,
                             self.cursor.x,
-                            self.cursor.y
-                         ) {
-                             if hit_id == widget_id {
-                                 // Valid Click!
-                                 if let Some(widget) = self.widget_manager.widgets.get(&widget_id).cloned() {
-                                     if let Some(action) = widget.action {
-                                         self.dispatch_action(&action, Some(win_id));
-                                     }
-                                 }
-                             }
-                         }
-                     }
-                 }
+                            self.cursor.y,
+                        ) {
+                            if hit_id == widget_id {
+                                // Valid Click!
+                                if let Some(widget) =
+                                    self.widget_manager.widgets.get(&widget_id).cloned()
+                                {
+                                    if let Some(action) = widget.action {
+                                        self.dispatch_action(&action, Some(win_id));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             self.widget_manager.active_widget = None;
@@ -1606,11 +1648,15 @@ where
                 };
                 (surface.window.width as i32, surface.window.height as i32)
             };
-            let Some(layout) = compute_window_layout(win_x, win_y, win_width, win_height, self.layout.title_bar_height as i32) else {
+            let Some(layout) = compute_window_layout(
+                win_x,
+                win_y,
+                win_width,
+                win_height,
+                self.layout.title_bar_height as i32,
+            ) else {
                 return;
             };
-
-
 
             let metrics = {
                 let Some(surface) = self.windows.get(&win_id) else {
@@ -2102,19 +2148,25 @@ where
     }
 
     fn ensure_window_chrome(&mut self, window_id: Uuid, title: &str) -> (Uuid, Uuid) {
-        let title_bar_id = userland::simple_uuid(alloc::format!("TitleBar:{}", window_id).as_bytes());
-        let title_text_id = userland::simple_uuid(alloc::format!("TitleText:{}", window_id).as_bytes());
-        let close_btn_id = userland::simple_uuid(alloc::format!("CloseBtn:{}", window_id).as_bytes());
+        let title_bar_id =
+            userland::simple_uuid(alloc::format!("TitleBar:{}", window_id).as_bytes());
+        let title_text_id =
+            userland::simple_uuid(alloc::format!("TitleText:{}", window_id).as_bytes());
+        let close_btn_id =
+            userland::simple_uuid(alloc::format!("CloseBtn:{}", window_id).as_bytes());
 
         // 1. Title Bar Container
         let mut fields = userland::map();
         fields.insert(canon::KIND, Value::Symbol(canon::WIDGET));
         // Use container.vertical but force row direction to fake a horizontal container
-        fields.insert(canon::ROLE, Value::Text("container.vertical".into())); 
+        fields.insert(canon::ROLE, Value::Text("container.vertical".into()));
         fields.insert(canon::cc('F', 'D'), Value::Text("row".into())); // FlexDirection::Row
         fields.insert(canon::cc('A', 'I'), Value::Text("center".into())); // AlignItems::Center
         fields.insert(canon::PARENT, Value::Uuid(window_id));
-        fields.insert(canon::HEIGHT, Value::U64(self.layout.title_bar_height as u64));
+        fields.insert(
+            canon::HEIGHT,
+            Value::U64(self.layout.title_bar_height as u64),
+        );
         fields.insert(canon::WIDTH, Value::Text("100%".into()));
         fields.insert(canon::GAP, Value::I64(4));
         userland::fiat(Some(title_bar_id), canon::WIDGET, fields);
@@ -2125,7 +2177,7 @@ where
         fields.insert(canon::ROLE, Value::Text("label".into()));
         fields.insert(canon::PARENT, Value::Uuid(title_bar_id));
         fields.insert(canon::LABEL, Value::Text(title.into()));
-        fields.insert(canon::cc('F', 'G'), Value::I64(1)); 
+        fields.insert(canon::cc('F', 'G'), Value::I64(1));
         userland::fiat(Some(title_text_id), canon::WIDGET, fields);
 
         // 3. Close Button
@@ -2168,6 +2220,7 @@ where
                 hovered: false,
                 focused: false,
                 icon_name: Some("close".to_string()),
+                icon: widget_button::load_icon("close"),
                 show_label: false,
                 bind_node: None,
                 bind_index: None,
@@ -2579,7 +2632,13 @@ where
             color: Rgba::new(0x08, 0, 0, 0),
         });
 
-        let Some(layout) = compute_window_layout(x as i32, y as i32, w as i32, h as i32, self.layout.title_bar_height as i32) else {
+        let Some(layout) = compute_window_layout(
+            x as i32,
+            y as i32,
+            w as i32,
+            h as i32,
+            self.layout.title_bar_height as i32,
+        ) else {
             return;
         };
         let x0 = x as i32;
@@ -2730,9 +2789,9 @@ where
                     });
                 } else if !surface.text.is_empty() {
                     let text_color = surface.text_color.map(Rgba::from_u32).unwrap_or(COLOR_TEXT);
-                    
+
                     if let Some(bg_color) = surface.bg_color {
-                         scene.push(SceneItem::FillRect {
+                        scene.push(SceneItem::FillRect {
                             rect: content_rect,
                             color: Rgba::from_u32(bg_color),
                         });

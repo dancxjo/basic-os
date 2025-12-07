@@ -10,13 +10,12 @@ use userland::graph::{set_props, GraphPropsRequest};
 use userland::widget_abi::*;
 use userland::{canon, Symbol, Value};
 
-
 // Simple IconPath struct to hold SVG path data
 #[derive(Clone, Debug)]
-struct IconPath {
-    data: alloc::string::String,
-    width: u32,
-    height: u32,
+pub struct IconPath {
+    pub data: alloc::string::String,
+    pub width: u32,
+    pub height: u32,
 }
 
 const ICON_PADDING: i32 = 4;
@@ -36,6 +35,7 @@ pub struct State {
     pub hovered: bool,
     pub focused: bool,
     pub icon_name: Option<String>,
+    pub icon: Option<IconPath>,
     pub show_label: bool,
     pub bind_node: Option<userland::uuid::Uuid>,
     pub bind_index: Option<i64>,
@@ -95,6 +95,15 @@ impl WidgetAbi for ButtonWidget {
             Some(icon_name)
         };
 
+        let icon = icon_name.as_ref().and_then(|name| {
+            userland::println!("ButtonWidget: Loading icon '{}'", name);
+            load_icon(name)
+        });
+
+        if icon.is_none() && icon_name.is_some() {
+            userland::println!("ButtonWidget: Icon load failed for {:?}", icon_name);
+        }
+
         State {
             label,
             target,
@@ -102,6 +111,7 @@ impl WidgetAbi for ButtonWidget {
             hovered: false,
             focused: false,
             icon_name,
+            icon,
             show_label,
             bind_node,
             bind_index,
@@ -183,12 +193,9 @@ impl WidgetAbi for ButtonWidget {
 
         // Draw icon
         let content_offset = if state.pressed { 1 } else { 0 };
-        let icon = state.icon_name.as_ref().and_then(|name| {
-            userland::println!("ButtonWidget: Loading icon '{}'", name);
-            load_icon(name)
-        });
-        
-        if let Some(icon) = &icon {
+        let icon = &state.icon;
+
+        if let Some(icon) = icon {
             userland::println!("ButtonWidget: Drawing icon, data len={}", icon.data.len());
             let x = if state.show_label {
                 ICON_PADDING
@@ -204,8 +211,6 @@ impl WidgetAbi for ButtonWidget {
                 icon,
                 text_color,
             );
-        } else if state.icon_name.is_some() {
-            userland::println!("ButtonWidget: Icon load failed for {:?}", state.icon_name);
         }
 
         // Draw label if enabled
@@ -213,12 +218,11 @@ impl WidgetAbi for ButtonWidget {
             // Calculate text width for centering
             let text_width = measure_text_width(&state.label);
 
-            let mut x = if let Some(icon) = &icon {
+            let mut x = if let Some(icon) = icon {
                 ICON_PADDING + icon.width as i32 + ICON_PADDING
             } else {
                 (rect.width as i32 - text_width) / 2
             };
-
             let y = (rect.height as i32 - TEXT_HEIGHT) / 2;
             for c in state.label.chars() {
                 draw_char(
@@ -301,7 +305,7 @@ impl ButtonWidget {
             0
         };
 
-        let icon = state.icon_name.as_ref().and_then(|name| load_icon(name));
+        let icon = &state.icon;
 
         let icon_width = icon.as_ref().map(|i| i.width as i32).unwrap_or(0);
         let icon_height = icon.as_ref().map(|i| i.height as i32).unwrap_or(0);
@@ -366,8 +370,14 @@ fn measure_text_width(text: &str) -> i32 {
         .sum()
 }
 
-
-fn draw_svg(fb: &mut [u8], rect: Rect, start_x: i32, start_y: i32, icon: &IconPath, color_val: u32) {
+fn draw_svg(
+    fb: &mut [u8],
+    rect: Rect,
+    start_x: i32,
+    start_y: i32,
+    icon: &IconPath,
+    color_val: u32,
+) {
     let path_str = &icon.data;
 
     let cst = match svg_path_cst::svg_path_cst(path_str.as_bytes()) {
@@ -386,78 +396,126 @@ fn draw_svg(fb: &mut [u8], rect: Rect, start_x: i32, start_y: i32, icon: &IconPa
                 let args = segment.args;
                 match segment.command {
                     svg_path_cst::SVGPathCommand::MovetoUpper => {
-                         if args.len() >= 2 {
-                             pen_x = args[0] as f32;
-                             pen_y = args[1] as f32;
-                             start_subpath_x = pen_x;
-                             start_subpath_y = pen_y;
-                         }
+                        if args.len() >= 2 {
+                            pen_x = args[0] as f32;
+                            pen_y = args[1] as f32;
+                            start_subpath_x = pen_x;
+                            start_subpath_y = pen_y;
+                        }
                     }
                     svg_path_cst::SVGPathCommand::MovetoLower => {
-                         if args.len() >= 2 {
-                             pen_x += args[0] as f32;
-                             pen_y += args[1] as f32;
-                             start_subpath_x = pen_x;
-                             start_subpath_y = pen_y;
-                         }
+                        if args.len() >= 2 {
+                            pen_x += args[0] as f32;
+                            pen_y += args[1] as f32;
+                            start_subpath_x = pen_x;
+                            start_subpath_y = pen_y;
+                        }
                     }
                     svg_path_cst::SVGPathCommand::LinetoUpper => {
                         let mut i = 0;
                         while i + 1 < args.len() {
                             let nx = args[i] as f32;
-                            let ny = args[i+1] as f32;
-                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + ny) as i32, color_val);
+                            let ny = args[i + 1] as f32;
+                            draw_line_segment(
+                                fb,
+                                rect,
+                                (start_x as f32 + pen_x) as i32,
+                                (start_y as f32 + pen_y) as i32,
+                                (start_x as f32 + nx) as i32,
+                                (start_y as f32 + ny) as i32,
+                                color_val,
+                            );
                             pen_x = nx;
                             pen_y = ny;
                             i += 2;
                         }
                     }
-                     svg_path_cst::SVGPathCommand::LinetoLower => {
+                    svg_path_cst::SVGPathCommand::LinetoLower => {
                         let mut i = 0;
                         while i + 1 < args.len() {
                             let nx = pen_x + args[i] as f32;
-                            let ny = pen_y + args[i+1] as f32;
-                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + ny) as i32, color_val);
+                            let ny = pen_y + args[i + 1] as f32;
+                            draw_line_segment(
+                                fb,
+                                rect,
+                                (start_x as f32 + pen_x) as i32,
+                                (start_y as f32 + pen_y) as i32,
+                                (start_x as f32 + nx) as i32,
+                                (start_y as f32 + ny) as i32,
+                                color_val,
+                            );
                             pen_x = nx;
                             pen_y = ny;
                             i += 2;
                         }
                     }
                     svg_path_cst::SVGPathCommand::HorizontalUpper => {
-                         for i in 0..args.len() {
+                        for i in 0..args.len() {
                             let nx = args[i] as f32;
-                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + pen_y) as i32, color_val);
+                            draw_line_segment(
+                                fb,
+                                rect,
+                                (start_x as f32 + pen_x) as i32,
+                                (start_y as f32 + pen_y) as i32,
+                                (start_x as f32 + nx) as i32,
+                                (start_y as f32 + pen_y) as i32,
+                                color_val,
+                            );
                             pen_x = nx;
                         }
                     }
-                     svg_path_cst::SVGPathCommand::VerticalUpper => {
-                         for i in 0..args.len() {
+                    svg_path_cst::SVGPathCommand::VerticalUpper => {
+                        for i in 0..args.len() {
                             let ny = args[i] as f32;
-                            draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + pen_x) as i32, (start_y as f32 + ny) as i32, color_val);
+                            draw_line_segment(
+                                fb,
+                                rect,
+                                (start_x as f32 + pen_x) as i32,
+                                (start_y as f32 + pen_y) as i32,
+                                (start_x as f32 + pen_x) as i32,
+                                (start_y as f32 + ny) as i32,
+                                color_val,
+                            );
                             pen_y = ny;
                         }
                     }
-                    svg_path_cst::SVGPathCommand::ClosepathUpper | svg_path_cst::SVGPathCommand::ClosepathLower => {
-                         draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + start_subpath_x) as i32, (start_y as f32 + start_subpath_y) as i32, color_val);
-                         pen_x = start_subpath_x;
-                         pen_y = start_subpath_y;
+                    svg_path_cst::SVGPathCommand::ClosepathUpper
+                    | svg_path_cst::SVGPathCommand::ClosepathLower => {
+                        draw_line_segment(
+                            fb,
+                            rect,
+                            (start_x as f32 + pen_x) as i32,
+                            (start_y as f32 + pen_y) as i32,
+                            (start_x as f32 + start_subpath_x) as i32,
+                            (start_y as f32 + start_subpath_y) as i32,
+                            color_val,
+                        );
+                        pen_x = start_subpath_x;
+                        pen_y = start_subpath_y;
                     }
-                     svg_path_cst::SVGPathCommand::ArcUpper => {
-                         let mut i = 0;
-                         while i + 6 < args.len() {
-                             let nx = args[i+5] as f32;
-                             let ny = args[i+6] as f32;
-                             draw_line_segment(fb, rect, (start_x as f32 + pen_x) as i32, (start_y as f32 + pen_y) as i32, (start_x as f32 + nx) as i32, (start_y as f32 + ny) as i32, color_val);
-                             pen_x = nx;
-                             pen_y = ny;
-                             i += 7;
-                         }
-
+                    svg_path_cst::SVGPathCommand::ArcUpper => {
+                        let mut i = 0;
+                        while i + 6 < args.len() {
+                            let nx = args[i + 5] as f32;
+                            let ny = args[i + 6] as f32;
+                            draw_line_segment(
+                                fb,
+                                rect,
+                                (start_x as f32 + pen_x) as i32,
+                                (start_y as f32 + pen_y) as i32,
+                                (start_x as f32 + nx) as i32,
+                                (start_y as f32 + ny) as i32,
+                                color_val,
+                            );
+                            pen_x = nx;
+                            pen_y = ny;
+                            i += 7;
+                        }
                     }
-                    _ => { } 
+                    _ => {}
                 }
             }
-            _ => { }
+            _ => {}
         }
     }
 }
@@ -469,13 +527,15 @@ fn draw_line_segment(fb: &mut [u8], rect: Rect, x0: i32, y0: i32, x1: i32, y1: i
     let dy = -(y1 - y0).abs();
     let sy = if y0 < y1 { 1 } else { -1 };
     let mut err = dx + dy;
-    
+
     let mut x = x0;
     let mut y = y0;
 
     loop {
         draw_pixel(fb, rect, x, y, color);
-        if x == x1 && y == y1 { break; }
+        if x == x1 && y == y1 {
+            break;
+        }
         let e2 = 2 * err;
         if e2 >= dy {
             err += dy;
@@ -488,8 +548,7 @@ fn draw_line_segment(fb: &mut [u8], rect: Rect, x0: i32, y0: i32, x1: i32, y1: i
     }
 }
 
-
-fn load_icon(name: &str) -> Option<IconPath> {
+pub fn load_icon(name: &str) -> Option<IconPath> {
     // Try to load from graph first
     let things = userland::graph::find_by_kind("FIL");
     for thing in things {
@@ -537,7 +596,6 @@ fn extract_svg_path(svg: &str) -> Option<alloc::string::String> {
     }
     None
 }
-
 
 include!("helpers.rs");
 
