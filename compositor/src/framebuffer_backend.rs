@@ -1,3 +1,4 @@
+use crate::fonts::font_manager;
 use crate::{
     clamp_i32, Bitmap, FrameInfo, FramebufferDevice, FramebufferGeometry, Rect, RendererBackend,
     Rgba, Scene, SceneItem, CLEAR_COLOR, FONT_HEIGHT, SCROLLBAR_THUMB_COLOR,
@@ -6,7 +7,6 @@ use crate::{
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::{max, min};
-use crate::fonts::font_manager;
 
 pub struct BitmapRenderer {
     width: usize,
@@ -107,7 +107,15 @@ impl BitmapRenderer {
                     is_mono,
                 } => {
                     let clip = clip_stack.last().copied().flatten();
-                    raster_draw_text_block(self, rect, text, *color, *scroll_offset, clip, *is_mono);
+                    raster_draw_text_block(
+                        self,
+                        rect,
+                        text,
+                        *color,
+                        *scroll_offset,
+                        clip,
+                        *is_mono,
+                    );
                 }
                 SceneItem::DrawCursor {
                     origin,
@@ -410,7 +418,11 @@ fn raster_draw_text(
     }
     let fm = font_manager();
     let size = FONT_HEIGHT as f32;
-    let metrics = if is_mono { fm.mono_line_metrics(size) } else { fm.line_metrics(size) };
+    let metrics = if is_mono {
+        fm.mono_line_metrics(size)
+    } else {
+        fm.line_metrics(size)
+    };
     let ascent = metrics.ascent;
     let new_line_size = metrics.new_line_size;
 
@@ -428,11 +440,15 @@ fn raster_draw_text(
             baseline_y += new_line_size;
             continue;
         }
-        let (metrics, bitmap) = if is_mono { fm.rasterize_mono(ch, size) } else { fm.rasterize(ch, size) };
+        let (metrics, bitmap) = if is_mono {
+            fm.rasterize_mono(ch, size)
+        } else {
+            fm.rasterize(ch, size)
+        };
         let gw = metrics.advance_width;
-        
+
         if is_mono && bitmap.is_empty() && ch != ' ' {
-             // println!("raster_draw_text mono: empty bitmap for '{}'", ch);
+            // println!("raster_draw_text mono: empty bitmap for '{}'", ch);
         }
 
         if let Some(limit) = limit_x {
@@ -440,11 +456,20 @@ fn raster_draw_text(
                 break;
             }
         }
-        
+
         let draw_x = (cursor_x + metrics.xmin as f32) as i32;
         let draw_y = (baseline_y - (metrics.ymin as f32 + metrics.height as f32)) as i32;
-        
-        raster_draw_glyph(backend, draw_x, draw_y, &bitmap, metrics.width as i32, metrics.height as i32, color.to_u32(), clip);
+
+        raster_draw_glyph(
+            backend,
+            draw_x,
+            draw_y,
+            &bitmap,
+            metrics.width as i32,
+            metrics.height as i32,
+            color.to_u32(),
+            clip,
+        );
         cursor_x += gw;
     }
 }
@@ -478,15 +503,24 @@ fn raster_draw_text_block(
 
     let fm = font_manager();
     let size = FONT_HEIGHT as f32;
-    let line_metrics = if is_mono { fm.mono_line_metrics(size) } else { fm.line_metrics(size) };
+    let line_metrics = if is_mono {
+        fm.mono_line_metrics(size)
+    } else {
+        fm.line_metrics(size)
+    };
     let ascent = line_metrics.ascent;
     let new_line_size = line_metrics.new_line_size;
 
     let mut cursor_x: f32 = 0.0;
-    let mut current_y: f32 = 0.0; 
+    let mut current_y: f32 = 0.0;
 
     if is_mono {
-        // println!("raster_draw_text_block mono: text len={} rect={:?}", text.len(), rect);
+        userland::println!(
+            "raster_draw_text_block mono: text len={} rect={:?} color={:x}",
+            text.len(),
+            rect,
+            color.to_u32()
+        );
     }
 
     for ch in text.chars() {
@@ -498,7 +532,22 @@ fn raster_draw_text_block(
             }
             continue;
         }
-        let (metrics, bitmap) = if is_mono { fm.rasterize_mono(ch, size) } else { fm.rasterize(ch, size) };
+        let (metrics, bitmap) = if is_mono {
+            fm.rasterize_mono(ch, size)
+        } else {
+            fm.rasterize(ch, size)
+        };
+
+        if is_mono && text.len() < 100 {
+            userland::println!(
+                "  ch='{}' w={} h={} bmp_len={}",
+                ch,
+                metrics.width,
+                metrics.height,
+                bitmap.len()
+            );
+        }
+
         let gw = metrics.advance_width;
 
         if cursor_x + gw > content_width as f32 {
@@ -508,15 +557,15 @@ fn raster_draw_text_block(
 
         let baseline_y = rect.y as f32 + current_y + ascent - scroll_offset as f32;
         let draw_y = (baseline_y - (metrics.ymin as f32 + metrics.height as f32)) as i32;
-        
+
         if draw_y >= view_bottom {
             break;
         }
-        
+
         // Only draw if visible
         if draw_y + metrics.height as i32 > view_top && draw_y < view_bottom {
-             let draw_x = rect.x + (cursor_x + metrics.xmin as f32) as i32;
-             raster_draw_glyph(
+            let draw_x = rect.x + (cursor_x + metrics.xmin as f32) as i32;
+            raster_draw_glyph(
                 backend,
                 draw_x,
                 draw_y,
@@ -571,12 +620,12 @@ fn raster_draw_glyph(
                     continue;
                 }
             }
-            
+
             let alpha = bitmap[(row * width + col) as usize];
             if alpha == 0 {
                 continue;
             }
-            
+
             let idx = dst_y as usize * backend.width + dst_x as usize;
             if alpha == 255 {
                 backend.storage[idx] = color;
@@ -591,13 +640,15 @@ fn raster_draw_glyph(
                 // We are blending (color with coverage) over bg.
                 let fg_a = ((color >> 24) & 0xFF) as u32;
                 let final_a = (fg_a * alpha as u32) / 255;
-                if final_a == 0 { continue; }
-                
+                if final_a == 0 {
+                    continue;
+                }
+
                 // Construct source pixel with modified alpha?
-                // userland::graphics::blend expects src and dst. 
+                // userland::graphics::blend expects src and dst.
                 // We should modify 'color' to have 'final_a'.
                 let src = (color & 0x00FFFFFF) | (final_a << 24);
-                
+
                 backend.storage[idx] = userland::graphics::blend(src, bg);
             }
         }

@@ -60,6 +60,7 @@ std = ["userland/std"]
 host = [
   "tiny_http",
   "std",
+  "userland/std",
   "thing_host",
   "thing_host/neo4j",
   "demo_app/std",

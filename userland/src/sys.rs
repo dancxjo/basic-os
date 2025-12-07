@@ -674,7 +674,8 @@ pub fn log(s: &str) {
     #[cfg(any(not(target_os = "none"), feature = "kernel_hosted"))]
     {
         // On host, print to stderr
-        // eprint!("{}", s);
+        #[cfg(feature = "std")]
+        eprint!("{}", s);
     }
 }
 
