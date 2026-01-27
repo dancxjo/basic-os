@@ -1,0 +1,9 @@
+[package]
+name = "thingos2-kernel"
+version = "0.1.0"
+edition = "2021"
+description = "Kernel orchestration layer for ThingOS v2"
+license = "MIT"
+
+[dependencies]
+thingos2-core = { path = "../core" }

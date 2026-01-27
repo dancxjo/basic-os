@@ -1,0 +1,8 @@
+[package]
+name = "thingos2-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core graph and capability model for ThingOS v2"
+license = "MIT"
+
+[dependencies]
